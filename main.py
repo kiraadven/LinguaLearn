@@ -23,7 +23,7 @@ class EnglishLearningVideoGenerator:
         self.analyzer = WordAnalyzer()
         self.processor = VideoProcessor()
         self.exporter = MarkdownExporter()
-        self.transcriber = AudioTranscriber()
+        self.transcriber = AudioTranscriber(use_local=config.USE_LOCAL_WHISPER)
         
         # 创建必要的目录
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)

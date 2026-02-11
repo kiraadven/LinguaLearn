@@ -72,7 +72,7 @@ class WordAnalyzer:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="deepseek-chat",
                 messages=[
                     {"role": "system", "content": "你是一个专业的英语教学助手，擅长分析英文句子并识别重难点单词。请始终返回有效的JSON格式。"},
                     {"role": "user", "content": prompt}

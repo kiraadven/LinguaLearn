@@ -10,6 +10,9 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1')
 
+# Whisper 配置
+USE_LOCAL_WHISPER = os.getenv('USE_LOCAL_WHISPER', 'true').lower() == 'true'  # 默认使用本地 Whisper
+
 # 视频配置
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080
@@ -48,4 +51,4 @@ OUTPUT_DIR = 'output'
 TEMP_DIR = 'temp'
 
 # 输入视频配置
-INPUT_VIDEO_PATH = 'input_video.mp4'  # 在这里设置你的输入视频路径
+INPUT_VIDEO_PATH = 'input_videos/ABC_news_min.mp4'  # 在这里设置你的输入视频路径

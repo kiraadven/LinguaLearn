@@ -3,17 +3,31 @@
 使用NLTK进行智能句子分割
 """
 import re
+import os
 import nltk
 from typing import List
 
 class SentenceSplitter:
     def __init__(self):
         """初始化句子分割器"""
+
+        # 设置本地 nltk_data 目录
+        self.nltk_data_dir = os.path.join(
+            os.path.dirname(__file__),
+            "nltk_data"
+        )
+        os.makedirs(self.nltk_data_dir, exist_ok=True)
+
+        # 添加到 nltk 搜索路径
+        if self.nltk_data_dir not in nltk.data.path:
+            nltk.data.path.insert(0, self.nltk_data_dir)
+
+        # 检查 punkt 是否存在
         try:
-            nltk.data.find('tokenizers/punkt')
+            nltk.data.find("tokenizers/punkt")
         except LookupError:
-            print("正在下载NLTK punkt tokenizer...")
-            nltk.download('punkt')
+            print("正在下载 NLTK punkt tokenizer 到本地目录...")
+            nltk.download("punkt", download_dir=self.nltk_data_dir)
     
     def split_text(self, text: str) -> List[str]:
         """

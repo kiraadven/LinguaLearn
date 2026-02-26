@@ -1,16 +1,18 @@
-"""
-视频处理模块
-使用MoviePy处理视频、添加字幕和单词框
-"""
 import os
-from typing import List, Dict, Tuple
+import subprocess
+import tempfile
+import time
+from typing import List, Dict, Optional
 from moviepy.editor import (
-    VideoFileClip, AudioFileClip, CompositeVideoClip, 
-    TextClip, ColorClip, concatenate_videoclips
+    VideoFileClip, AudioFileClip, AudioClip, CompositeVideoClip, 
+    concatenate_videoclips, concatenate_audioclips, ImageClip
 )
-from PIL import Image, ImageDraw, ImageFont
+from moviepy.video.fx.all import speedx
+from PIL import Image
 import numpy as np
+
 import config
+from html_renderer import HTMLRenderer
 
 
 class VideoProcessor:
@@ -19,11 +21,64 @@ class VideoProcessor:
         # 创建输出目录
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
         os.makedirs(config.TEMP_DIR, exist_ok=True)
+        
+        # 初始化 HTML 渲染器
+        self.html_renderer = HTMLRenderer()
+        
+        # 标记是否已保存调试图片
+        self._debug_saved = False
+    
+    def _slow_audio_with_pitch_preservation(self, audio_clip: AudioFileClip, speed_factor: float, slow_duration: float) -> AudioFileClip:
+        """
+        使用 FFmpeg 的 atempo 滤镜减速音频，保持音调不变
+        
+        Args:
+            audio_clip: 原始音频
+            speed_factor: 速度因子 (如 0.75 表示减速)
+            slow_duration: 最终需要的时长
+            
+        Returns:
+            减速并调整后的音频
+        """
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_input:
+            tmp_input_path = tmp_input.name
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_output:
+            tmp_output_path = tmp_output.name
+        
+        try:
+            # 将原始音频写入临时文件
+            audio_clip.write_audiofile(tmp_input_path, verbose=False, logger=None)
+            
+            # 变速 + 调整时长一步完成
+            subprocess.run([
+                'ffmpeg', '-y', '-i', tmp_input_path,
+                '-filter:a', f'atempo={speed_factor}',
+                '-t', str(slow_duration),
+                tmp_output_path
+            ], capture_output=True, check=True)
+            
+            # 加载处理后的音频
+            result = AudioFileClip(tmp_output_path)
+            
+            # 如果音频比目标时长短，用静音填充
+            if result.duration < slow_duration:
+                silence = AudioClip(lambda t: 0, duration=slow_duration - result.duration, fps=result.fps)
+                result = concatenate_audioclips([result, silence])
+            
+            return result
+            
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: FFmpeg failed: {e.stderr.decode() if e.stderr else e}")
+        except Exception as e:
+            print(f"Warning: Audio processing failed: {e}")
+        
+        # 出错时返回静音
+        return AudioClip(lambda t: 0, duration=slow_duration, fps=44100)
     
     def create_subtitle_frame(self, english_text: str, chinese_text: str, 
                              width: int, height: int) -> np.ndarray:
         """
-        创建美观的字幕框图像
+        创建字幕框图像 - 使用 HTML + Chrome 渲染
         
         Args:
             english_text: 英文文本
@@ -34,55 +89,38 @@ class VideoProcessor:
         Returns:
             numpy数组格式的图像
         """
-        # 创建图像
-        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
+        # 创建临时输出路径
+        temp_path = os.path.join(config.TEMP_DIR, f'subtitle_{int(time.time() * 1000000)}.png')
         
-        # 绘制渐变背景
-        for y in range(height):
-            alpha = int(230 * (1 - y / height * 0.3))  # 渐变透明度
-            color = config.SUBTITLE_BG_COLOR + (alpha,)
-            draw.rectangle([(0, y), (width, y + 1)], fill=color)
+        # 使用 HTML 渲染器生成字幕图片
+        success = self.html_renderer.render_subtitle(
+            english_text, chinese_text, width, height, temp_path
+        )
         
-        # 绘制顶部装饰线
-        draw.rectangle([(0, 0), (width, 4)], fill=config.COLOR_PRIMARY + (255,))
+        if not success or not os.path.exists(temp_path):
+            raise RuntimeError(f"HTML 字幕渲染失败！english: {english_text[:30]}...")
         
-        # 加载字体
+        # 读取渲染好的图片并转换为 numpy 数组
+        img = Image.open(temp_path)
+        result = np.array(img)
+        
+        # 保存第一个用于调试
+        if not self._debug_saved:
+            img.save(os.path.join(config.OUTPUT_DIR, 'debug_subtitle.png'))
+            print(f"  ✅ 已保存字幕框图片: {os.path.join(config.OUTPUT_DIR, 'debug_subtitle.png')}")
+        
+        # 清理临时文件
         try:
-            font_en = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 42)
-            font_cn = ImageFont.truetype("/System/Library/Fonts/PingFang.ttc", 38)
+            os.unlink(temp_path)
         except:
-            font_en = ImageFont.load_default()
-            font_cn = ImageFont.load_default()
+            pass
         
-        # 计算文本位置
-        padding = 40
-        en_y = padding + 20
-        cn_y = height // 2 + 10
-        
-        # 绘制英文文本（带阴影效果）
-        # 阴影
-        draw.text((padding + 2, en_y + 2), english_text, 
-                 font=font_en, fill=(0, 0, 0, 180))
-        # 主文本
-        draw.text((padding, en_y), english_text, 
-                 font=font_en, fill=config.COLOR_PRIMARY + (255,))
-        
-        # 绘制中文文本（带阴影效果）
-        # 阴影
-        draw.text((padding + 2, cn_y + 2), chinese_text, 
-                 font=font_cn, fill=(0, 0, 0, 180))
-        # 主文本
-        draw.text((padding, cn_y), chinese_text, 
-                 font=font_cn, fill=config.COLOR_SECONDARY + (255,))
-        
-        # 转换为numpy数组
-        return np.array(img)
+        return result
     
     def create_word_box_frame(self, words: List[Dict], 
                              width: int, height: int) -> np.ndarray:
         """
-        创建美观的单词框图像
+        创建单词框图像 - 使用 HTML + Chrome 渲染
         
         Args:
             words: 单词信息列表
@@ -92,152 +130,157 @@ class VideoProcessor:
         Returns:
             numpy数组格式的图像
         """
-        # 创建图像
-        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
+        # 创建临时输出路径
+        temp_path = os.path.join(config.TEMP_DIR, f'wordbox_{int(time.time() * 1000000)}.png')
         
-        # 绘制背景
-        bg_color = config.WORD_BOX_BG_COLOR + (230,)
-        draw.rounded_rectangle([(10, 10), (width - 10, height - 10)], 
-                              radius=20, fill=bg_color)
+        # 使用 HTML 渲染器生成单词框图片
+        success = self.html_renderer.render_wordbox(
+            words, width, height, temp_path
+        )
         
-        # 绘制标题栏
-        draw.rounded_rectangle([(10, 10), (width - 10, 70)], 
-                              radius=20, fill=config.COLOR_ACCENT + (255,))
+        if not success or not os.path.exists(temp_path):
+            raise RuntimeError(f"HTML 单词框渲染失败！words: {[w.get('word', '') for w in words[:2]]}")
         
-        # 加载字体
+        # 读取渲染好的图片并转换为 numpy 数组
+        img = Image.open(temp_path)
+        result = np.array(img)
+        
+        # 保存第一个用于调试
+        if not self._debug_saved:
+            img.save(os.path.join(config.OUTPUT_DIR, 'debug_wordbox.png'))
+            print(f"  ✅ 已保存单词框图片: {os.path.join(config.OUTPUT_DIR, 'debug_wordbox.png')}")
+            self._debug_saved = True
+        
+        # 清理临时文件
         try:
-            font_title = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 32)
-            font_word = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 28)
-            font_phonetic = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 22)
-            font_trans = ImageFont.truetype("/System/Library/Fonts/PingFang.ttc", 24)
+            os.unlink(temp_path)
         except:
-            font_title = ImageFont.load_default()
-            font_word = ImageFont.load_default()
-            font_phonetic = ImageFont.load_default()
-            font_trans = ImageFont.load_default()
+            pass
         
-        # 绘制标题
-        title = "📚 Key Words"
-        draw.text((width // 2 - 80, 25), title, 
-                 font=font_title, fill=(255, 255, 255, 255))
-        
-        # 绘制单词列表
-        y_offset = 90
-        padding = 25
-        line_height = 85
-        
-        for i, word_info in enumerate(words[:6]):  # 最多显示6个单词
-            word = word_info.get('word', '')
-            phonetic = word_info.get('phonetic', '')
-            translation = word_info.get('translation', '')
-            
-            # 单词序号背景
-            circle_x = padding + 15
-            circle_y = y_offset + 15
-            draw.ellipse([(circle_x - 15, circle_y - 15), 
-                         (circle_x + 15, circle_y + 15)],
-                        fill=config.COLOR_PRIMARY + (255,))
-            
-            # 序号
-            draw.text((circle_x - 8, circle_y - 12), str(i + 1), 
-                     font=font_phonetic, fill=(0, 0, 0, 255))
-            
-            # 单词
-            draw.text((padding + 45, y_offset), word, 
-                     font=font_word, fill=config.COLOR_PRIMARY + (255,))
-            
-            # 音标
-            draw.text((padding + 45, y_offset + 32), phonetic, 
-                     font=font_phonetic, fill=config.COLOR_SECONDARY + (255,))
-            
-            # 中文释义
-            draw.text((padding + 45, y_offset + 58), translation, 
-                     font=font_trans, fill=config.COLOR_TEXT + (255,))
-            
-            y_offset += line_height
-            
-            # 如果空间不够，停止绘制
-            if y_offset + line_height > height - 20:
-                break
-        
-        return np.array(img)
+        return result
     
     def process_sentence_video(self, video_clip: VideoFileClip, 
                                sentence_data: Dict,
                                start_time: float,
-                               end_time: float) -> VideoFileClip:
+                               end_time: float,
+                               next_sentence_start: Optional[float] = None) -> VideoFileClip:
         """
         处理单个句子的视频片段
         
+        处理流程：
+        1. 原速1.0x无字幕播放（从句子开始到下一句开始或句子结束）
+        2. 0.75x速有字幕有单词框（从句子开始到句子结束）
+        3. 1.0x速有字幕有单词框（从句子开始到下一句开始或句子结束）
+        
         Args:
-            video_clip: 原始视频片段
+            video_clip: 原始视频
             sentence_data: 句子数据（包含翻译和单词）
-            start_time: 开始时间
-            end_time: 结束时间
+            start_time: 句子开始时间
+            end_time: 句子结束时间
+            next_sentence_start: 下一句的开始时间
             
         Returns:
             处理后的视频片段
         """
-        # 提取该句子的视频片段
+        # 时间处理
+        end_time += 0.1
+        gap_end_time = next_sentence_start + 0.1 if next_sentence_start is not None else end_time
+        gap_duration = gap_end_time - start_time
+        
+        # ===== 第1部分：原速无字幕播放 =====
+        part1_segment = video_clip.subclip(start_time, gap_end_time)
+        part1 = part1_segment.copy()
+        
+        # ===== 第2部分：0.75倍速有字幕有单词框 =====
         segment = video_clip.subclip(start_time, end_time)
-        duration = end_time - start_time
         
-        # 第一部分：原速无字幕播放
-        part1 = segment.copy()
+        # 减速视频（去掉原音频）
+        slow_video = segment.without_audio().fx(speedx, config.SPEED_SLOW)
+        slow_duration = round(slow_video.duration, 2)
+        slow_video = slow_video.subclip(0, slow_duration)
         
-        # 第二部分：0.75倍速带字幕播放（播放2次）
-        slow_segment = segment.fx(lambda clip: clip.speedx(config.SPEED_SLOW))
-        slow_duration = duration / config.SPEED_SLOW
+        # 获取原始视频尺寸
+        orig_width, orig_height = slow_video.size
+        
+        # 使用 FFmpeg atempo 减速音频（保持音调不变）
+        original_audio = segment.audio
+        slowed_audio = self._slow_audio_with_pitch_preservation(original_audio, config.SPEED_SLOW, slow_duration)
+        
+        # 字幕框和单词框尺寸
+        # 字幕框：占据下1/3，底部留边距
+        subtitle_box_height = int(orig_height * 0.33)  # 下1/3
+        subtitle_margin = int(orig_height * 0.005)  # 底部边距 1%
+        subtitle_box_width = int(orig_width * 0.95)  # 宽度为视频的95%
+        
+        # 单词框：右上角，不与字幕框重叠
+        word_box_width = int(orig_width * 0.25)  # 宽度25%
+        word_box_height = int(orig_height * 0.64)  # 高度64%（足够放下6个单词）
+        word_box_margin = int(orig_width * 0.005)  # 右边和顶部边距 0.5%
         
         # 创建字幕框
         subtitle_img = self.create_subtitle_frame(
             sentence_data['original_text'],
             sentence_data['chinese_translation'],
-            config.VIDEO_WIDTH,
-            config.SUBTITLE_HEIGHT
+            subtitle_box_width,
+            subtitle_box_height
         )
         
-        subtitle_clip = (ImageClip(subtitle_img)
-                        .set_duration(slow_duration)
-                        .set_position(('center', config.VIDEO_HEIGHT - config.SUBTITLE_HEIGHT)))
+        # 转换为 ImageClip - 字幕框在底部居中
+        # 使用 RGBA 模式保持透明度
+        subtitle_arr = np.array(subtitle_img)
+        if subtitle_arr.shape[2] == 4:  # 如果有 alpha 通道
+            subtitle_clip = (ImageClip(subtitle_arr, duration=slow_duration)
+                            .set_position(('center', orig_height - subtitle_box_height - subtitle_margin)))
+        else:
+            # 没有 alpha 通道则用 RGB
+            subtitle_clip = (ImageClip(subtitle_arr[:, :, :3], duration=slow_duration)
+                            .set_position(('center', orig_height - subtitle_box_height - subtitle_margin)))
         
         # 创建单词框
         if sentence_data.get('key_words'):
             word_box_img = self.create_word_box_frame(
                 sentence_data['key_words'],
-                config.WORD_BOX_WIDTH,
-                config.VIDEO_HEIGHT
+                word_box_width,
+                word_box_height
             )
             
-            word_box_clip = (ImageClip(word_box_img)
-                           .set_duration(slow_duration)
-                           .set_position((config.VIDEO_WIDTH - config.WORD_BOX_WIDTH, 0)))
+            # 使用 RGBA 模式保持透明度
+            word_box_x = orig_width - word_box_width - word_box_margin
+            word_box_y = word_box_margin
+            word_box_arr = np.array(word_box_img)
+            if word_box_arr.shape[2] == 4:  # 如果有 alpha 通道
+                word_box_clip = (ImageClip(word_box_arr, duration=slow_duration)
+                               .set_position((word_box_x, word_box_y)))
+            else:
+                word_box_clip = (ImageClip(word_box_arr[:, :, :3], duration=slow_duration)
+                               .set_position((word_box_x, word_box_y)))
             
-            part2_single = CompositeVideoClip([slow_segment, subtitle_clip, word_box_clip])
+            part2 = CompositeVideoClip([slow_video, subtitle_clip, word_box_clip])
         else:
-            part2_single = CompositeVideoClip([slow_segment, subtitle_clip])
+            part2 = CompositeVideoClip([slow_video, subtitle_clip])
         
-        # 重复两次
-        part2 = concatenate_videoclips([part2_single, part2_single])
+        # 添加减速后的音频
+        if slowed_audio:
+            part2 = part2.set_audio(slowed_audio)
         
-        # 第三部分：正常速度带字幕播放
-        normal_subtitle_clip = subtitle_clip.set_duration(duration)
+        # ===== 第3部分：正常速度有字幕有单词框 =====
+        normal_subtitle_clip = subtitle_clip.set_duration(gap_duration)
         
         if sentence_data.get('key_words'):
-            normal_word_box_clip = word_box_clip.set_duration(duration)
-            part3 = CompositeVideoClip([segment, normal_subtitle_clip, normal_word_box_clip])
+            normal_word_box_clip = word_box_clip.set_duration(gap_duration)
+            part3 = CompositeVideoClip([part1_segment, normal_subtitle_clip, normal_word_box_clip])
         else:
-            part3 = CompositeVideoClip([segment, normal_subtitle_clip])
+            part3 = CompositeVideoClip([part1_segment, normal_subtitle_clip])
         
-        # 合并三个部分
-        final_clip = concatenate_videoclips([part1, part2, part3])
+        # 合并三个部分，part2 播放两遍
+        final_clip = concatenate_videoclips([part1, part2, part2, part3])
         
         return final_clip
     
     def process_full_video(self, video_path: str, 
                           sentences_data: List[Dict],
-                          output_path: str) -> str:
+                          output_path: str,
+                          segments_info: Optional[List[Dict]] = None) -> str:
         """
         处理完整视频
         
@@ -245,6 +288,7 @@ class VideoProcessor:
             video_path: 输入视频路径
             sentences_data: 所有句子的数据
             output_path: 输出视频路径
+            segments_info: 片段时间信息列表
             
         Returns:
             输出视频路径
@@ -252,28 +296,45 @@ class VideoProcessor:
         print("正在加载视频...")
         video = VideoFileClip(video_path)
         
-        # 计算每个句子的时间段
-        total_duration = video.duration
-        total_chars = sum(len(s['original_text']) for s in sentences_data)
-        
-        processed_clips = []
-        current_time = 0
-        
-        for i, sentence_data in enumerate(sentences_data, 1):
-            print(f"正在处理句子 {i}/{len(sentences_data)}...")
+        if segments_info is not None and len(segments_info) == len(sentences_data):
+            print("使用提供的时间戳信息分割视频...")
+            processed_clips = []
             
-            # 根据字符数比例分配时间
-            char_ratio = len(sentence_data['original_text']) / total_chars
-            segment_duration = total_duration * char_ratio
-            end_time = min(current_time + segment_duration, total_duration)
+            for i, (sentence_data, seg_info) in enumerate(zip(sentences_data, segments_info), 1):
+                print(f"正在处理句子 {i}/{len(sentences_data)}...")
+                
+                start_time = seg_info.get('start', 0)
+                end_time = seg_info.get('end', video.duration)
+                
+                next_sentence_start = None
+                if i < len(segments_info):
+                    next_sentence_start = segments_info[i].get('start', None)
+                
+                processed_clip = self.process_sentence_video(
+                    video, sentence_data, start_time, end_time, next_sentence_start
+                )
+                processed_clips.append(processed_clip)
+        else:
+            print("未提供时间信息，根据视频时长平均分配...")
+            total_duration = video.duration
             
-            # 处理该句子
-            processed_clip = self.process_sentence_video(
-                video, sentence_data, current_time, end_time
-            )
-            processed_clips.append(processed_clip)
+            processed_clips = []
+            current_time = 0
             
-            current_time = end_time
+            for i, sentence_data in enumerate(sentences_data, 1):
+                print(f"正在处理句子 {i}/{len(sentences_data)}...")
+                
+                total_chars = sum(len(s['original_text']) for s in sentences_data)
+                char_ratio = len(sentence_data['original_text']) / total_chars
+                segment_duration = total_duration * char_ratio
+                end_time = min(current_time + segment_duration, total_duration)
+                
+                processed_clip = self.process_sentence_video(
+                    video, sentence_data, current_time, end_time
+                )
+                processed_clips.append(processed_clip)
+                
+                current_time = end_time
         
         # 合并所有片段
         print("正在合并视频片段...")
@@ -295,30 +356,3 @@ class VideoProcessor:
         
         print("视频处理完成！")
         return output_path
-
-
-if __name__ == "__main__":
-    # 测试代码
-    processor = VideoProcessor()
-    
-    # 测试创建字幕框
-    subtitle_img = processor.create_subtitle_frame(
-        "Climate change is one of the most pressing issues of our time.",
-        "气候变化是我们这个时代最紧迫的问题之一。",
-        1920, 270
-    )
-    
-    # 保存测试图像
-    Image.fromarray(subtitle_img).save('test_subtitle.png')
-    print("字幕框测试图像已保存")
-    
-    # 测试创建单词框
-    test_words = [
-        {"word": "climate", "phonetic": "/ˈklaɪmət/", "translation": "气候", "difficulty": 3},
-        {"word": "pressing", "phonetic": "/ˈpresɪŋ/", "translation": "紧迫的", "difficulty": 4}
-    ]
-    
-    word_box_img = processor.create_word_box_frame(test_words, 360, 1080)
-    Image.fromarray(word_box_img).save('test_wordbox.png')
-    print("单词框测试图像已保存")
-

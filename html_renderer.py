@@ -1,0 +1,305 @@
+import os
+import subprocess
+import tempfile
+import time
+from typing import Dict, List, Optional
+
+
+class HTMLRenderer:
+    """使用 Headless Chrome 渲染 HTML 为 PNG"""
+    
+    def __init__(self, templates_dir: str = None):
+        """
+        初始化渲染器
+        
+        Args:
+            templates_dir: 模板目录路径
+        """
+        if templates_dir is None:
+            # 默认使用当前文件所在目录的 templates 文件夹
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            templates_dir = os.path.join(current_dir, 'templates')
+        
+        self.templates_dir = templates_dir
+        
+        # 检查 Chrome 是否可用
+        self.chrome_path = self._find_chrome()
+        if not self.chrome_path:
+            raise RuntimeError("未找到 Chrome 浏览器，请安装 Google Chrome")
+    
+    def _find_chrome(self) -> Optional[str]:
+        """查找 Chrome 浏览器路径"""
+        possible_paths = [
+            # macOS
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/Applications/Chromium.app/Contents/MacOS/Chromium',
+            # Linux
+            '/usr/bin/google-chrome',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            # Windows
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                return path
+        
+        # 尝试通过 which 命令查找
+        try:
+            result = subprocess.run(['which', 'google-chrome'], capture_output=True, text=True)
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except:
+            pass
+        
+        return None
+    
+    def _read_template(self, template_name: str) -> str:
+        """读取 HTML 模板"""
+        template_path = os.path.join(self.templates_dir, template_name)
+        if not os.path.exists(template_path):
+            raise FileNotFoundError(f"模板文件不存在: {template_path}")
+        with open(template_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    
+    def _render_html_to_png(self, html_content: str, output_path: str, width: int, height: int) -> bool:
+        """
+        使用 Chrome 渲染 HTML 为 PNG
+        
+        Args:
+            html_content: HTML 内容
+            output_path: 输出 PNG 路径
+            width: 宽度
+            height: 高度
+            
+        Returns:
+            是否成功
+        """
+        # 创建临时 HTML 文件
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
+            f.write(html_content)
+            html_path = f.name
+        
+        # 添加额外边距确保内容不被截断
+        extra_margin = 0
+        render_width = width + extra_margin
+        render_height = height + extra_margin
+        
+        try:
+            # Chrome 命令 - 优化参数提高渲染速度
+            cmd = [
+                self.chrome_path,
+                '--headless=new',
+                '--disable-gpu',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-extensions',
+                '--disable-background-networking',
+                '--disable-default-apps',
+                '--disable-sync',
+                '--disable-translate',
+                '--metrics-recording-only',
+                '--mute-audio',
+                '--no-first-run',
+                '--safebrowsing-disable-auto-update',
+                f'--window-size={render_width},{render_height}',
+                '--screenshot=' + output_path,
+                '--hide-scrollbars',
+                '--force-clock-backwards',
+                '--disable-features=TranslateUI',
+                '--virtual-time-budget=10000',
+                html_path
+            ]
+            
+            # 增加超时时间到 60 秒
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=60
+            )
+            
+            if result.returncode != 0:
+                error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
+                print(f"Chrome 渲染失败: {error_msg}")
+                return False
+            
+            # 验证输出文件
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return True
+            else:
+                print("Chrome 渲染失败：输出文件不存在或为空")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print("Chrome 渲染超时")
+            return False
+        except Exception as e:
+            print(f"Chrome 渲染异常: {e}")
+            return False
+        finally:
+            # 清理临时文件
+            try:
+                if os.path.exists(html_path):
+                    os.unlink(html_path)
+            except:
+                pass
+    
+    def render_subtitle(self, english_text: str, chinese_text: str, 
+                       width: int, height: int, output_path: str) -> bool:
+        """
+        渲染字幕框
+        
+        Args:
+            english_text: 英文文本
+            chinese_text: 中文文本
+            width: 宽度
+            height: 高度
+            output_path: 输出路径
+            
+        Returns:
+            是否成功
+        """
+        # 动态计算字体大小 - 根据高度和文本长度
+        # 基于宽度的计算更适合容器
+        base_font_size_en = int(height * 0.20)  # 基于高度的20%
+        base_font_size_cn = int(height * 0.16)  # 基于高度的16%
+        
+        # 根据文本长度调整（文本越长，字体越小）
+        en_len = len(english_text)
+        cn_len = len(chinese_text)
+        
+        # 英文文本长度调整 - 更激进的缩减
+        if en_len > 80:
+            scale_factor = 0.35
+        elif en_len > 60:
+            scale_factor = 0.45
+        elif en_len > 50:
+            scale_factor = 0.55
+        elif en_len > 40:
+            scale_factor = 0.65
+        elif en_len > 30:
+            scale_factor = 0.75
+        elif en_len > 20:
+            scale_factor = 0.85
+        else:
+            scale_factor = 0.95
+        
+        font_size_en = min(64, int(base_font_size_en * scale_factor))
+        font_size_cn = min(48, int(base_font_size_cn * scale_factor))
+        
+        # 确保字体不会太小
+        font_size_en = max(font_size_en, 16)
+        font_size_cn = max(font_size_cn, 12)
+        
+        # 读取模板并替换变量
+        template = self._read_template('subtitle_template.html')
+        html = template.replace('{{width}}', str(width))
+        html = html.replace('{{height}}', str(height))
+        html = html.replace('{{font_size_en}}', str(font_size_en))
+        html = html.replace('{{font_size_cn}}', str(font_size_cn))
+        html = html.replace('{{english_text}}', english_text)
+        html = html.replace('{{chinese_text}}', chinese_text)
+        
+        return self._render_html_to_png(html, output_path, width, height)
+    
+    def render_wordbox(self, words: List[Dict], 
+                      width: int, height: int, output_path: str) -> bool:
+        """
+        渲染单词框
+        
+        Args:
+            words: 单词列表
+            width: 宽度
+            height: 高度
+            output_path: 输出路径
+            
+        Returns:
+            是否成功
+        """
+        # 根据单词数量动态调整字体大小（支持4-6个单词）
+        num_words = min(len(words), 6)
+        
+        # 基于高度的计算 - 基础大小（加大以提高可读性）
+        base_font_word = int(height * 0.09)  # 基于高度的9%
+        base_font_phonetic = int(height * 0.055)  # 基于高度的5.5%
+        base_font_trans = int(height * 0.065)  # 基于高度的6.5%
+        
+        # 根据单词数量动态调整 - 单词越多，字体越小
+        height_factor = 1.0
+        if num_words >= 6:
+            height_factor = 0.55
+        elif num_words >= 5:
+            height_factor = 0.6
+        elif num_words >= 4:
+            height_factor = 0.7
+        elif num_words >= 3:
+            height_factor = 0.8
+        elif num_words >= 2:
+            height_factor = 0.9
+        
+        # 设置字号范围（加大最小值）
+        font_size_word = max(18, min(36, int(base_font_word * height_factor)))
+        font_size_phonetic = max(12, min(22, int(base_font_phonetic * height_factor)))
+        font_size_trans = max(14, min(26, int(base_font_trans * height_factor)))
+        
+        # 读取模板
+        template = self._read_template('wordbox_template.html')
+        
+        # 替换基础变量
+        html = template.replace('{{width}}', str(width))
+        html = html.replace('{{h}}', str(height))
+        html = html.replace('{{font_size_word}}', str(font_size_word))
+        html = html.replace('{{font_size_phonetic}}', str(font_size_phonetic))
+        html = html.replace('{{font_size_trans}}', str(font_size_trans))
+        
+        # 生成单词列表 HTML - 使用新的 .word-item 结构
+        words_html = ""
+        for word_info in words[:6]:  # 最多显示6个单词
+            word = word_info.get('word', '')
+            phonetic = word_info.get('phonetic', '')
+            translation = word_info.get('translation', '')
+            
+            word_html = '<div class="word-item">'                 '<div class="word-row">'                     '<div class="word">' + word + '</div>'                     '<div class="phonetic">' + phonetic + '</div>'                 '</div>'                 '<div class="translation">' + translation + '</div>'             '</div>'
+            words_html += word_html
+        
+        # 替换模板中的单词列表
+        html = html.replace('{{words_html}}', words_html)
+        
+        return self._render_html_to_png(html, output_path, width, height)
+
+
+def test_renderer():
+    """测试渲染器"""
+    renderer = HTMLRenderer()
+    
+    # 测试字幕渲染
+    print("测试字幕框渲染...")
+    success = renderer.render_subtitle(
+        "Climate change is one of the most pressing issues of our time.",
+        "气候变化是我们这个时代最紧迫的问题之一。",
+        1920 - 360, 270,
+        'test_subtitle.png'
+    )
+    print(f"字幕框渲染: {'成功' if success else '失败'}")
+    
+    # 测试单词框渲染
+    print("测试单词框渲染...")
+    test_words = [
+        {"word": "climate", "phonetic": "/ˈklaɪmət/", "translation": "气候"},
+        {"word": "pressing", "phonetic": "/ˈpresɪŋ/", "translation": "紧迫的"},
+        {"word": "issue", "phonetic": "/ˈɪʃuː/", "translation": "问题"},
+        {"word": "time", "phonetic": "/taɪm/", "translation": "时间"}
+    ]
+    
+    success = renderer.render_wordbox(
+        test_words,
+        360, 1080 - 270,
+        'test_wordbox.png'
+    )
+    print(f"单词框渲染: {'成功' if success else '失败'}")
+
+
+if __name__ == "__main__":
+    test_renderer()

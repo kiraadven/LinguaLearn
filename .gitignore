@@ -19,4 +19,4 @@ output/
 .vscode/
 .idea/
 *.log
-
+.cursor/

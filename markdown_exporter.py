@@ -1,7 +1,3 @@
-"""
-Markdown导出模块
-生成英汉互译文字稿
-"""
 import os
 from typing import List, Dict
 from datetime import datetime
@@ -36,65 +32,70 @@ class MarkdownExporter:
         
         output_path = os.path.join(self.output_dir, output_filename)
         
+        # 计算统计信息
+        total_sentences = len(sentences_data)
+        total_words = sum(len(s.get('key_words', [])) for s in sentences_data)
+        total_chars = sum(len(s['original_text']) for s in sentences_data)
+        
         with open(output_path, 'w', encoding='utf-8') as f:
-            # 写入标题
-            f.write("# 英语学习文字稿\n\n")
-            f.write(f"生成时间：{datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')}\n\n")
+            # ===== 头部信息 =====
+            f.write("---\n")
+            f.write("layout: default\n")
+            f.write("title: 英语学习文字稿\n")
             f.write("---\n\n")
             
-            # 写入目录
-            f.write("## 📑 目录\n\n")
-            for i, sentence_data in enumerate(sentences_data, 1):
-                # 截取前30个字符作为预览
-                preview = sentence_data['original_text'][:30]
-                if len(sentence_data['original_text']) > 30:
-                    preview += "..."
-                f.write(f"{i}. [{preview}](#句子-{i})\n")
-            f.write("\n---\n\n")
+            # ===== 主标题 =====
+            f.write("# 🌟 英语学习文字稿\n\n")
+            f.write(f"**生成时间：** {datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')}\n\n")
             
-            # 写入每个句子的详细内容
+            # ===== 统计卡片 =====
+            f.write("<div class=\"stats-cards\">\n\n")
+            f.write(f"| 📊 总句子数 | 📚 单词总数 | 📝 总字符数 |\n")
+            f.write(f"|:---:|:---:|:---:|\n")
+            f.write(f"| **{total_sentences}** | **{total_words}** | **{total_chars}** |\n\n")
+            f.write("</div>\n\n")
+            
+            f.write("---\n\n")
+            
+            # ===== 每个句子的详细内容 =====
             for i, sentence_data in enumerate(sentences_data, 1):
-                f.write(f"## 句子 {i}\n\n")
+                f.write(f"<div class=\"sentence-card\" id=\"句子-{i}\">\n\n")
                 
-                # 英文原文
+                f.write(f"## 🔹 句子 {i}\n\n")
+                
+                # 英文原文 - 使用引用块
                 f.write("### 📝 英文原文\n\n")
-                f.write(f"> {sentence_data['original_text']}\n\n")
+                f.write(f"> **{sentence_data['original_text']}**\n\n")
                 
-                # 中文翻译
+                # 中文翻译 - 使用引用块
                 f.write("### 🇨🇳 中文翻译\n\n")
-                f.write(f"> {sentence_data['chinese_translation']}\n\n")
+                f.write(f"> *{sentence_data['chinese_translation']}*\n\n")
                 
                 # 重难点单词
                 if sentence_data.get('key_words'):
                     f.write("### 📚 重难点单词\n\n")
+                    
+                    # 使用更美观的表格样式
                     f.write("| 序号 | 单词 | 音标 | 中文释义 | 难度 |\n")
-                    f.write("|------|------|------|----------|------|\n")
+                    f.write("|:---:|:---:|:---:|:---:|:---:|\n")
                     
                     for j, word_info in enumerate(sentence_data['key_words'], 1):
                         word = word_info.get('word', '')
                         phonetic = word_info.get('phonetic', '')
                         translation = word_info.get('translation', '')
                         difficulty = word_info.get('difficulty', 0)
-                        difficulty_stars = "⭐" * difficulty
+                        difficulty_stars = "💫" * difficulty + "☆" * (5 - difficulty)
                         
                         f.write(f"| {j} | **{word}** | {phonetic} | {translation} | {difficulty_stars} |\n")
                     
                     f.write("\n")
                 
+                f.write("</div>\n\n")
                 f.write("---\n\n")
             
-            # 写入统计信息
-            f.write("## 📊 统计信息\n\n")
-            f.write(f"- 总句子数：{len(sentences_data)}\n")
+            # ===== 单词汇总表 =====
+            f.write("## 📖 单词汇总表\n\n")
             
-            total_words = sum(len(s.get('key_words', [])) for s in sentences_data)
-            f.write(f"- 重难点单词总数：{total_words}\n")
-            
-            total_chars = sum(len(s['original_text']) for s in sentences_data)
-            f.write(f"- 总字符数：{total_chars}\n\n")
-            
-            # 写入所有单词汇总
-            f.write("## 📖 单词汇总\n\n")
             all_words = {}
             for sentence_data in sentences_data:
                 for word_info in sentence_data.get('key_words', []):
@@ -104,7 +105,7 @@ class MarkdownExporter:
             
             if all_words:
                 f.write("| 单词 | 音标 | 中文释义 | 难度 |\n")
-                f.write("|------|------|----------|------|\n")
+                f.write("|:---:|:---:|:---:|:---:|\n")
                 
                 # 按字母顺序排序
                 for word in sorted(all_words.keys()):
@@ -112,12 +113,17 @@ class MarkdownExporter:
                     phonetic = word_info.get('phonetic', '')
                     translation = word_info.get('translation', '')
                     difficulty = word_info.get('difficulty', 0)
-                    difficulty_stars = "⭐" * difficulty
+                    difficulty_stars = "💫" * difficulty + "☆" * (5 - difficulty)
                     
                     f.write(f"| **{word}** | {phonetic} | {translation} | {difficulty_stars} |\n")
             
             f.write("\n---\n\n")
-            f.write("*本文档由英语学习视频自动化生成系统创建*\n")
+            
+            # ===== 页脚 =====
+            f.write("<div align=\"center\">\n\n")
+            f.write("*📚 本文档由英语学习视频自动化生成系统创建*\n\n")
+            f.write("*坚持每天学习，让英语进步！* 🚀\n\n")
+            f.write("</div>\n")
         
         print(f"Markdown文字稿已导出到: {output_path}")
         return output_path
@@ -147,4 +153,3 @@ if __name__ == "__main__":
     ]
     
     exporter.export(test_data, 'test_transcript.md')
-

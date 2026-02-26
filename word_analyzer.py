@@ -1,7 +1,3 @@
-"""
-单词分析模块
-使用OpenAI API识别重难点单词并获取音标和翻译
-"""
 import os
 import json
 from typing import List, Dict

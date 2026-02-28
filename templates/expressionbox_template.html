@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>单词框</title>
+    <title>表达框</title>
     <style>
         * {
             margin: 0;
@@ -18,17 +18,15 @@
             overflow: hidden;
         }
         
-        .word-box-container {
+        .expr-box-container {
             width: 100%;
             height: 100%;
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
-            /* 完全0边距 */
             padding: 0;
             margin: 0;
             gap: 0;
-            /* 毛玻璃效果 */
             background: {{bg_color}};
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
@@ -37,21 +35,18 @@
             overflow: hidden;
         }
         
-        /* 单词列表容器 - 完全0边距 */
-        .word-list {
+        .expr-list {
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
             height: 100%;
             width: 100%;
-            /* 完全0边距 */
             padding: 0;
             margin: 0;
             gap: 2px;
         }
         
-        /* 每个单词项 */
-        .word-item {
+        .expr-item {
             display: flex;
             flex-direction: column;
             gap: 0px;
@@ -60,39 +55,21 @@
             flex-shrink: 0;
         }
         
-        /* 单词和音标在同一行 */
-        .word-row {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: baseline;
-            gap: 4px;
-            margin: 0;
-            padding: 0;
-        }
-        
-        .word {
-            font-size: {{font_size_word}}px;
+        .expr-english {
+            font-size: {{font_size_en}}px;
             font-weight: 700;
-            color: {{word_color}};
-            white-space: nowrap;
-            text-shadow: 0 1px 3px rgba(96, 165, 250, 0.3);
+            color: {{en_color}};
+            white-space: normal;
+            word-break: break-word;
+            text-shadow: 0 1px 3px rgba(52, 211, 153, 0.3);
             margin: 0;
             padding: 0;
         }
         
-        .phonetic {
-            font-size: {{font_size_phonetic}}px;
-            color: {{phonetic_color}};
-            font-family: "SF Mono", Monaco, "Courier New", monospace;
-            white-space: nowrap;
-            margin: 0;
-            padding: 0;
-        }
-        
-        .translation {
-            font-size: {{font_size_trans}}px;
+        .expr-chinese {
+            font-size: {{font_size_cn}}px;
             font-weight: 500;
-            color: {{trans_color}};
+            color: {{cn_color}};
             opacity: 0.9;
             line-height: 1.15;
             white-space: normal;
@@ -103,9 +80,9 @@
     </style>
 </head>
 <body>
-    <div class="word-box-container">
-        <div class="word-list">
-            {{words_html}}
+    <div class="expr-box-container">
+        <div class="expr-list">
+            {{expressions_html}}
         </div>
     </div>
 </body>

@@ -149,6 +149,47 @@ class VideoProcessor:
         if not self._debug_saved:
             img.save(os.path.join(config.OUTPUT_DIR, 'debug_wordbox.png'))
             print(f"  ✅ 已保存单词框图片: {os.path.join(config.OUTPUT_DIR, 'debug_wordbox.png')}")
+        
+        # 清理临时文件
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        
+        return result
+    
+    def create_expression_box_frame(self, expressions: List[Dict], 
+                                   width: int, height: int) -> np.ndarray:
+        """
+        创建表达框图像 - 使用 HTML + Chrome 渲染
+        
+        Args:
+            expressions: 表达信息列表
+            width: 宽度
+            height: 高度
+            
+        Returns:
+            numpy数组格式的图像
+        """
+        # 创建临时输出路径
+        temp_path = os.path.join(config.TEMP_DIR, f'expressionbox_{int(time.time() * 1000000)}.png')
+        
+        # 使用 HTML 渲染器生成表达框图片
+        success = self.html_renderer.render_expressionbox(
+            expressions, width, height, temp_path
+        )
+        
+        if not success or not os.path.exists(temp_path):
+            raise RuntimeError(f"HTML 表达框渲染失败！expressions: {[e.get('english', '') for e in expressions[:2]]}")
+        
+        # 读取渲染好的图片并转换为 numpy 数组
+        img = Image.open(temp_path)
+        result = np.array(img)
+        
+        # 保存第一个用于调试
+        if not self._debug_saved:
+            img.save(os.path.join(config.OUTPUT_DIR, 'debug_expressionbox.png'))
+            print(f"  ✅ 已保存表达框图片: {os.path.join(config.OUTPUT_DIR, 'debug_expressionbox.png')}")
             self._debug_saved = True
         
         # 清理临时文件
@@ -167,10 +208,10 @@ class VideoProcessor:
         """
         处理单个句子的视频片段
         
-        处理流程：
-        1. 原速1.0x无字幕播放（从句子开始到下一句开始或句子结束）
-        2. 0.75x速有字幕有单词框（从句子开始到句子结束）
-        3. 1.0x速有字幕有单词框（从句子开始到下一句开始或句子结束）
+        处理流程（可配置）：
+        1. Part 1: 原速播放（可配置是否显示字幕框、单词框、播放遍数）
+        2. Part 2: 慢速播放（可配置是否显示字幕框、单词框、播放遍数）
+        3. Part 3: 正常速度播放（可配置是否显示字幕框、单词框、播放遍数）
         
         Args:
             video_clip: 原始视频
@@ -187,93 +228,180 @@ class VideoProcessor:
         gap_end_time = next_sentence_start + 0.1 if next_sentence_start is not None else end_time
         gap_duration = gap_end_time - start_time
         
-        # ===== 第1部分：原速无字幕播放 =====
-        part1_segment = video_clip.subclip(start_time, gap_end_time)
-        part1 = part1_segment.copy()
-        
-        # ===== 第2部分：0.75倍速有字幕有单词框 =====
-        segment = video_clip.subclip(start_time, end_time)
-        
-        # 减速视频（去掉原音频）
-        slow_video = segment.without_audio().fx(speedx, config.SPEED_SLOW)
-        slow_duration = round(slow_video.duration, 2)
-        slow_video = slow_video.subclip(0, slow_duration)
-        
         # 获取原始视频尺寸
-        orig_width, orig_height = slow_video.size
+        orig_width, orig_height = video_clip.size
         
-        # 使用 FFmpeg atempo 减速音频（保持音调不变）
-        original_audio = segment.audio
-        slowed_audio = self._slow_audio_with_pitch_preservation(original_audio, config.SPEED_SLOW, slow_duration)
+        # ===== 准备字幕框和单词框 =====
+        # 字幕框尺寸
+        subtitle_box_height = int(orig_height * 0.33)
+        subtitle_margin = int(orig_height * 0.005)
+        subtitle_box_width = int(orig_width * 0.95)
         
-        # 字幕框和单词框尺寸
-        # 字幕框：占据下1/3，底部留边距
-        subtitle_box_height = int(orig_height * 0.33)  # 下1/3
-        subtitle_margin = int(orig_height * 0.005)  # 底部边距 1%
-        subtitle_box_width = int(orig_width * 0.95)  # 宽度为视频的95%
+        # 单词框尺寸
+        word_box_width = int(orig_width * 0.25)
+        word_box_height = int(orig_height * 0.665)
+        word_box_margin = int(orig_width * 0.002)
         
-        # 单词框：右上角，不与字幕框重叠
-        word_box_width = int(orig_width * 0.25)  # 宽度25%
-        word_box_height = int(orig_height * 0.64)  # 高度64%（足够放下6个单词）
-        word_box_margin = int(orig_width * 0.005)  # 右边和顶部边距 0.5%
+        # 表达框尺寸（放在左上角）
+        expr_box_width = int(orig_width * 0.25)
+        expr_box_height = int(orig_height * 0.45)
+        expr_box_margin = int(orig_width * 0.005)
         
-        # 创建字幕框
+        # 创建字幕框（用于Part2和Part3）
         subtitle_img = self.create_subtitle_frame(
             sentence_data['original_text'],
             sentence_data['chinese_translation'],
             subtitle_box_width,
             subtitle_box_height
         )
-        
-        # 转换为 ImageClip - 字幕框在底部居中
-        # 使用 RGBA 模式保持透明度
         subtitle_arr = np.array(subtitle_img)
-        if subtitle_arr.shape[2] == 4:  # 如果有 alpha 通道
-            subtitle_clip = (ImageClip(subtitle_arr, duration=slow_duration)
-                            .set_position(('center', orig_height - subtitle_box_height - subtitle_margin)))
-        else:
-            # 没有 alpha 通道则用 RGB
-            subtitle_clip = (ImageClip(subtitle_arr[:, :, :3], duration=slow_duration)
-                            .set_position(('center', orig_height - subtitle_box_height - subtitle_margin)))
         
-        # 创建单词框
+        # 创建单词框（用于Part2和Part3）
+        word_box_clip = None
         if sentence_data.get('key_words'):
             word_box_img = self.create_word_box_frame(
                 sentence_data['key_words'],
                 word_box_width,
                 word_box_height
             )
-            
-            # 使用 RGBA 模式保持透明度
-            word_box_x = orig_width - word_box_width - word_box_margin
-            word_box_y = word_box_margin
             word_box_arr = np.array(word_box_img)
-            if word_box_arr.shape[2] == 4:  # 如果有 alpha 通道
-                word_box_clip = (ImageClip(word_box_arr, duration=slow_duration)
-                               .set_position((word_box_x, word_box_y)))
-            else:
-                word_box_clip = (ImageClip(word_box_arr[:, :, :3], duration=slow_duration)
-                               .set_position((word_box_x, word_box_y)))
             
-            part2 = CompositeVideoClip([slow_video, subtitle_clip, word_box_clip])
+            if word_box_arr.shape[2] == 4:
+                word_box_clip = ImageClip(word_box_arr).set_position(
+                    (orig_width - word_box_width - word_box_margin, word_box_margin)
+                )
+            else:
+                word_box_clip = ImageClip(word_box_arr[:, :, :3]).set_position(
+                    (orig_width - word_box_width - word_box_margin, word_box_margin)
+                )
+        
+        # 创建表达框（用于Part2和Part3）
+        expr_box_clip = None
+        if sentence_data.get('useful_expressions'):
+            expr_box_img = self.create_expression_box_frame(
+                sentence_data['useful_expressions'],
+                expr_box_width,
+                expr_box_height
+            )
+            expr_box_arr = np.array(expr_box_img)
+            
+            if expr_box_arr.shape[2] == 4:
+                expr_box_clip = ImageClip(expr_box_arr).set_position(
+                    (expr_box_margin, expr_box_margin)
+                )
+            else:
+                expr_box_clip = ImageClip(expr_box_arr[:, :, :3]).set_position(
+                    (expr_box_margin, expr_box_margin)
+                )
+        
+        # ===== 第1部分：原速播放 =====
+        part1_segment = video_clip.subclip(start_time, gap_end_time)
+        
+        # 根据配置决定是否添加字幕框、单词框和表达框
+        part1_clips = [part1_segment]
+        if config.PART1_SHOW_SUBTITLE:
+            if subtitle_arr.shape[2] == 4:
+                subtitle_clip = ImageClip(subtitle_arr, duration=gap_duration).set_position(
+                    ('center', orig_height - subtitle_box_height - subtitle_margin)
+                )
+            else:
+                subtitle_clip = ImageClip(subtitle_arr[:, :, :3], duration=gap_duration).set_position(
+                    ('center', orig_height - subtitle_box_height - subtitle_margin)
+                )
+            part1_clips.append(subtitle_clip)
+        
+        if config.PART1_SHOW_WORD_BOX and word_box_clip:
+            part1_clips.append(word_box_clip.set_duration(gap_duration))
+        
+        if config.PART1_SHOW_EXPRESSION_BOX and expr_box_clip:
+            part1_clips.append(expr_box_clip.set_duration(gap_duration))
+        
+        if len(part1_clips) > 1:
+            part1 = CompositeVideoClip(part1_clips)
         else:
-            part2 = CompositeVideoClip([slow_video, subtitle_clip])
+            part1 = part1_segment
+        
+        # ===== 第2部分：慢速播放 =====
+        segment = video_clip.subclip(start_time, end_time)
+        
+        # 减速视频
+        slow_video = segment.without_audio().fx(speedx, config.SPEED_SLOW)
+        slow_duration = round(slow_video.duration, 2)
+        slow_video = slow_video.subclip(0, slow_duration)
+        
+        # 减速音频
+        original_audio = segment.audio
+        slowed_audio = self._slow_audio_with_pitch_preservation(original_audio, config.SPEED_SLOW, slow_duration)
+        
+        # 根据配置决定是否添加字幕框、单词框和表达框
+        part2_clips = [slow_video]
+        if config.PART2_SHOW_SUBTITLE:
+            if subtitle_arr.shape[2] == 4:
+                subtitle_clip = ImageClip(subtitle_arr, duration=slow_duration).set_position(
+                    ('center', orig_height - subtitle_box_height - subtitle_margin)
+                )
+            else:
+                subtitle_clip = ImageClip(subtitle_arr[:, :, :3], duration=slow_duration).set_position(
+                    ('center', orig_height - subtitle_box_height - subtitle_margin)
+                )
+            part2_clips.append(subtitle_clip)
+        
+        if config.PART2_SHOW_WORD_BOX and word_box_clip:
+            part2_clips.append(word_box_clip.set_duration(slow_duration))
+        
+        if config.PART2_SHOW_EXPRESSION_BOX and expr_box_clip:
+            part2_clips.append(expr_box_clip.set_duration(slow_duration))
+        
+        if len(part2_clips) > 1:
+            part2 = CompositeVideoClip(part2_clips)
+        else:
+            part2 = slow_video
         
         # 添加减速后的音频
         if slowed_audio:
             part2 = part2.set_audio(slowed_audio)
         
-        # ===== 第3部分：正常速度有字幕有单词框 =====
-        normal_subtitle_clip = subtitle_clip.set_duration(gap_duration)
+        # ===== 第3部分：正常速度播放 =====
+        # 根据配置决定是否添加字幕框、单词框和表达框
+        part3_clips = [part1_segment]
+        if config.PART3_SHOW_SUBTITLE:
+            if subtitle_arr.shape[2] == 4:
+                subtitle_clip = ImageClip(subtitle_arr, duration=gap_duration).set_position(
+                    ('center', orig_height - subtitle_box_height - subtitle_margin)
+                )
+            else:
+                subtitle_clip = ImageClip(subtitle_arr[:, :, :3], duration=gap_duration).set_position(
+                    ('center', orig_height - subtitle_box_height - subtitle_margin)
+                )
+            part3_clips.append(subtitle_clip)
         
-        if sentence_data.get('key_words'):
-            normal_word_box_clip = word_box_clip.set_duration(gap_duration)
-            part3 = CompositeVideoClip([part1_segment, normal_subtitle_clip, normal_word_box_clip])
+        if config.PART3_SHOW_WORD_BOX and word_box_clip:
+            part3_clips.append(word_box_clip.set_duration(gap_duration))
+        
+        if config.PART3_SHOW_EXPRESSION_BOX and expr_box_clip:
+            part3_clips.append(expr_box_clip.set_duration(gap_duration))
+        
+        if len(part3_clips) > 1:
+            part3 = CompositeVideoClip(part3_clips)
         else:
-            part3 = CompositeVideoClip([part1_segment, normal_subtitle_clip])
+            part3 = part1_segment
         
-        # 合并三个部分，part2 播放两遍
-        final_clip = concatenate_videoclips([part1, part2, part2, part3])
+        # ===== 合并三个部分（根据配置的播放遍数） =====
+        final_parts = []
+        
+        # Part 1 播放 N 遍
+        for _ in range(config.PART1_REPEAT_COUNT):
+            final_parts.append(part1)
+        
+        # Part 2 播放 N 遍
+        for _ in range(config.PART2_REPEAT_COUNT):
+            final_parts.append(part2)
+        
+        # Part 3 播放 N 遍
+        for _ in range(config.PART3_REPEAT_COUNT):
+            final_parts.append(part3)
+        
+        final_clip = concatenate_videoclips(final_parts)
         
         return final_clip
     

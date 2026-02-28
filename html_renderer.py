@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import time
 from typing import Dict, List, Optional
+import config
 
 
 class HTMLRenderer:
@@ -201,6 +202,10 @@ class HTMLRenderer:
         html = html.replace('{{font_size_cn}}', str(font_size_cn))
         html = html.replace('{{english_text}}', english_text)
         html = html.replace('{{chinese_text}}', chinese_text)
+        # 颜色配置
+        html = html.replace('{{bg_color}}', config.SUBTITLE_BOX_BG_COLOR)
+        html = html.replace('{{en_color}}', config.SUBTITLE_BOX_ENGLISH_COLOR)
+        html = html.replace('{{cn_color}}', config.SUBTITLE_BOX_CHINESE_COLOR)
         
         return self._render_html_to_png(html, output_path, width, height)
     
@@ -253,6 +258,11 @@ class HTMLRenderer:
         html = html.replace('{{font_size_word}}', str(font_size_word))
         html = html.replace('{{font_size_phonetic}}', str(font_size_phonetic))
         html = html.replace('{{font_size_trans}}', str(font_size_trans))
+        # 颜色配置
+        html = html.replace('{{bg_color}}', config.WORD_BOX_BG_COLOR)
+        html = html.replace('{{word_color}}', config.WORD_BOX_WORD_COLOR)
+        html = html.replace('{{phonetic_color}}', config.WORD_BOX_PHONETIC_COLOR)
+        html = html.replace('{{trans_color}}', config.WORD_BOX_TRANS_COLOR)
         
         # 生成单词列表 HTML - 使用新的 .word-item 结构
         words_html = ""
@@ -268,38 +278,65 @@ class HTMLRenderer:
         html = html.replace('{{words_html}}', words_html)
         
         return self._render_html_to_png(html, output_path, width, height)
-
-
-def test_renderer():
-    """测试渲染器"""
-    renderer = HTMLRenderer()
     
-    # 测试字幕渲染
-    print("测试字幕框渲染...")
-    success = renderer.render_subtitle(
-        "Climate change is one of the most pressing issues of our time.",
-        "气候变化是我们这个时代最紧迫的问题之一。",
-        1920 - 360, 270,
-        'test_subtitle.png'
-    )
-    print(f"字幕框渲染: {'成功' if success else '失败'}")
-    
-    # 测试单词框渲染
-    print("测试单词框渲染...")
-    test_words = [
-        {"word": "climate", "phonetic": "/ˈklaɪmət/", "translation": "气候"},
-        {"word": "pressing", "phonetic": "/ˈpresɪŋ/", "translation": "紧迫的"},
-        {"word": "issue", "phonetic": "/ˈɪʃuː/", "translation": "问题"},
-        {"word": "time", "phonetic": "/taɪm/", "translation": "时间"}
-    ]
-    
-    success = renderer.render_wordbox(
-        test_words,
-        360, 1080 - 270,
-        'test_wordbox.png'
-    )
-    print(f"单词框渲染: {'成功' if success else '失败'}")
-
-
-if __name__ == "__main__":
-    test_renderer()
+    def render_expressionbox(self, expressions: List[Dict], 
+                             width: int, height: int, output_path: str) -> bool:
+        """
+        渲染表达框
+        
+        Args:
+            expressions: 表达列表
+            width: 宽度
+            height: 高度
+            output_path: 输出路径
+            
+        Returns:
+            是否成功
+        """
+        # 根据表达数量动态调整字体大小（支持1-3个表达）
+        num_exprs = min(len(expressions), 3)
+        
+        # 基于高度的计算
+        base_font_en = int(height * 0.09)  # 基于高度的9%
+        base_font_cn = int(height * 0.065)  # 基于高度的6.5%
+        
+        # 根据表达数量动态调整
+        height_factor = 1.0
+        if num_exprs >= 3:
+            height_factor = 0.7
+        elif num_exprs >= 2:
+            height_factor = 0.85
+        
+        # 设置字号范围
+        font_size_en = max(16, min(32, int(base_font_en * height_factor)))
+        font_size_cn = max(12, min(24, int(base_font_cn * height_factor)))
+        
+        # 读取模板
+        template = self._read_template('expressionbox_template.html')
+        
+        # 替换基础变量
+        html = template.replace('{{width}}', str(width))
+        html = html.replace('{{h}}', str(height))
+        html = html.replace('{{font_size_en}}', str(font_size_en))
+        html = html.replace('{{font_size_cn}}', str(font_size_cn))
+        # 颜色配置
+        html = html.replace('{{bg_color}}', config.EXPR_BOX_BG_COLOR)
+        html = html.replace('{{en_color}}', config.EXPR_BOX_ENGLISH_COLOR)
+        html = html.replace('{{cn_color}}', config.EXPR_BOX_CHINESE_COLOR)
+        
+        # 生成表达列表 HTML
+        expressions_html = ""
+        for expr_info in expressions[:3]:  # 最多显示3个表达
+            english = expr_info.get('english', '')
+            chinese = expr_info.get('chinese', '')
+            
+            expr_html = '<div class="expr-item">' \
+                        '<div class="expr-english">' + english + '</div>' \
+                        '<div class="expr-chinese">' + chinese + '</div>' \
+                        '</div>'
+            expressions_html += expr_html
+        
+        # 替换模板中的表达列表
+        html = html.replace('{{expressions_html}}', expressions_html)
+        
+        return self._render_html_to_png(html, output_path, width, height)

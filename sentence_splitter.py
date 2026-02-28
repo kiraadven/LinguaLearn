@@ -12,7 +12,6 @@ class SentenceSplitter:
             os.path.dirname(__file__),
             "nltk_data"
         )
-        os.makedirs(self.nltk_data_dir, exist_ok=True)
 
         # 添加到 nltk 搜索路径
         if self.nltk_data_dir not in nltk.data.path:

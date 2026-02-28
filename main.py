@@ -21,7 +21,6 @@ class EnglishLearningVideoGenerator:
         self.splitter = SentenceSplitter()
         self.analyzer = WordAnalyzer()
         self.processor = VideoProcessor()
-        self.composer = VideoProcessor()
         self.exporter = MarkdownExporter()
         self.transcriber = AudioTranscriber(use_local=config.USE_LOCAL_WHISPER)
         
@@ -149,17 +148,9 @@ class EnglishLearningVideoGenerator:
             print("-" * 60)
             video_output_path = os.path.join(config.OUTPUT_DIR, f"{output_name}.mp4")
             
-            # 根据配置选择使用新版或旧版视频合成器
-            if config.USE_NEW_COMPOSER:
-                print("使用新版现代风格视频合成器")
-                final_video_path = self.composer.process_full_video(
-                    video_path, sentences_data, video_output_path, segments_info
-                )
-            else:
-                print("使用旧版视频合成器")
-                final_video_path = self.processor.process_full_video(
-                    video_path, sentences_data, video_output_path, segments_info
-                )
+            final_video_path = self.processor.process_full_video(
+                video_path, sentences_data, video_output_path, segments_info
+            )
             print(f"✓ 视频已保存: {final_video_path}")
             
             return {
@@ -445,24 +436,13 @@ class EnglishLearningVideoGenerator:
             segments_info = [{"start": ts.get("start", 0), "end": ts.get("end", 0)} for ts in sentence_timestamps]
         
         video_output_path = os.path.join(config.OUTPUT_DIR, f"{output_name}.mp4")
-        
-        # 根据配置选择使用新版或旧版视频合成器
-        if config.USE_NEW_COMPOSER:
-            print("使用新版现代风格视频合成器")
-            final_video_path = self.composer.process_full_video(
-                video_path,
-                sentences_data,
-                video_output_path,
-                segments_info
-            )
-        else:
-            print("使用旧版视频合成器")
-            final_video_path = self.processor.process_full_video(
-                video_path,
-                sentences_data,
-                video_output_path,
-                segments_info
-            )
+    
+        final_video_path = self.processor.process_full_video(
+            video_path,
+            sentences_data,
+            video_output_path,
+            segments_info
+        )
         print(f"✓ 视频已保存: {final_video_path}")
         
         print("\n" + "=" * 60)
@@ -524,8 +504,8 @@ def main():
     
     # ===== 测试模式配置 =====
     # 设置为 True 启用测试模式，从中间结果加载
-    TEST_MODE = True
-    TEST_OUTPUT_NAME = "learning_video_20260225_160811"  # 使用哪个输出的中间结果
+    TEST_MODE = False
+    TEST_OUTPUT_NAME = "learning_video_20260227_000130"  # 使用哪个输出的中间结果
     TEST_START_STEP = 2  # 从第几步开始: 1=从句子, 2=从分析结果, 3=直接生成视频
     
     # 生成视频

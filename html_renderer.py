@@ -78,74 +78,95 @@ class HTMLRenderer:
         Returns:
             是否成功
         """
-        # 创建临时 HTML 文件
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
-            f.write(html_content)
-            html_path = f.name
+        # 重试配置
+        max_retries = 3
+        base_timeout = 60  # 基础超时时间 60 秒
         
-        # 添加额外边距确保内容不被截断
-        extra_margin = 0
-        render_width = width + extra_margin
-        render_height = height + extra_margin
-        
-        try:
-            # Chrome 命令 - 优化参数提高渲染速度
-            cmd = [
-                self.chrome_path,
-                '--headless=new',
-                '--disable-gpu',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-extensions',
-                '--disable-background-networking',
-                '--disable-default-apps',
-                '--disable-sync',
-                '--disable-translate',
-                '--metrics-recording-only',
-                '--mute-audio',
-                '--no-first-run',
-                '--safebrowsing-disable-auto-update',
-                f'--window-size={render_width},{render_height}',
-                '--screenshot=' + output_path,
-                '--hide-scrollbars',
-                '--force-clock-backwards',
-                '--disable-features=TranslateUI',
-                '--virtual-time-budget=10000',
-                html_path
-            ]
+        for attempt in range(max_retries):
+            # 创建临时 HTML 文件
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
+                f.write(html_content)
+                html_path = f.name
             
-            # 增加超时时间到 60 秒
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=60
-            )
+            # 添加额外边距确保内容不被截断
+            extra_margin = 0
+            render_width = width + extra_margin
+            render_height = height + extra_margin
             
-            if result.returncode != 0:
-                error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
-                print(f"Chrome 渲染失败: {error_msg}")
-                return False
-            
-            # 验证输出文件
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                return True
-            else:
-                print("Chrome 渲染失败：输出文件不存在或为空")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            print("Chrome 渲染超时")
-            return False
-        except Exception as e:
-            print(f"Chrome 渲染异常: {e}")
-            return False
-        finally:
-            # 清理临时文件
             try:
-                if os.path.exists(html_path):
-                    os.unlink(html_path)
-            except:
-                pass
+                # Chrome 命令 - 优化参数提高渲染速度
+                cmd = [
+                    self.chrome_path,
+                    '--headless=new',
+                    '--disable-gpu',
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-default-apps',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--metrics-recording-only',
+                    '--mute-audio',
+                    '--no-first-run',
+                    '--safebrowsing-disable-auto-update',
+                    f'--window-size={render_width},{render_height}',
+                    '--screenshot=' + output_path,
+                    '--hide-scrollbars',
+                    '--force-clock-backwards',
+                    '--disable-features=TranslateUI',
+                    '--virtual-time-budget=10000',
+                    html_path
+                ]
+                
+                # 使用递增超时时间（每次重试增加时间）
+                timeout = base_timeout + (attempt * 30)
+                
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    timeout=timeout
+                )
+                
+                if result.returncode != 0:
+                    error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
+                    print(f"Chrome 渲染失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)  # 重试前等待
+                        continue
+                    return False
+                
+                # 验证输出文件
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    return True
+                else:
+                    print(f"Chrome 渲染失败：输出文件不存在或为空 (尝试 {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        continue
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                print(f"Chrome 渲染超时 (尝试 {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(3)  # 超时后等待更久
+                    continue
+                return False
+            except Exception as e:
+                print(f"Chrome 渲染异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                return False
+            finally:
+                # 清理临时文件
+                try:
+                    if os.path.exists(html_path):
+                        os.unlink(html_path)
+                except:
+                    pass
+        
+        return False
     
     def render_subtitle(self, english_text: str, chinese_text: str, 
                        width: int, height: int, output_path: str) -> bool:

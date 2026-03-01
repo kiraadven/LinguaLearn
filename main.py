@@ -18,7 +18,10 @@ class EnglishLearningVideoGenerator:
         print("英语学习视频自动化生成系统")
         print("=" * 60)
         
-        self.splitter = SentenceSplitter()
+        self.splitter = SentenceSplitter(
+            max_length=config.MAX_SENTENCE_LENGTH,
+            min_length=config.MIN_SENTENCE_LENGTH
+        )
         self.analyzer = WordAnalyzer()
         self.processor = VideoProcessor()
         self.exporter = MarkdownExporter()
@@ -57,6 +60,25 @@ class EnglishLearningVideoGenerator:
             raise FileNotFoundError(f"中间结果文件不存在: {output_path}")
         with open(output_path, 'r', encoding='utf-8') as f:
             return json.load(f)
+    
+    def _cleanup_temp_files(self):
+        """清理临时音频文件"""
+        import glob
+        
+        temp_dir = config.TEMP_DIR
+        if not os.path.exists(temp_dir):
+            return
+        
+        # 删除临时音频文件
+        audio_files = glob.glob(os.path.join(temp_dir, "*.mp3")) + \
+                      glob.glob(os.path.join(temp_dir, "*.wav"))
+        
+        for audio_file in audio_files:
+            try:
+                os.remove(audio_file)
+                print(f"🗑️ 已删除临时文件: {os.path.basename(audio_file)}")
+            except Exception as e:
+                print(f"⚠️ 删除临时文件失败: {audio_file}, {e}")
     
     def load_from_step(self, output_name: str, start_step: int, video_path: str) -> dict:
         """
@@ -264,21 +286,12 @@ class EnglishLearningVideoGenerator:
         print("-" * 60)
         video_output_path = os.path.join(config.OUTPUT_DIR, f"{output_name}.mp4")
         
-        # 根据配置选择使用新版或旧版视频合成器
-        if config.USE_NEW_COMPOSER:
-            print("使用新版现代风格视频合成器")
-            final_video_path = self.composer.process_full_video(
-                video_path,
-                sentences_data,
-                video_output_path
-            )
-        else:
-            print("使用旧版视频合成器")
-            final_video_path = self.processor.process_full_video(
-                video_path,
-                sentences_data,
-                video_output_path
-            )
+    
+        final_video_path = self.processor.process_full_video(
+            video_path,
+            sentences_data,
+            video_output_path
+        )
         print(f"✓ 视频已保存: {final_video_path}")
         
         print("\n" + "=" * 60)
@@ -312,7 +325,10 @@ class EnglishLearningVideoGenerator:
         
         if output_name is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_name = f"learning_video_{timestamp}"
+            if config.PROCESSING_MODE == "quick":
+                output_name = f"learning_video_quick_{timestamp}"
+            else:
+                output_name = f"learning_video_{timestamp}"
         
         print("\n步骤 0/4: 从视频中提取文字...")
         print("-" * 60)
@@ -445,6 +461,9 @@ class EnglishLearningVideoGenerator:
         )
         print(f"✓ 视频已保存: {final_video_path}")
         
+        # 清理临时音频文件
+        self._cleanup_temp_files()
+        
         print("\n" + "=" * 60)
         print("✓ 所有任务完成！")
         print("=" * 60)
@@ -505,7 +524,7 @@ def main():
     # ===== 测试模式配置 =====
     # 设置为 True 启用测试模式，从中间结果加载
     TEST_MODE = False
-    TEST_OUTPUT_NAME = "learning_video_20260227_000130"  # 使用哪个输出的中间结果
+    TEST_OUTPUT_NAME = "learning_video_20260227_132227"  # 使用哪个输出的中间结果
     TEST_START_STEP = 2  # 从第几步开始: 1=从句子, 2=从分析结果, 3=直接生成视频
     
     # 生成视频

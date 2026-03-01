@@ -116,6 +116,16 @@ class MarkdownExporter:
             f.write(f"> *{introduction}*\n\n")
             f.write("---\n\n")
             
+            # ===== 英文原文整合 =====
+            f.write("## 📄 英文原文\n\n")
+            for i, sentence_data in enumerate(sentences_data, 1):
+                original_text = sentence_data['original_text']
+                # 移除末尾的句号，避免重复
+                original_text = original_text.rstrip('.!?')
+                f.write(f"{original_text}. ")
+            f.write("\n\n")
+            f.write("---\n\n")
+            
             # ===== 每个句子的详细内容 =====
             for i, sentence_data in enumerate(sentences_data, 1):
                 f.write(f"<div class=\"sentence-card\" id=\"句子-{i}\">\n\n")

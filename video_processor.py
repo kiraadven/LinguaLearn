@@ -5,10 +5,10 @@ import time
 from typing import List, Dict, Optional
 from moviepy.editor import (
     VideoFileClip, AudioFileClip, AudioClip, CompositeVideoClip, 
-    concatenate_videoclips, concatenate_audioclips, ImageClip
+    concatenate_videoclips, concatenate_audioclips, ImageClip, TextClip
 )
 from moviepy.video.fx.all import speedx
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 import config
@@ -26,7 +26,79 @@ class VideoProcessor:
         self.html_renderer = HTMLRenderer()
         
         # 标记是否已保存调试图片
-        self._debug_saved = False
+        self._debug_saved = True
+    
+    def _create_watermark(self, video_width: int, video_height: int, duration: float = None) -> Optional[ImageClip]:
+        """
+        创建斜着的半透明灰色水印
+        
+        Args:
+            video_width: 视频宽度
+            video_height: video_height
+            duration: 视频时长（秒），如果不提供则不设置
+            
+        Returns:
+            水印 ImageClip，如果禁用水印则返回 None
+        """
+        # 如果禁用水印，直接返回 None
+        if not config.WATERMARK_ENABLED:
+            return None
+        
+        # 水印文字
+        watermark_text = "Made By GetEverybodyLearning"
+        
+        # 计算合适的字体大小（基于视频尺寸）
+        font_size = int(min(video_width, video_height) * 0.05)
+        
+        # 创建 TextClip，使用粗体字体
+        try:
+            watermark = TextClip(
+                watermark_text,
+                fontsize=font_size,
+                color=f'gray({config.WATERMARK_GRAY})',
+                font='Arial-Bold',
+                stroke_color=f'gray({config.WATERMARK_GRAY})',
+                stroke_width=font_size * 0.08,
+            )
+        except Exception:
+            try:
+                watermark = TextClip(
+                    watermark_text,
+                    fontsize=font_size,
+                    color=f'gray({config.WATERMARK_GRAY})',
+                    font='Helvetica-Bold',
+                    stroke_color=f'gray({config.WATERMARK_GRAY})',
+                    stroke_width=font_size * 0.08,
+                )
+            except Exception:
+                watermark = TextClip(
+                    watermark_text,
+                    fontsize=font_size,
+                    color=f'gray({config.WATERMARK_GRAY})',
+                    stroke_color=f'gray({config.WATERMARK_GRAY})',
+                    stroke_width=font_size * 0.08,
+                )
+        
+        # 设置透明度
+        watermark = watermark.set_opacity(config.WATERMARK_OPACITY)
+        
+        # 计算水印位置（居中）
+        watermark_w, watermark_h = watermark.size
+        x_pos = (video_width - watermark_w) // 2
+        y_pos = (video_height - watermark_h) // 2
+        
+        # 设置位置
+        watermark = watermark.set_position((x_pos, y_pos))
+        
+        # 旋转角度
+        watermark = watermark.rotate(config.WATERMARK_ANGLE)
+        
+        # 如果提供了视频时长则设置
+        if duration is not None:
+            watermark = watermark.set_duration(duration)
+        
+        return watermark
+      
     
     def _slow_audio_with_pitch_preservation(self, audio_clip: AudioFileClip, speed_factor: float, slow_duration: float) -> AudioFileClip:
         """
@@ -138,9 +210,10 @@ class VideoProcessor:
             words, width, height, temp_path
         )
         
-        if not success or not os.path.exists(temp_path):
+        if not success:
             raise RuntimeError(f"HTML 单词框渲染失败！words: {[w.get('word', '') for w in words[:2]]}")
-        
+        if not os.path.exists(temp_path):
+            raise RuntimeError(f"单词框图片不存在！temp_path: {temp_path}")
         # 读取渲染好的图片并转换为 numpy 数组
         img = Image.open(temp_path)
         result = np.array(img)
@@ -200,6 +273,61 @@ class VideoProcessor:
         
         return result
     
+    def process_sentence_video_quick(self, video_clip: VideoFileClip, 
+                                       sentence_data: Dict,
+                                       start_time: float,
+                                       end_time: float) -> VideoFileClip:
+        """
+        快速模式：处理单个句子的视频片段（原速 + 带翻译的字幕框）
+        
+        Args:
+            video_clip: 原始视频
+            sentence_data: 句子数据（包含翻译）
+            start_time: 句子开始时间
+            end_time: 句子结束时间
+            
+        Returns:
+            处理后的视频片段
+        """
+        # 时间处理
+        end_time += 0.1
+        
+        # 获取原始视频尺寸
+        orig_width, orig_height = video_clip.size
+        
+        # 字幕框尺寸
+        subtitle_box_height = int(orig_height * 0.33)
+        subtitle_margin = int(orig_height * 0.005)
+        subtitle_box_width = int(orig_width * 0.95)
+        
+        # 创建字幕框（带翻译）
+        subtitle_img = self.create_subtitle_frame(
+            sentence_data['original_text'],
+            sentence_data['chinese_translation'],
+            subtitle_box_width,
+            subtitle_box_height
+        )
+        subtitle_arr = np.array(subtitle_img)
+        
+        # 提取原速视频片段
+        segment = video_clip.subclip(start_time, end_time)
+        duration = segment.duration
+        
+        # 创建字幕 clip
+        if subtitle_arr.shape[2] == 4:
+            subtitle_clip = ImageClip(subtitle_arr, duration=duration).set_position(
+                ('center', orig_height - subtitle_box_height - subtitle_margin)
+            )
+        else:
+            subtitle_clip = ImageClip(subtitle_arr[:, :, :3], duration=duration).set_position(
+                ('center', orig_height - subtitle_box_height - subtitle_margin)
+            )
+        
+        # 合成视频和字幕
+        final_clip = CompositeVideoClip([segment, subtitle_clip])
+        
+        return final_clip
+    
     def process_sentence_video(self, video_clip: VideoFileClip, 
                                sentence_data: Dict,
                                start_time: float,
@@ -237,10 +365,10 @@ class VideoProcessor:
         subtitle_margin = int(orig_height * 0.005)
         subtitle_box_width = int(orig_width * 0.95)
         
-        # 单词框尺寸
+        # 单词框尺寸 (放在右上角)
         word_box_width = int(orig_width * 0.25)
-        word_box_height = int(orig_height * 0.665)
-        word_box_margin = int(orig_width * 0.002)
+        word_box_height = int(orig_height * 0.65)
+        word_box_margin = int(orig_width * 0.005)
         
         # 表达框尺寸（放在左上角）
         expr_box_width = int(orig_width * 0.25)
@@ -424,7 +552,34 @@ class VideoProcessor:
         print("正在加载视频...")
         video = VideoFileClip(video_path)
         
-        if segments_info is not None and len(segments_info) == len(sentences_data):
+        # 根据模式选择处理方法
+        is_quick_mode = config.PROCESSING_MODE == "quick"
+        
+        if is_quick_mode:
+            print("快速模式：仅处理原速视频 + 字幕框")
+            processed_clips = []
+            
+            for i, sentence_data in enumerate(sentences_data, 1):
+                print(f"正在处理句子 {i}/{len(sentences_data)}...")
+                
+                # 快速模式：使用时间戳信息
+                if segments_info is not None and i <= len(segments_info):
+                    start_time = segments_info[i-1].get('start', 0)
+                    end_time = segments_info[i-1].get('end', video.duration)
+                else:
+                    # 如果没有时间信息，平均分配
+                    total_duration = video.duration
+                    total_chars = sum(len(s['original_text']) for s in sentences_data)
+                    char_ratio = len(sentence_data['original_text']) / total_chars
+                    segment_duration = total_duration * char_ratio
+                    start_time = sum(total_duration * (len(s['original_text']) / total_chars) for s in sentences_data[:i-1]) if i > 1 else 0
+                    end_time = start_time + segment_duration
+                
+                processed_clip = self.process_sentence_video_quick(
+                    video, sentence_data, start_time, end_time
+                )
+                processed_clips.append(processed_clip)
+        elif segments_info is not None and len(segments_info) == len(sentences_data):
             print("使用提供的时间戳信息分割视频...")
             processed_clips = []
             
@@ -468,6 +623,15 @@ class VideoProcessor:
         print("正在合并视频片段...")
         final_video = concatenate_videoclips(processed_clips)
         
+        # 添加水印
+        # watermark_clip = self._create_watermark(final_video.w, final_video.h, final_video.duration)
+        # if watermark_clip:
+        #     print("正在添加水印...")
+        #     # 使用 set_duration 确保时长正确
+        #     watermark_clip = watermark_clip.set_duration(final_video.duration)
+        #     # 叠加水印
+        #     final_video = CompositeVideoClip([final_video, watermark_clip])
+        
         # 导出视频
         print(f"正在导出视频到 {output_path}...")
         final_video.write_videofile(
@@ -475,7 +639,8 @@ class VideoProcessor:
             codec='libx264',
             audio_codec='aac',
             fps=config.FPS,
-            preset='medium'
+            preset='slow',
+            bitrate='8000k'
         )
         
         # 清理

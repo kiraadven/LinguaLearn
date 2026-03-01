@@ -1,9 +1,16 @@
 import os
 import re
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from moviepy.editor import VideoFileClip
 from openai import OpenAI
 import config
+
+# 尝试导入 difflib 用于模糊匹配
+try:
+    from difflib import SequenceMatcher
+    HAS_DIFFLIB = True
+except ImportError:
+    HAS_DIFFLIB = False
 
 
 class AudioTranscriber:
@@ -334,6 +341,11 @@ class AudioTranscriber:
         """
         将单词时间戳分组到句子 - 使用更可靠的匹配算法
         
+        改进点：
+        1. 使用模糊匹配处理转录错误
+        2. 使用动态规划找到最佳对齐
+        3. 添加置信度评分
+        
         Args:
             words_with_timestamps: 单词列表，每个包含 word, start, end
             sentences: 目标句子列表
@@ -346,7 +358,6 @@ class AudioTranscriber:
         
         # 清理文本用于匹配
         def normalize_text(text):
-            # 移除标点符号，转小写
             import re
             text = re.sub(r'[^\w\s]', '', text)
             return " ".join(text.lower().split())
@@ -364,56 +375,216 @@ class AudioTranscriber:
             if not normalized_target:
                 continue
             
-            # 在whisper文本中查找匹配位置
-            best_match_start = -1
-            best_match_end = -1
-            min_distance = float('inf')
+            # 使用优化的匹配算法
+            best_match = self._find_best_word_match(
+                words_with_timestamps, 
+                normalized_target,
+                target_sentence
+            )
             
-            # 滑动窗口匹配
-            for i in range(len(words_with_timestamps)):
-                for j in range(i, len(words_with_timestamps)):
-                    # 构建当前窗口的文本
-                    window_words = words_with_timestamps[i:j+1]
-                    window_text = " ".join([w["word"] for w in window_words])
-                    normalized_window = normalize_text(window_text)
-                    
-                    # 检查是否匹配目标句子
-                    if normalized_target in normalized_window or normalized_window in normalized_target:
-                        # 计算相似度
-                        if normalized_window == normalized_target:
-                            distance = 0
-                        else:
-                            distance = abs(len(normalized_window) - len(normalized_target))
-                        
-                        if distance < min_distance:
-                            min_distance = distance
-                            best_match_start = window_words[0]["start"]
-                            best_match_end = window_words[-1]["end"]
-            
-            # 如果找到匹配
-            if best_match_start >= 0:
+            if best_match:
                 sentence_timestamps.append({
-                    "start": best_match_start,
-                    "end": best_match_end,
+                    "start": best_match["start"],
+                    "end": best_match["end"],
                     "text": target_sentence
                 })
             else:
                 # 如果没找到匹配，使用位置估算
                 idx = len(sentence_timestamps)
-                if words_with_timestamps:
-                    total_words = len(words_with_timestamps)
-                    words_per_sentence = total_words / len(sentences)
-                    start_idx = int(idx * words_per_sentence)
-                    end_idx = int((idx + 1) * words_per_sentence)
-                    
-                    start_time = words_with_timestamps[min(start_idx, total_words-1)]["start"]
-                    end_time = words_with_timestamps[min(end_idx - 1, total_words-1)]["end"]
-                    
-                    sentence_timestamps.append({
-                        "start": start_time,
-                        "end": end_time,
-                        "text": target_sentence
-                    })
+                total_words = len(words_with_timestamps)
+                words_per_sentence = total_words / len(sentences)
+                start_idx = int(idx * words_per_sentence)
+                end_idx = int((idx + 1) * words_per_sentence)
+                
+                start_time = words_with_timestamps[min(start_idx, total_words-1)]["start"]
+                end_time = words_with_timestamps[min(end_idx - 1, total_words-1)]["end"]
+                
+                sentence_timestamps.append({
+                    "start": start_time,
+                    "end": end_time,
+                    "text": target_sentence
+                })
+        
+        # 确保时间戳连续且不重叠
+        sentence_timestamps = self._fix_overlapping_timestamps(sentence_timestamps)
+        
+        return sentence_timestamps
+    
+    def _find_best_word_match(self, words_with_timestamps: List[Dict], 
+                               normalized_target: str,
+                               original_target: str) -> Dict:
+        """
+        找到单词时间戳与目标句子的最佳匹配
+        
+        使用滑动窗口 + 模糊匹配算法
+        
+        Args:
+            words_with_timestamps: 单词时间戳列表
+            normalized_target: 规范化后的目标句子
+            original_target: 原始目标句子
+            
+        Returns:
+            匹配结果，包含 start, end, confidence
+        """
+        if not words_with_timestamps:
+            return None
+        
+        target_words = normalized_target.split()
+        n_target = len(target_words)
+        n_words = len(words_with_timestamps)
+
+         # 清理文本用于匹配
+        def normalize_text(text):
+            import re
+            text = re.sub(r'[^\w\s]', '', text)
+            return " ".join(text.lower().split())
+        
+        if n_target == 0 or n_words == 0:
+            return None
+        
+        # 滑动窗口搜索最佳匹配
+        best_score = 0
+        best_start = -1
+        best_end = -1
+        
+        # 窗口大小从目标句子长度开始，逐步扩大
+        for window_size in range(max(1, n_target // 2), min(n_words, n_target * 2) + 1):
+            for start_idx in range(n_words - window_size + 1):
+                end_idx = start_idx + window_size
+                
+                # 提取窗口内的单词
+                window_words = words_with_timestamps[start_idx:end_idx]
+                window_text = " ".join([normalize_text(w["word"]) for w in window_words])
+                
+                # 计算相似度
+                score = self._calculate_similarity(window_text, normalized_target)
+                
+                if score > best_score:
+                    best_score = score
+                    best_start = start_idx
+                    best_end = end_idx
+        
+        # 如果最佳匹配分数太低，使用动态规划对齐
+        if best_score < 0.3:
+            return self._dp_align_sentence(words_with_timestamps, normalized_target)
+        
+        # 返回匹配结果
+        if best_start >= 0:
+            return {
+                "start": words_with_timestamps[best_start]["start"],
+                "end": words_with_timestamps[best_end - 1]["end"],
+                "confidence": best_score
+            }
+        
+        return None
+    
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """
+        计算两个文本的相似度
+        
+        Args:
+            text1: 第一个文本
+            text2: 第二个文本
+            
+        Returns:
+            相似度分数 (0-1)
+        """
+        if not text1 or not text2:
+            return 0.0
+        
+        # 精确匹配
+        if text1 == text2:
+            return 1.0
+        
+        # 子串匹配
+        if text1 in text2 or text2 in text1:
+            return 0.8
+        
+        # 使用 difflib 计算相似度
+        if HAS_DIFFLIB:
+            ratio = SequenceMatcher(None, text1, text2).ratio()
+            return ratio
+        
+        # 简单的词重叠计算
+        words1 = set(text1.split())
+        words2 = set(text2.split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+        
+        return intersection / union if union > 0 else 0.0
+    
+    def _dp_align_sentence(self, words_with_timestamps: List[Dict], 
+                           normalized_target: str) -> Dict:
+        """
+        使用动态规划对齐句子和单词时间戳
+        
+        适用于转录文本与目标句子差异较大的情况
+        
+        Args:
+            words_with_timestamps: 单词时间戳列表
+            normalized_target: 规范化后的目标句子
+            
+        Returns:
+            对齐结果
+        """
+        target_words = normalized_target.split()
+        n_target = len(target_words)
+        n_words = len(words_with_timestamps)
+        
+        if n_target == 0 or n_words == 0:
+            return None
+        
+        # 构建相似度矩阵
+        # dp[i][j] = 前i个目标词匹配到前j个音频词的最佳分数
+        dp = [[0.0] * (n_words + 1) for _ in range(n_target + 1)]
+        
+        for i in range(1, n_target + 1):
+            for j in range(1, n_words + 1):
+                target_word = target_words[i-1]
+                audio_word = normalize_text(words_with_timestamps[j-1]["word"])
+                
+                # 当前词的相似度
+                word_sim = self._calculate_similarity(target_word, audio_word)
+                
+                # 三种选择：不匹配当前词、匹配、或者跳过音频词
+                dp[i][j] = max(
+                    dp[i][j-1],  # 跳过音频词
+                    dp[i-1][j-1] + word_sim,  # 匹配
+                    dp[i-1][j]  # 跳过目标词
+                )
+        
+        # 回溯找到最佳对齐
+        i, j = n_target, n_words
+        matched_audio = []
+        
+        while i > 0 and j > 0:
+            target_word = target_words[i-1]
+            audio_word = normalize_text(words_with_timestamps[j-1]["word"])
+            word_sim = self._calculate_similarity(target_word, audio_word)
+            
+            if dp[i][j] == dp[i-1][j-1] + word_sim and word_sim > 0.3:
+                matched_audio.append(j-1)
+                i -= 1
+                j -= 1
+            elif dp[i][j] == dp[i][j-1]:
+                j -= 1
+            else:
+                i -= 1
+        
+        if not matched_audio:
+            return None
+        
+        matched_audio.reverse()
+        
+        return {
+            "start": words_with_timestamps[matched_audio[0]]["start"],
+            "end": words_with_timestamps[matched_audio[-1]]["end"],
+            "confidence": dp[n_target][n_words] / n_target
+        }
         
         # 确保时间戳连续且不重叠
         sentence_timestamps = self._fix_overlapping_timestamps(sentence_timestamps)

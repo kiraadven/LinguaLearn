@@ -51,7 +51,7 @@ PROCESSING_MODE = "full"  # 可选: "full", "quick"
 
 # ===== 句子分割配置 =====
 MAX_SENTENCE_LENGTH = 130  # 句子最大字符数，超过则智能分割
-MIN_SENTENCE_LENGTH = 20   # 句子最小字符数
+MIN_SENTENCE_LENGTH = 30   # 句子最小字符数
 
 # ===== 视频处理各部分配置 =====
 # Part 1: 原速播放部分（从句子开始到下一句开始，无字幕无单词框）

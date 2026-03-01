@@ -537,6 +537,12 @@ class AudioTranscriber:
         
         if n_target == 0 or n_words == 0:
             return None
+
+          # 清理文本用于匹配
+        def normalize_text(text):
+            import re
+            text = re.sub(r'[^\w\s]', '', text)
+            return " ".join(text.lower().split())
         
         # 构建相似度矩阵
         # dp[i][j] = 前i个目标词匹配到前j个音频词的最佳分数

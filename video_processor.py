@@ -352,8 +352,7 @@ class VideoProcessor:
             处理后的视频片段
         """
         # 时间处理
-        end_time += 0.1
-        gap_end_time = next_sentence_start + 0.1 if next_sentence_start is not None else end_time
+        gap_end_time = next_sentence_start if next_sentence_start is not None else end_time
         gap_duration = gap_end_time - start_time
         
         # 获取原始视频尺寸
@@ -538,104 +537,103 @@ class VideoProcessor:
                           output_path: str,
                           segments_info: Optional[List[Dict]] = None) -> str:
         """
-        处理完整视频
+        处理完整视频 - 同时生成缩略版和学习版
         
         Args:
             video_path: 输入视频路径
             sentences_data: 所有句子的数据
-            output_path: 输出视频路径
+            output_path: 输出视频路径（基础路径，会自动添加 _quick 和 _full 后缀）
             segments_info: 片段时间信息列表
             
         Returns:
-            输出视频路径
+            包含两个视频路径的字典 {"quick": quick_path, "full": full_path}
         """
+        import os
+        
+        # 获取基础路径（去掉扩展名）
+        base_path = os.path.splitext(output_path)[0]
+        quick_output_path = f"{base_path}_quick.mp4"
+        full_output_path = f"{base_path}_full.mp4"
+        
         print("正在加载视频...")
         video = VideoFileClip(video_path)
         
-        # 根据模式选择处理方法
-        is_quick_mode = config.PROCESSING_MODE == "quick"
+        # ===== 生成缩略版 (Quick) =====
+        print("\n" + "=" * 60)
+        print("生成缩略版视频...")
+        print("=" * 60)
+        print("缩略版模式：仅处理原速视频 + 字幕框")
         
-        if is_quick_mode:
-            print("快速模式：仅处理原速视频 + 字幕框")
-            processed_clips = []
+        quick_clips = []
+        for i, sentence_data in enumerate(sentences_data, 1):
+            print(f"正在处理句子 {i}/{len(sentences_data)}...")
             
-            for i, sentence_data in enumerate(sentences_data, 1):
-                print(f"正在处理句子 {i}/{len(sentences_data)}...")
-                
-                # 快速模式：使用时间戳信息
-                if segments_info is not None and i <= len(segments_info):
-                    start_time = segments_info[i-1].get('start', 0)
-                    end_time = segments_info[i-1].get('end', video.duration)
-                else:
-                    # 如果没有时间信息，平均分配
-                    total_duration = video.duration
-                    total_chars = sum(len(s['original_text']) for s in sentences_data)
-                    char_ratio = len(sentence_data['original_text']) / total_chars
-                    segment_duration = total_duration * char_ratio
-                    start_time = sum(total_duration * (len(s['original_text']) / total_chars) for s in sentences_data[:i-1]) if i > 1 else 0
-                    end_time = start_time + segment_duration
-                
-                processed_clip = self.process_sentence_video_quick(
-                    video, sentence_data, start_time, end_time
-                )
-                processed_clips.append(processed_clip)
-        elif segments_info is not None and len(segments_info) == len(sentences_data):
-            print("使用提供的时间戳信息分割视频...")
-            processed_clips = []
-            
-            for i, (sentence_data, seg_info) in enumerate(zip(sentences_data, segments_info), 1):
-                print(f"正在处理句子 {i}/{len(sentences_data)}...")
-                
-                start_time = seg_info.get('start', 0)
-                end_time = seg_info.get('end', video.duration)
-                
-                next_sentence_start = None
-                if i < len(segments_info):
-                    next_sentence_start = segments_info[i].get('start', None)
-                
-                processed_clip = self.process_sentence_video(
-                    video, sentence_data, start_time, end_time, next_sentence_start
-                )
-                processed_clips.append(processed_clip)
-        else:
-            print("未提供时间信息，根据视频时长平均分配...")
-            total_duration = video.duration
-            
-            processed_clips = []
-            current_time = 0
-            
-            for i, sentence_data in enumerate(sentences_data, 1):
-                print(f"正在处理句子 {i}/{len(sentences_data)}...")
-                
+            # 使用时间戳信息
+            if segments_info is not None and i <= len(segments_info):
+                start_time = segments_info[i-1].get('start', 0)
+                end_time = segments_info[i-1].get('end', video.duration)
+            else:
+                # 如果没有时间信息，平均分配
+                total_duration = video.duration
                 total_chars = sum(len(s['original_text']) for s in sentences_data)
                 char_ratio = len(sentence_data['original_text']) / total_chars
                 segment_duration = total_duration * char_ratio
-                end_time = min(current_time + segment_duration, total_duration)
-                
-                processed_clip = self.process_sentence_video(
-                    video, sentence_data, current_time, end_time
-                )
-                processed_clips.append(processed_clip)
-                
-                current_time = end_time
+                start_time = sum(total_duration * (len(s['original_text']) / total_chars) for s in sentences_data[:i-1]) if i > 1 else 0
+                end_time = start_time + segment_duration
+            
+            processed_clip = self.process_sentence_video_quick(
+                video, sentence_data, start_time, end_time
+            )
+            quick_clips.append(processed_clip)
         
-        # 合并所有片段
-        print("正在合并视频片段...")
-        final_video = concatenate_videoclips(processed_clips)
+        # 合并缩略版
+        print("正在合并缩略版视频片段...")
+        quick_video = concatenate_videoclips(quick_clips)
         
-        # 添加水印
-        # watermark_clip = self._create_watermark(final_video.w, final_video.h, final_video.duration)
-        # if watermark_clip:
-        #     print("正在添加水印...")
-        #     # 使用 set_duration 确保时长正确
-        #     watermark_clip = watermark_clip.set_duration(final_video.duration)
-        #     # 叠加水印
-        #     final_video = CompositeVideoClip([final_video, watermark_clip])
+        # 导出缩略版
+        print(f"正在导出缩略版视频到 {quick_output_path}...")
+        quick_video.write_videofile(
+            quick_output_path,
+            codec='libx264',
+            audio_codec='aac',
+            fps=config.FPS,
+            preset='slow',
+            bitrate='8000k'
+        )
+        quick_video.close()
         
-        # 导出视频
-        print(f"正在导出视频到 {output_path}...")
-        final_video.write_videofile(
-            output_path,
+        # ===== 生成学习版 (Full) =====
+        print("\n" + "=" * 60)
+        print("生成学习版视频...")
+        print("=" * 60)
+        
+        print("学习版模式：使用提供的时间戳信息...")
+        full_clips = []
+        
+        for i, (sentence_data, seg_info) in enumerate(zip(sentences_data, segments_info), 1):
+            print(f"正在处理句子 {i}/{len(sentences_data)}...")
+            
+            start_time = seg_info.get('start', 0)
+            end_time = seg_info.get('end', video.duration)
+            
+            next_sentence_start = None
+            if i < len(segments_info):
+                next_sentence_start = segments_info[i].get('start', None)
+            
+            processed_clip = self.process_sentence_video(
+                video, sentence_data, start_time, end_time, next_sentence_start
+            )
+            full_clips.append(processed_clip)
+       
+        
+        # 合并学习版
+        print("正在合并学习版视频片段...")
+        full_video = concatenate_videoclips(full_clips)
+        
+        # 导出学习版
+        print(f"正在导出学习版视频到 {full_output_path}...")
+        full_video.write_videofile(
+            full_output_path,
             codec='libx264',
             audio_codec='aac',
             fps=config.FPS,
@@ -645,7 +643,13 @@ class VideoProcessor:
         
         # 清理
         video.close()
-        final_video.close()
+        full_video.close()
         
-        print("视频处理完成！")
-        return output_path
+        print("\n视频处理完成！")
+        print(f"  缩略版: {quick_output_path}")
+        print(f"  学习版: {full_output_path}")
+        
+        return {
+            "quick": quick_output_path,
+            "full": full_output_path
+        }

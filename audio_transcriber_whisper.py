@@ -5,6 +5,13 @@ from moviepy.editor import VideoFileClip
 from openai import OpenAI
 import config
 
+# 尝试导入 tqdm 用于进度条
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+
 # 尝试导入 difflib 用于模糊匹配
 try:
     from difflib import SequenceMatcher
@@ -14,7 +21,7 @@ except ImportError:
 
 
 class AudioTranscriber:
-    def __init__(self, api_key: str = None, base_url: str = None, use_local: bool = False, model_size: str = None):
+    def __init__(self, api_key: str = None, base_url: str = None, use_local: bool = True, model_size: str = None):
         """
         初始化音频转文字器
         
@@ -24,10 +31,10 @@ class AudioTranscriber:
             use_local: 是否使用本地 Whisper 模型
             model_size: Whisper 模型大小 (tiny, base, small, medium, large)
         """
-        self.use_local = use_local
-        self.api_key = api_key or config.OPENAI_API_KEY
-        self.base_url = base_url or config.OPENAI_BASE_URL
-        self.model_size = model_size or config.WHISPER_MODEL_SIZE
+        self.use_local = config.USE_LOCAL
+        self.api_key = config.OPENAI_API_KEY
+        self.base_url = config.OPENAI_BASE_URL
+        self.model_size = config.WHISPER_MODEL_SIZE
         
         if not use_local:
             if not self.api_key:
@@ -107,6 +114,110 @@ class AudioTranscriber:
             return self._transcribe_local_with_timestamps(audio_path)
         else:
             return self._transcribe_api_with_timestamps(audio_path)
+    
+    # 缓存转录结果，避免重复转录
+    _cached_transcription = None
+    _cached_audio_path = None
+    
+    def transcribe_once_with_word_timestamps(self, audio_path: str) -> dict:
+        """
+        转录音频一次，返回文本和单词时间戳（避免重复转录）
+        
+        Args:
+            audio_path: 音频文件路径
+            
+        Returns:
+            包含 text 和 words_with_timestamps 的字典
+        """
+        # 检查缓存
+        if self._cached_audio_path == audio_path and self._cached_transcription:
+            print("✓ 使用缓存的转录结果")
+            return self._cached_transcription
+        
+        print("正在使用本地 Whisper 模型转录音频（带单词时间戳）...")
+        
+        if self.use_local:
+            result = self.whisper_model.transcribe(
+                audio_path,
+                language="en",
+                verbose=False,
+                word_timestamps=True
+            )
+            
+            # 提取文本
+            text = result.get("text", "").strip()
+            
+            # 提取单词时间戳
+            words_with_timestamps = []
+            for segment in result.get("segments", []):
+                words = segment.get("words", [])
+                if not words:
+                    words_with_timestamps.append({
+                        "word": segment.get("text", ""),
+                        "start": segment.get("start", 0),
+                        "end": segment.get("end", 0)
+                    })
+                else:
+                    for word_info in words:
+                        words_with_timestamps.append({
+                            "word": word_info.get("word", ""),
+                            "start": word_info.get("start", 0),
+                            "end": word_info.get("end", 0)
+                        })
+            
+            cached = {
+                "text": text,
+                "words_with_timestamps": words_with_timestamps
+            }
+            
+            # 缓存结果
+            self._cached_transcription = cached
+            self._cached_audio_path = audio_path
+            
+            print(f"✓ 转录完成，共 {len(text)} 个字符，{len(words_with_timestamps)} 个单词")
+            return cached
+        
+    def get_text_and_sentence_timestamps(self, audio_path: str, sentences: List[str]) -> Tuple[str, List[Dict]]:
+        """
+        一次性获取文本和句子时间戳（避免重复转录）
+        
+        Args:
+            audio_path: 音频文件路径
+            sentences: 句子列表
+            
+        Returns:
+            (文本, 句子时间戳列表)
+        """
+        # 一次转录获取所有数据
+        transcription = self.transcribe_once_with_word_timestamps(audio_path)
+        text = transcription["text"]
+        words_with_timestamps = transcription["words_with_timestamps"]
+        
+        print(f"✓ 提取的文字内容:\n{text}\n")
+        
+        # 分割句子
+        print(f"✓ 成功分割为 {len(sentences)} 个句子")
+        
+        # 对齐句子时间戳
+        print("正在获取每个句子的时间戳...")
+        sentence_timestamps = self._group_words_to_sentences(words_with_timestamps, sentences)
+        
+        return text, sentence_timestamps
+    
+    def align_sentences_to_timestamps(self, words_with_timestamps: List[Dict], sentences: List[str]) -> List[Dict]:
+        """
+        将句子对齐到单词时间戳（不重复转录）
+        
+        Args:
+            words_with_timestamps: 单词时间戳列表
+            sentences: 句子列表
+            
+        Returns:
+            句子时间戳列表
+        """
+        sentence_timestamps = self._group_words_to_sentences(words_with_timestamps, sentences)
+        
+        return sentence_timestamps
     
     def _transcribe_local(self, audio_path: str) -> str:
         """
@@ -362,48 +473,106 @@ class AudioTranscriber:
             text = re.sub(r'[^\w\s]', '', text)
             return " ".join(text.lower().split())
         
-        # 构建完整的whisper转录文本
-        whisper_text = " ".join([w["word"] for w in words_with_timestamps])
-        normalized_whisper = normalize_text(whisper_text)
+        # 预计算：构建累计单词列表和位置数组（只计算一次）
+        n_words = len(words_with_timestamps)
+        
+        # 预先规范化所有单词
+        normalized_words = []
+        for w in words_with_timestamps:
+            clean = re.sub(r'[^\w\s]', '', w["word"]).lower()
+            normalized_words.append(clean)
+        
+        # 预计算每个位置的累计文本（用于快速子串匹配）
+        # cumulative[i] = "word0 word1 ... wordi"
+        cumulative = ["" for _ in range(n_words)]
+        for i in range(n_words):
+            if i == 0:
+                cumulative[i] = normalized_words[i]
+            else:
+                cumulative[i] = cumulative[i-1] + " " + normalized_words[i]
+        
+        # 快速相似度函数（使用词集合交集）
+        def fast_similarity(window_start, window_end):
+            if window_end <= window_start:
+                return 0.0
+            window_text = cumulative[window_end - 1] if window_start == 0 else cumulative[window_end - 1][len(cumulative[window_start - 1]) + 1:]
+            window_set = set(window_text.split())
+            target_set = set(normalized_target.split())
+            if not target_set:
+                return 0.0
+            return len(window_set & target_set) / len(target_set)
         
         sentence_timestamps = []
         
-        # 为每个目标句子找到最佳匹配
-        for target_sentence in sentences:
+        # 贪心搜索：利用句子顺序，从上一个结束位置开始搜索
+        search_start = 0  # 第一个句子从位置 0 开始
+        
+        for idx, target_sentence in enumerate(tqdm(sentences, desc="句子匹配", unit="句")):
             normalized_target = normalize_text(target_sentence)
             
             if not normalized_target:
                 continue
             
-            # 使用优化的匹配算法
-            best_match = self._find_best_word_match(
-                words_with_timestamps, 
-                normalized_target,
-                target_sentence
-            )
+            target_words = normalized_target.split()
+            n_target = len(target_words)
             
-            if best_match:
+            if n_target == 0:
+                continue
+            
+            # 估算搜索范围：
+            # - 从 search_start 开始（利用句子顺序）
+            # - 向前看最多 len(cumulative) 个位置，但限制搜索步数
+            best_score = 0
+            best_start = search_start
+            best_end = min(search_start + n_target + 5, n_words)
+            
+            # 在合理范围内搜索（最多搜索 1000 个位置以保证速度）
+            max_search = min(search_start + 1000, n_words)
+            
+            for start_idx in range(search_start, max_search):
+                # 窗口大小为目标句子长度 ±3（允许小幅波动）
+                for window_size in [n_target, n_target + 1, n_target - 1, n_target + 2, n_target - 2]:
+                    if window_size < 1:
+                        continue
+                    end_idx = start_idx + window_size
+                    if end_idx > n_words:
+                        continue
+                    
+                    # 快速相似度计算
+                    score = fast_similarity(start_idx, end_idx)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_start = start_idx
+                        best_end = end_idx
+                        
+                        # 如果找到完美匹配，立即返回
+                        if score >= 0.95:
+                            break
+                if best_score >= 0.95:
+                    break
+            
+            # 如果找到匹配，保存结果并更新搜索起点
+            if best_score > 0.2:
                 sentence_timestamps.append({
-                    "start": best_match["start"],
-                    "end": best_match["end"],
+                    "start": words_with_timestamps[best_start]["start"],
+                    "end": words_with_timestamps[best_end - 1]["end"],
                     "text": target_sentence
                 })
+                # 下一个句子从当前结束位置开始搜索
+                search_start = best_end
             else:
-                # 如果没找到匹配，使用位置估算
-                idx = len(sentence_timestamps)
-                total_words = len(words_with_timestamps)
-                words_per_sentence = total_words / len(sentences)
-                start_idx = int(idx * words_per_sentence)
-                end_idx = int((idx + 1) * words_per_sentence)
-                
-                start_time = words_with_timestamps[min(start_idx, total_words-1)]["start"]
-                end_time = words_with_timestamps[min(end_idx - 1, total_words-1)]["end"]
+                # 没找到匹配，使用位置估算
+                words_per_sentence = n_words // len(sentences)
+                start_idx = idx * words_per_sentence
+                end_idx = min(start_idx + max(n_target, words_per_sentence), n_words)
                 
                 sentence_timestamps.append({
-                    "start": start_time,
-                    "end": end_time,
+                    "start": words_with_timestamps[start_idx]["start"],
+                    "end": words_with_timestamps[end_idx - 1]["end"],
                     "text": target_sentence
                 })
+                search_start = end_idx
         
         # 确保时间戳连续且不重叠
         sentence_timestamps = self._fix_overlapping_timestamps(sentence_timestamps)
@@ -884,17 +1053,3 @@ class AudioTranscriber:
         # os.remove(audio_path)
         
         return result
-
-
-if __name__ == "__main__":
-    # 测试代码
-    transcriber = AudioTranscriber()
-    
-    # 假设有一个测试视频
-    test_video = "test_video.mp4"
-    
-    if os.path.exists(test_video):
-        text = transcriber.transcribe_video(test_video)
-        print(f"\n转录结果:\n{text}")
-    else:
-        print(f"测试视频不存在: {test_video}")

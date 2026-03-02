@@ -7,7 +7,7 @@ from sentence_splitter import SentenceSplitter
 from word_analyzer import WordAnalyzer
 from video_processor import VideoProcessor
 from markdown_exporter import MarkdownExporter
-from audio_transcriber import AudioTranscriber
+from audio_transcriber_whisper import AudioTranscriber
 import config
 
 
@@ -19,13 +19,14 @@ class EnglishLearningVideoGenerator:
         print("=" * 60)
         
         self.splitter = SentenceSplitter(
-            max_length=config.MAX_SENTENCE_LENGTH,
-            min_length=config.MIN_SENTENCE_LENGTH
+            max_words=config.MAX_SENTENCE_WORDS,
+            min_words=config.MIN_SENTENCE_WORDS
         )
         self.analyzer = WordAnalyzer()
         self.processor = VideoProcessor()
         self.exporter = MarkdownExporter()
-        self.transcriber = AudioTranscriber(use_local=config.USE_LOCAL_WHISPER)
+        # 使用本地 Whisper 模型（支持单词级别时间戳）
+        self.transcriber = AudioTranscriber(use_local=True, model_size="base")
         
         # 创建必要的目录
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
@@ -80,6 +81,38 @@ class EnglishLearningVideoGenerator:
             except Exception as e:
                 print(f"⚠️ 删除临时文件失败: {audio_file}, {e}")
     
+    def _cleanup_intermediate_files(self, output_name: str):
+        """删除中间结果文件（txt, segments.json, analysis.json）"""
+        import glob
+        
+        # 删除句子 txt 文件
+        txt_pattern = os.path.join(config.OUTPUT_DIR, f"{output_name}_*.txt")
+        for f in glob.glob(txt_pattern):
+            try:
+                os.remove(f)
+                print(f"🗑️ 已删除中间文件: {os.path.basename(f)}")
+            except Exception as e:
+                print(f"⚠️ 删除中间文件失败: {f}, {e}")
+        
+        # 删除 segments.json
+        segments_file = os.path.join(config.OUTPUT_DIR, f"{output_name}_segments.json")
+        if os.path.exists(segments_file):
+            try:
+                os.remove(segments_file)
+                print(f"🗑️ 已删除中间文件: {os.path.basename(segments_file)}")
+            except Exception as e:
+                print(f"⚠️ 删除中间文件失败: {segments_file}, {e}")
+        
+        # 删除 analysis.json
+        analysis_file = os.path.join(config.OUTPUT_DIR, f"{output_name}_2_analysis.json")
+        if os.path.exists(analysis_file):
+            try:
+                os.remove(analysis_file)
+                print(f"🗑️ 已删除中间文件: {os.path.basename(analysis_file)}")
+            except Exception as e:
+                print(f"⚠️ 删除中间文件失败: {analysis_file}, {e}")
+    
+    
     def load_from_step(self, output_name: str, start_step: int, video_path: str) -> dict:
         """
         从指定步骤开始加载并处理
@@ -128,18 +161,24 @@ class EnglishLearningVideoGenerator:
             # 根据配置选择使用新版或旧版视频合成器
             if config.USE_NEW_COMPOSER:
                 print("使用新版现代风格视频合成器")
-                final_video_path = self.composer.process_full_video(
+                video_paths = self.composer.process_full_video(
                     video_path, sentences_data, video_output_path
                 )
             else:
                 print("使用旧版视频合成器")
-                final_video_path = self.processor.process_full_video(
+                video_paths = self.processor.process_full_video(
                     video_path, sentences_data, video_output_path
                 )
-            print(f"✓ 视频已保存: {final_video_path}")
+            
+            # 删除中间文件
+            self._cleanup_intermediate_files(output_name)
+            
+            print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
+            print(f"✓ 学习版视频已保存: {video_paths['full']}")
             
             return {
-                'video_path': final_video_path,
+                'video_path': video_paths['full'],
+                'video_paths': video_paths,
                 'markdown_path': markdown_path,
                 'sentences_count': len(sentences_data)
             }
@@ -170,13 +209,19 @@ class EnglishLearningVideoGenerator:
             print("-" * 60)
             video_output_path = os.path.join(config.OUTPUT_DIR, f"{output_name}.mp4")
             
-            final_video_path = self.processor.process_full_video(
+            video_paths = self.processor.process_full_video(
                 video_path, sentences_data, video_output_path, segments_info
             )
-            print(f"✓ 视频已保存: {final_video_path}")
+            
+            # 删除中间文件
+            self._cleanup_intermediate_files(output_name)
+            
+            print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
+            print(f"✓ 学习版视频已保存: {video_paths['full']}")
             
             return {
-                'video_path': final_video_path,
+                'video_path': video_paths['full'],
+                'video_paths': video_paths,
                 'markdown_path': markdown_path,
                 'sentences_count': len(sentences_data)
             }
@@ -204,18 +249,24 @@ class EnglishLearningVideoGenerator:
             # 根据配置选择使用新版或旧版视频合成器
             if config.USE_NEW_COMPOSER:
                 print("使用新版现代风格视频合成器")
-                final_video_path = self.composer.process_full_video(
+                video_paths = self.composer.process_full_video(
                     video_path, sentences_data, video_output_path, segments_info
                 )
             else:
                 print("使用旧版视频合成器")
-                final_video_path = self.processor.process_full_video(
+                video_paths = self.processor.process_full_video(
                     video_path, sentences_data, video_output_path, segments_info
                 )
-            print(f"✓ 视频已保存: {final_video_path}")
+            
+            # 删除中间文件
+            self._cleanup_intermediate_files(output_name)
+            
+            print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
+            print(f"✓ 学习版视频已保存: {video_paths['full']}")
             
             return {
-                'video_path': final_video_path,
+                'video_path': video_paths['full'],
+                'video_paths': video_paths,
                 'sentences_count': len(sentences_data)
             }
         
@@ -287,19 +338,25 @@ class EnglishLearningVideoGenerator:
         video_output_path = os.path.join(config.OUTPUT_DIR, f"{output_name}.mp4")
         
     
-        final_video_path = self.processor.process_full_video(
+        video_paths = self.processor.process_full_video(
             video_path,
             sentences_data,
             video_output_path
         )
-        print(f"✓ 视频已保存: {final_video_path}")
+        
+        # 删除中间文件
+        self._cleanup_intermediate_files(output_name)
+        
+        print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
+        print(f"✓ 学习版视频已保存: {video_paths['full']}")
         
         print("\n" + "=" * 60)
         print("✓ 所有任务完成！")
         print("=" * 60)
         
         return {
-            'video_path': final_video_path,
+            'video_path': video_paths['full'],  # 主要返回学习版
+            'video_paths': video_paths,  # 同时返回两个版本
             'markdown_path': markdown_path,
             'sentences_count': len(sentences_data),
             'intermediate_files': {
@@ -323,12 +380,11 @@ class EnglishLearningVideoGenerator:
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"视频文件不存在: {video_path}")
         
+        # 从视频路径提取文件名作为基础名（去掉扩展名）
+        video_filename = os.path.splitext(os.path.basename(video_path))[0]
+        
         if output_name is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            if config.PROCESSING_MODE == "quick":
-                output_name = f"learning_video_quick_{timestamp}"
-            else:
-                output_name = f"learning_video_{timestamp}"
+            output_name = video_filename
         
         print("\n步骤 0/4: 从视频中提取文字...")
         print("-" * 60)
@@ -336,46 +392,26 @@ class EnglishLearningVideoGenerator:
         # 1. 提取音频
         audio_path = self.transcriber.extract_audio_from_video(video_path)
         
-        # 2. 使用带时间戳的转录（只加载一次模型）
-        print("正在使用 Whisper 转录音频（带时间戳）...")
-        transcription_result = self.transcriber.transcribe_audio_with_timestamps(audio_path)
-        text = transcription_result["text"]
-        segments = transcription_result.get("segments", [])
+        # 2. 使用本地 Whisper 模型一次性转录（带单词时间戳）
+        print("\n步骤 1/4: 转录音频并获取时间戳...")
+        print("-" * 60)
         
-        print(f"✓ 提取的文字内容:\n{text[:200]}{'...' if len(text) > 200 else ''}\n")
+        # 一次性转录获取文本和单词时间戳（带进度条）
+        transcription = self.transcriber.transcribe_once_with_word_timestamps(audio_path)
+        text = transcription["text"]
+        
+        print(f"✓ 提取的文字内容:\n{text}\n")
         
         # 3. 分割句子
         sentences = self.splitter.split_text(text)
         print(f"✓ 成功分割为 {len(sentences)} 个句子")
         
-        # 4. 从 segments 中提取单词级别时间戳
-        print("正在解析每个句子的时间戳...")
-        
-        # 提取单词时间戳
-        words_with_timestamps = []
-        for segment in segments:
-            words = segment.get("words", [])
-            if words:
-                # 有单词级别时间戳
-                for word_info in words:
-                    words_with_timestamps.append({
-                        "word": word_info.get("word", ""),
-                        "start": word_info.get("start", 0),
-                        "end": word_info.get("end", 0)
-                    })
-            else:
-                # 没有单词级别，使用段落级别
-                words_with_timestamps.append({
-                    "word": segment.get("text", ""),
-                    "start": segment.get("start", 0),
-                    "end": segment.get("end", 0)
-                })
-        
-        if words_with_timestamps:
-            sentence_timestamps = self.transcriber._group_words_to_sentences(words_with_timestamps, sentences)
-        else:
-            # 无法获取时间戳，使用平均分配
-            sentence_timestamps = []
+        # 4. 使用已有的单词时间戳对齐句子（带进度条）
+        print("正在获取每个句子的时间戳...")
+        sentence_timestamps = self.transcriber.align_sentences_to_timestamps(
+            transcription["words_with_timestamps"], 
+            sentences
+        )
         
         if sentence_timestamps:
             print(f"✓ 获取了 {len(sentence_timestamps)} 个句子的时间戳")
@@ -392,10 +428,11 @@ class EnglishLearningVideoGenerator:
             print(f"✓ 时间戳信息已保存: {segments_path}")
         
         # 继续处理
-        return self._generate_with_segments(text, video_path, output_name, sentence_timestamps)
+        return self._generate_with_segments(text, video_path, output_name, sentence_timestamps, sentences)
     
     def _generate_with_segments(self, text: str, video_path: str, 
-                               output_name: str, sentence_timestamps: List[Dict] = None) -> dict:
+                               output_name: str, sentence_timestamps: List[Dict] = None,
+                               sentences: List[str] = None) -> dict:
         """
         内部方法：带时间戳信息生成学习视频
         
@@ -411,7 +448,11 @@ class EnglishLearningVideoGenerator:
         # ===== 步骤 1: 分割句子 =====
         print("\n步骤 1/4: 分割句子...")
         print("-" * 60)
-        sentences = self.splitter.split_text(text)
+        
+        # 如果已经分割好了句子（从 generate_from_video 传入），就直接使用
+        if sentences is None:
+            sentences = self.splitter.split_text(text)
+        
         print(f"✓ 成功分割为 {len(sentences)} 个句子")
         
         # 保存分割后的句子
@@ -453,13 +494,18 @@ class EnglishLearningVideoGenerator:
         
         video_output_path = os.path.join(config.OUTPUT_DIR, f"{output_name}.mp4")
     
-        final_video_path = self.processor.process_full_video(
+        video_paths = self.processor.process_full_video(
             video_path,
             sentences_data,
             video_output_path,
             segments_info
         )
-        print(f"✓ 视频已保存: {final_video_path}")
+        
+        # 删除中间文件
+        self._cleanup_intermediate_files(output_name)
+        
+        print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
+        print(f"✓ 学习版视频已保存: {video_paths['full']}")
         
         # 清理临时音频文件
         self._cleanup_temp_files()
@@ -469,33 +515,13 @@ class EnglishLearningVideoGenerator:
         print("=" * 60)
         
         return {
-            'video_path': final_video_path,
+            'video_path': video_paths['full'],  # 主要返回学习版
+            'video_paths': video_paths,  # 同时返回两个版本
             'markdown_path': markdown_path,
             'sentences_count': len(sentences_data)
         }
     
-    def generate_from_text_file(self, text_file: str, video_path: str,
-                               output_name: str = None) -> dict:
-        """
-        从文本文件和视频生成学习视频
-        
-        Args:
-            text_file: 文本文件路径
-            video_path: 原始视频路径
-            output_name: 输出文件名（不含扩展名）
-            
-        Returns:
-            包含输出路径的字典
-        """
-        if not os.path.exists(text_file):
-            raise FileNotFoundError(f"文本文件不存在: {text_file}")
-        
-        print(f"正在读取文本文件: {text_file}")
-        with open(text_file, 'r', encoding='utf-8') as f:
-            text = f.read()
-        
-        return self.generate_from_text_and_video(text, video_path, output_name)
-
+  
 
 def main():
     """主函数 - 自动处理配置文件中指定的视频"""
@@ -518,13 +544,13 @@ def main():
         return
     
     print(f"📹 输入视频: {video_path}")
-    print(f"📁 输出目录: {config.OUTPUT_DIR}")
+
     print("\n开始处理...\n")
     
     # ===== 测试模式配置 =====
     # 设置为 True 启用测试模式，从中间结果加载
     TEST_MODE = False
-    TEST_OUTPUT_NAME = "learning_video_20260227_132227"  # 使用哪个输出的中间结果
+    TEST_OUTPUT_NAME = "learning_video_quick_20260302_160639"  # 使用哪个输出的中间结果
     TEST_START_STEP = 2  # 从第几步开始: 1=从句子, 2=从分析结果, 3=直接生成视频
     
     # 生成视频
@@ -544,7 +570,11 @@ def main():
         print("📊 生成结果统计")
         print("=" * 60)
         print(f"句子数量: {result['sentences_count']}")
-        print(f"视频文件: {result['video_path']}")
+        if 'video_paths' in result:
+            print(f"缩略版视频: {result['video_paths']['quick']}")
+            print(f"学习版视频: {result['video_paths']['full']}")
+        else:
+            print(f"视频文件: {result['video_path']}")
         if 'markdown_path' in result:
             print(f"文字稿: {result['markdown_path']}")
         print("=" * 60)

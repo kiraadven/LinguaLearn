@@ -1,256 +1,58 @@
-import re
 import os
+import re
+import json
 import nltk
 from typing import List
+from openai import OpenAI
+import config
+
+# 确保 nltk 资源已下载
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
+
 
 class SentenceSplitter:
-    def __init__(self, max_length: int = 130, min_length: int = 20):
+    def __init__(self, max_words: int = 160, min_words: int = 30):
         """
         初始化句子分割器
         
         Args:
-            max_length: 句子最大字符数，超过则尝试智能分割
-            min_length: 句子最小字符数，太短的句子会合并
+            max_words: 句子最大单词数
+            min_words: 句子最小单词数
         """
-        # 设置本地 nltk_data 目录
-        self.nltk_data_dir = os.path.join(
-            os.path.dirname(__file__),
-            "nltk_data"
+        self.max_words = max_words
+        self.min_words = min_words
+        
+        # 初始化 OpenAI 客户端 (gpt-4-ca)
+        self.client = OpenAI(
+            api_key=config.SPLITTER_API_KEY,
+            base_url=config.SPLITTER_BASE_URL
         )
+        
+        # 分句提示词
+        self.prompt = f"""你是一个专业的英语学习内容分句助手。你的任务是将下面标有序号的超长英文句子拆分成长度适合英语学习者学习的短句。
 
-        # 添加到 nltk 搜索路径
-        if self.nltk_data_dir not in nltk.data.path:
-            nltk.data.path.insert(0, self.nltk_data_dir)
+具体要求：
+1. 只处理下面标有序号（1. 2. 3. 等）的英文句子，其他句子不要改动
+2. 对于每个超长句子，拆分规则优先级：
+   - 在句号(.)、问号(?)、感叹号(!)处分割（优先）
+   - 在分号(;)处分割
+   - 在并列连词(and, but, or, nor, so, yet)前分割
+   - 在从属连词(because, although, while, whereas, if, unless, since, when, where, why, how)前分割
+   - 在关系代词(which, that, who, whom, whose)前分割
+3. 拆分后每个子句必须在 {self.min_words}-{self.max_words} 个单词之间
+4. 少于 {self.min_words} 个单词的子句要与相邻子句合并
+5. 保留原始标点，确保每个句子以标点结尾
+6. 输出格式：每个编号的句子拆分后多行输出，编号仍保留（格式如 "1. 拆分的子句1"）
+7. 不要有任何解释或其他内容
 
-        # 检查 punkt 是否存在
-        try:
-            nltk.data.find("tokenizers/punkt")
-        except LookupError:
-            print("正在下载 NLTK punkt tokenizer 到本地目录...")
-            nltk.download("punkt", download_dir=self.nltk_data_dir)
-        
-        # 配置参数
-        self.max_length = max_length
-        self.min_length = min_length
-        
-        # 智能断句位置 - 在这些词后面分割
-        self.split_patterns = [
-            # 从句连词
-            r'\b(that|which|who|whom|whose|where|when|why|how|if|unless|although|though|while|because|since|as|after|before|until|whenever|wherever)\b',
-            # 并列连词 (前面有逗号时)
-            r',\s*(and|but|or|so|yet|for|nor)\s+',
-            # 介词短语后 (在较长的介词短语后分割)
-            r'\b(in\s+the|in\s+his|in\s+her|in\s+its|in\s+their|on\s+the|at\s+the|to\s+the|for\s+the|with\s+the|from\s+the)\s+',
-            # 关系从句前
-            r'\b(which|that|who|whom)\s+',
-            # 数字序号
-            r'\d+\.\s+',
-        ]
-        
-        # 不分割的位置（避免在这些词后分割）
-        self.no_split_patterns = [
-            r'\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|e\.g|i\.e|\.\.\.)\b',
-            r'\b[A-Z][a-z]+\s+(is|are|was|were|be|been|being|have|has|had|do|does|did|will|would|could|should|may|might|must)\b',
-        ]
-    
-    def _clean_transcription_errors(self, text: str) -> str:
-        """
-        清理转录错误
-        
-        常见转录错误：
-        1. 重复词 (如 "the the")
-        2. 缺失空格 (如 "wordword")
-        3. 异常字符
-        4. 口语填充词 (um, uh, like, you know)
-        
-        Args:
-            text: 输入文本
-            
-        Returns:
-            清理后的文本
-        """
-        # 移除重复词 (the the -> the)
-        text = re.sub(r'\b(\w+)\s+\1\b', r'\1', text, flags=re.IGNORECASE)
-        
-        # 移除口语填充词
-        filler_words = r'\b(um|uh|er|ah|like|you know|I mean|sort of|kind of|basically|actually|literally)\b'
-        text = re.sub(filler_words, '', text, flags=re.IGNORECASE)
-        
-        # 清理多余空格
-        text = re.sub(r'\s+', ' ', text)
-        
-        # 移除句子开头/结尾的标点和空白
-        text = text.strip('.,;:!? ')
-        
-        return text
-    
-    def _validate_sentence(self, sentence: str) -> bool:
-        """
-        验证句子是否有效
-        
-        Args:
-            sentence: 句子
-            
-        Returns:
-            是否有效
-        """
-        # 跳过太短的句子
-        if len(sentence) < 10:
-            return False
-        
-        # 检查是否包含至少一个完整单词
-        if not re.search(r'\b[a-zA-Z]+\b', sentence):
-            return False
-        
-        # 检查是否有过多的特殊字符（可能是转录错误）
-        special_chars = len(re.findall(r'[^\w\s\.,!?\'"-]', sentence))
-        if special_chars > len(sentence) * 0.1:
-            return False
-        
-        return True
-    
-    def _should_split_here(self, text: str, pos: int) -> bool:
-        """检查是否应该在这里分割"""
-        # 获取分割位置前后的上下文
-        before = text[:pos].lower()
-        after = text[pos:pos+50].lower()
-        
-        # 检查是否在不应该分割的位置
-        for pattern in self.no_split_patterns:
-            if re.search(pattern, before + after, re.IGNORECASE):
-                return False
-        
-        # 检查是否在应该分割的位置
-        for pattern in self.split_patterns:
-            if re.search(pattern, before + after, re.IGNORECASE):
-                # 额外检查：分割点前应该有实际的单词
-                if before.strip() and not before.strip().endswith(('.', '!', '?')):
-                    return True
-        
-        return False
-    
-    def _find_best_split_point(self, text: str, start: int, end: int) -> int:
-        """
-        找到最佳的分割点
-        
-        Args:
-            text: 文本
-            start: 起始位置
-            end: 结束位置
-            
-        Returns:
-            最佳分割点位置
-        """
-        text_slice = text[start:end]
-        
-        # 首先尝试在智能断点分割
-        for pattern in self.split_patterns:
-            match = re.search(pattern, text_slice, re.IGNORECASE)
-            if match:
-                split_pos = start + match.start()
-                # 确保分割点前有足够的文本
-                if split_pos - start > self.min_length // 2:
-                    return split_pos
-        
-        # 如果没有找到智能断点，在句子中间位置分割
-        mid = (start + end) // 2
-        # 尝试找到最近的空格或逗号
-        for sep in [', ', '; ', ': ', ' - ', '– ']:
-            pos = text_slice.find(sep)
-            if pos > 0 and pos < len(text_slice) // 2:
-                return start + pos + len(sep)
-        
-        # 最后手段：在空格处分割
-        space_pos = text.find(' ', mid)
-        if space_pos > start and space_pos < end:
-            return space_pos
-        
-        return end
-    
-    def _smart_split_long_sentence(self, sentence: str) -> List[str]:
-        """
-        智能分割过长的句子
-        
-        Args:
-            sentence: 输入句子
-            
-        Returns:
-            分割后的句子列表
-        """
-        if len(sentence) <= self.max_length:
-            return [sentence]
-        
-        result = []
-        current_start = 0
-        text = sentence
-        
-        while current_start < len(text):
-            # 找到剩余文本的结束位置
-            remaining = text[current_start:]
-            
-            if len(remaining) <= self.max_length:
-                result.append(remaining.strip())
-                break
-            
-            # 找到最佳分割点
-            search_end = current_start + self.max_length
-            split_point = self._find_best_split_point(text, current_start, search_end)
-            
-            # 确保不会分成太短的片段
-            if split_point - current_start < self.min_length:
-                split_point = min(current_start + self.max_length, len(text))
-            
-            segment = text[current_start:split_point].strip()
-            if segment:
-                result.append(segment)
-            
-            current_start = split_point
-        
-        # 合并太短的片段
-        if len(result) > 1:
-            merged = []
-            buffer = ""
-            for seg in result:
-                if len(buffer) + len(seg) < self.max_length:
-                    buffer = (buffer + " " + seg).strip() if buffer else seg
-                else:
-                    if buffer:
-                        merged.append(buffer)
-                    buffer = seg
-            if buffer:
-                merged.append(buffer)
-            result = merged
-        
-        return result
-    
-    def _clean_sentence(self, sentence: str) -> str:
-        """清理句子"""
-        # 移除多余的空白
-        sentence = ' '.join(sentence.split())
-        
-        # 移除句子开头/结尾的标点
-        sentence = sentence.strip('.,;:!? ')
-        
-        # 确保句子以大写字母开头
-        if sentence and not sentence[0].isupper():
-            sentence = sentence[0].upper() + sentence[1:]
-        
-        # 确保句子以标点结尾
-        if sentence and sentence[-1] not in '.!?':
-            sentence += '.'
-        
-        return sentence
-    
+需要拆分的句子："""
+
     def split_text(self, text: str) -> List[str]:
         """
-        将文本分割成适合学习的句子
-        
-        分割策略：
-        1. 清理转录错误
-        2. 使用 NLTK 进行基本句子分割
-        3. 对过长的句子进行智能二次分割
-        4. 清理和规范化每个句子
-        5. 验证并过滤无效句子
+        使用 gpt-4-ca API 将文本分割成适合学习的句子
         
         Args:
             text: 输入的英文文本
@@ -258,88 +60,248 @@ class SentenceSplitter:
         Returns:
             适合学习的句子列表
         """
+        if not text or not text.strip():
+            return []
+        
         # 预处理文本
         text = text.strip()
+     
+        # 如果文本太短，直接返回
+        if len(text) < 50:
+            return [self._clean_sentence(text)]
         
-        # 清理转录错误
-        text = self._clean_transcription_errors(text)
+        # 用 NLTK 进行句子分割
+        nltk_sentences = nltk.sent_tokenize(text)
         
-        # 规范化引号和特殊字符
-        text = text.replace('"', '"').replace('"', '"')
-        text = text.replace(''', "'").replace(''', "'")
-        text = text.replace('…', '...')
+        # 分离出超长的句子（超过 max_words 的）和正常的句子
+        long_sentences = []
+        long_indices = []  # 记录超长句子在原列表中的索引
         
-        # 使用NLTK进行基本句子分割
-        sentences = nltk.sent_tokenize(text)
+        for i, sent in enumerate(nltk_sentences):
+            word_count = len(sent.split())
+            if word_count > self.max_words:
+                long_sentences.append(sent)
+                long_indices.append(i)
         
-        # 处理每个句子
-        result_sentences = []
+        if not long_sentences:
+            # 没有超长句子，直接返回 NLTK 分句结果
+            return [self._clean_sentence(s) for s in nltk_sentences]
         
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
+        # 有超长句子，标记序号后一次性送给 API
+        # 构建带序号的超长句子文本
+        numbered_text = ""
+        for idx, sent in enumerate(long_sentences, 1):
+            numbered_text += f"{idx}. {sent}\n"
+        
+        print(f"调用 API 进行智能拆分: {numbered_text}")
+        try:
+            split_result = self._call_api_split(numbered_text)
             
-            # 清理句子
-            sentence = self._clean_sentence(sentence)
+            # 解析返回的句子，按原始序号分组
+            split_by_index = self._parse_numbered_sentences_grouped(split_result)
             
-            # 验证句子是否有效
-            if not self._validate_sentence(sentence):
-                continue
+            # 重建结果列表，保持原始位置顺序
+            result = []
             
-            # 检查长度，必要时进行智能分割
-            if len(sentence) > self.max_length:
-                # 递归分割直到满足长度要求
-                sub_sentences = self._smart_split_long_sentence(sentence)
-                # 验证每个子句子
-                for sub in sub_sentences:
-                    if self._validate_sentence(sub):
-                        result_sentences.append(sub)
-            else:
-                result_sentences.append(sentence)
-        
-        # 合并相邻的短句子
-        if len(result_sentences) > 1:
-            merged = []
-            buffer = result_sentences[0] if result_sentences else ""
-            
-            for i in range(1, len(result_sentences)):
-                current = result_sentences[i]
-                
-                # 如果缓冲区和当前句子都很短，合并它们
-                if len(buffer) < self.min_length and len(current) < self.min_length:
-                    buffer = buffer + " " + current
-                else:
-                    # 如果缓冲区达到最大长度，先输出
-                    if len(buffer) > self.max_length * 0.8:
-                        merged.append(buffer)
-                        buffer = current
-                    # 如果当前句子太短，缓冲
-                    elif len(current) < self.min_length / 2:
-                        buffer = buffer + " " + current
+            for i, sent in enumerate(nltk_sentences):
+                if i in long_indices:
+                    # 这是一个超长句子，获取对应的拆分结果
+                    idx = long_indices.index(i)  # 这是第几个超长句子
+                    if idx in split_by_index:
+                        # 拆分结果可能有多个句子，全部加入
+                        for sub_sent in split_by_index[idx]:
+                            result.append(self._clean_sentence(sub_sent))
                     else:
-                        merged.append(buffer)
-                        buffer = current
+                        # 如果没有拆分结果，保持原句
+                        result.append(self._clean_sentence(sent))
+                else:
+                    # 正常句子，直接加入
+                    result.append(self._clean_sentence(sent))
             
-            if buffer:
-                merged.append(buffer)
-            result_sentences = merged
-        
-        # 最终清理
-        final_sentences = [self._clean_sentence(s) for s in result_sentences if s and self._validate_sentence(s)]
-        
-        return final_sentences
+            return result
+            
+        except Exception as e:
+            print(f"分句时出错: {e}")
+            # 出错时使用 NLTK 分句结果
+            return [self._clean_sentence(s) for s in nltk_sentences]
     
-    def split_text_simple(self, text: str) -> List[str]:
+    def _parse_numbered_sentences_grouped(self, content: str) -> dict:
         """
-        简单模式：只使用 NLTK 进行基本句子分割，不做长度限制
+        解析 API 返回的带序号的句子，按原始序号分组
         
         Args:
-            text: 输入的英文文本
+            content: API 返回的原始内容
+            
+        Returns:
+            字典，key 是原始序号(0-based)，value 是该句子拆分后的子句列表
+        """
+        if not content:
+            return {}
+        
+        result = {}
+        current_index = None
+        
+        for line in content.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # 检查是否以序号开头（如 "1. " 或 "1:"）
+            match = re.match(r'^(\d+)[\.\:]\s*', line)
+            if match:
+                # 这是一个新的句子组
+                current_index = int(match.group(1)) - 1  # 转为 0-based
+                # 去掉序号部分
+                line = re.sub(r'^\d+[\.\:]\s*', '', line)
+                if line:
+                    if current_index not in result:
+                        result[current_index] = []
+                    result[current_index].append(line)
+            else:
+                # 这是上一个句子的续行（超长句子拆分后可能有续行）
+                if current_index is not None and current_index in result:
+                    result[current_index].append(line)
+        
+        return result
+    
+    def _parse_numbered_sentences(self, content: str) -> List[str]:
+        """
+        解析 API 返回的带序号的句子
+        
+        Args:
+            content: API 返回的原始内容
+            
+        Returns:
+            句子列表（去除序号）
+        """
+        if not content:
+            return []
+        
+        sentences = []
+        current_sentence = ""
+        
+        for line in content.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # 去掉开头的序号（如 "1. " 或 "1:"）
+            line = re.sub(r'^\d+[\.\:]\s*', '', line)
+            
+            if line:
+                sentences.append(line)
+        
+        return sentences
+    
+    def _has_sentences_exceeding_limit(self, sentences: List[str]) -> bool:
+        """
+        检查是否存在超过单词限制的句子
+        
+        Args:
+            sentences: 句子列表
+            
+        Returns:
+            是否存在超长句子
+        """
+        for sentence in sentences:
+            word_count = len(sentence.split())
+            if word_count > self.max_words:
+                return True
+        return False
+    
+    def _call_api_split(self, text: str) -> str:
+        """
+        调用 Splitter API 进行分句
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            API 返回的原始内容（未解析的句子字符串）
+        """
+        full_prompt = f"{self.prompt}\n\n{text}"
+        
+        response = self.client.chat.completions.create(
+            model=config.SPLITTER_MODEL,
+            messages=[{"role": "user", "content": full_prompt}],
+            temperature=0.3,
+            max_tokens=4000
+        )
+        
+        content = response.choices[0].message.content
+        
+        return content
+    
+    def _parse_sentences(self, content: str) -> List[str]:
+        """
+        解析 API 返回的内容为句子列表
+        
+        Args:
+            content: API 返回的原始内容
             
         Returns:
             句子列表
         """
-        text = text.strip()
-        sentences = nltk.sent_tokenize(text)
-        return [s.strip() for s in sentences if s.strip()]
+        if not content:
+            return []
+        
+        # 按行分割，去除空行
+        lines = content.strip().split('\n')
+        
+        sentences = []
+        for line in lines:
+            line = line.strip()
+            if line:
+                sentences.append(line)
+        
+        return sentences
+    
+   
+    def _clean_sentence(self, sentence: str) -> str:
+        """
+        清理句子
+        
+        Args:
+            sentence: 原始句子
+            
+        Returns:
+            清理后的句子
+        """
+        if not sentence:
+            return ""
+        
+        # 去除首尾空白
+        sentence = sentence.strip()
+        
+        # 确保句子以标点结尾
+        if sentence and sentence[-1] not in '.!?;':
+            # 如果没有标点，尝试添加句号
+            sentence = sentence + '.'
+        
+        # 去除可能的编号（如 "1. ", "2. " 等）
+        sentence = re.sub(r'^\d+[\.\)]\s*', '', sentence)
+        
+        # 去除可能的引号包装
+        sentence = re.sub(r'^["\'](.+?)["\']$', r'\1', sentence)
+        
+        # 规范化空格
+        sentence = re.sub(r'\s+', ' ', sentence)
+        
+        return sentence
+    
+    def _fallback_split(self, text: str) -> List[str]:
+        """
+        备用分句方法（当 API 调用失败时使用）
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            句子列表
+        """
+        # 简单的正则分句
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        # 清理并返回
+        return [self._clean_sentence(s) for s in sentences if s.strip()]
+    

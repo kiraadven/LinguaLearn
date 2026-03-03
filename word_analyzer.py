@@ -3,6 +3,8 @@ import json
 from typing import List, Dict
 from openai import OpenAI
 import config
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 
 class WordAnalyzer:
@@ -155,33 +157,62 @@ class WordAnalyzer:
                 'useful_expressions': []
             }
     
-    def batch_analyze(self, sentences: List[str]) -> List[Dict]:
+    def batch_analyze(self, sentences: List[str], max_workers: int = 10) -> List[Dict]:
         """
-        批量分析多个句子（单次API调用）
+        批量分析多个句子（并行API调用）
         
         Args:
             sentences: 句子列表
+            max_workers: 最大并行数，默认5
             
         Returns:
             分析结果列表，每个包含 original_text, chinese_translation, key_words, useful_expressions
+            顺序与输入的 sentences 保持一致
         """
-        results = []
         total = len(sentences)
+        results = [None] * total  # 预分配结果列表，按索引存放
+        completed_count = 0
+        lock = threading.Lock()
         
-        for i, sentence in enumerate(sentences, 1):
-            print(f"正在分析句子 {i}/{total}...")
-            
-            # 一次性调用API获取关键词和表达
+        def analyze_with_index(args):
+            """带索引的分析函数"""
+            index, sentence = args
+            # print(f"正在分析句子 {index + 1}/{total}...")
             analysis_result = self.analyze_sentence(sentence)
-            
-            # 整理结果
-            result = {
-                'original_text': sentence,
-                'chinese_translation': analysis_result.get('chinese_translation', ''),
-                'key_words': analysis_result.get('key_words', []),
-                'useful_expressions': analysis_result.get('useful_expressions', [])
+            return index, analysis_result
+        
+        # 使用线程池并行执行
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            future_to_index = {
+                executor.submit(analyze_with_index, (i, sentence)): i 
+                for i, sentence in enumerate(sentences)
             }
-            results.append(result)
+            
+            # 收集结果
+            for future in as_completed(future_to_index):
+                try:
+                    index, analysis_result = future.result()
+                    results[index] = {
+                        'original_text': sentences[index],
+                        'chinese_translation': analysis_result.get('chinese_translation', ''),
+                        'key_words': analysis_result.get('key_words', []),
+                        'useful_expressions': analysis_result.get('useful_expressions', [])
+                    }
+                    
+                    with lock:
+                        completed_count += 1
+                        if completed_count % 10 == 0:
+                            print(f"完成进度: {completed_count}/{total}")
+                except Exception as e:
+                    index = future_to_index[future]
+                    print(f"分析句子 {index + 1} 时出错: {e}")
+                    results[index] = {
+                        'original_text': sentences[index],
+                        'chinese_translation': '（分析失败）',
+                        'key_words': [],
+                        'useful_expressions': []
+                    }
         
         return results
     

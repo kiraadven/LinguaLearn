@@ -15,7 +15,7 @@ SPLITTER_API_KEY = os.getenv('SPLITTER_API_KEY')
 SPLITTER_BASE_URL = os.getenv('SPLITTER_BASE_URL')
 SPLITTER_MODEL = 'gpt-4-ca'
 
-USE_LOCAL = True 
+
 WHISPER_MODEL_SIZE = 'small'
 
 # 视频帧率
@@ -67,4 +67,4 @@ OUTPUT_DIR = 'output'
 TEMP_DIR = 'temp'
 
 # 输入视频配置
-INPUT_VIDEO_PATH = 'input_videos/demo.mp4'  # 在这里设置你的输入视频路径
+INPUT_VIDEO_PATH = 'input_videos/Special Report_ Iran launches retaliatory attacks against Israel and U.S. targets in the Middle East.mp4'  # 在这里设置你的输入视频路径

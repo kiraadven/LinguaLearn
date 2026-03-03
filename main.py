@@ -7,7 +7,7 @@ from sentence_splitter import SentenceSplitter
 from word_analyzer import WordAnalyzer
 from video_processor import VideoProcessor
 from markdown_exporter import MarkdownExporter
-from audio_transcriber_whisper import AudioTranscriber
+from audio_transcriber import AudioTranscriber
 import config
 
 
@@ -26,7 +26,7 @@ class EnglishLearningVideoGenerator:
         self.processor = VideoProcessor()
         self.exporter = MarkdownExporter()
         # 使用本地 Whisper 模型（支持单词级别时间戳）
-        self.transcriber = AudioTranscriber(use_local=True, model_size="base")
+        self.transcriber = AudioTranscriber()
         
         # 创建必要的目录
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
@@ -273,99 +273,7 @@ class EnglishLearningVideoGenerator:
         else:
             raise ValueError("start_step 必须是 1, 2 或 3")
     
-    def generate_from_text_and_video(self, text: str, video_path: str, 
-                                    output_name: str = None) -> dict:
-        """
-        从文本和视频生成学习视频
-        
-        Args:
-            text: 英文新闻文本
-            video_path: 原始视频路径
-            output_name: 输出文件名（不含扩展名）
-            
-        Returns:
-            包含输出路径的字典
-        """
-        if not os.path.exists(video_path):
-            raise FileNotFoundError(f"视频文件不存在: {video_path}")
-        
-        if output_name is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_name = f"learning_video_{timestamp}"
-        
-        # ===== 步骤 0: 保存原始文本 =====
-        print("\n步骤 0/4: 保存原始文本...")
-        print("-" * 60)
-        raw_text_path = self._save_intermediate_result(text, f"{output_name}_0_raw_text.txt")
-        print(f"✓ 原始文本已保存: {raw_text_path}")
-        
-        # ===== 步骤 1: 分割句子 =====
-        print("\n步骤 1/4: 分割句子...")
-        print("-" * 60)
-        sentences = self.splitter.split_text(text)
-        print(f"✓ 成功分割为 {len(sentences)} 个句子")
-        
-        # 保存分割后的句子
-        sentences_content = "\n".join([f"{i+1}. {s}" for i, s in enumerate(sentences)])
-        sentences_path = self._save_intermediate_result(sentences_content, f"{output_name}_1_sentences.txt")
-        print(f"✓ 句子已保存: {sentences_path}")
-        
-        for i, sentence in enumerate(sentences, 1):
-            print(f"  {i}. {sentence[:50]}{'...' if len(sentence) > 50 else ''}")
-        
-        # ===== 步骤 2: 分析句子 =====
-        print("\n步骤 2/4: 分析句子并识别重难点单词...")
-        print("-" * 60)
-        sentences_data = self.analyzer.batch_analyze(sentences)
-        print(f"✓ 完成 {len(sentences_data)} 个句子的分析")
-        
-        # 保存分析结果为JSON
-        analysis_path = self._save_json_result(sentences_data, f"{output_name}_2_analysis.json")
-        print(f"✓ 分析结果已保存: {analysis_path}")
-        
-        # ===== 步骤 3: 生成Markdown =====
-        print("\n步骤 3/4: 生成Markdown文字稿...")
-        print("-" * 60)
-        markdown_path = self.exporter.export(
-            sentences_data, 
-            f"{output_name}.md"
-        )
-        print(f"✓ Markdown文字稿已保存: {markdown_path}")
-        
-        # ===== 步骤 4: 处理视频 =====
-        print("\n步骤 4/4: 处理视频...")
-        print("-" * 60)
-        video_output_path = os.path.join(config.OUTPUT_DIR, f"{output_name}.mp4")
-        
-    
-        video_paths = self.processor.process_full_video(
-            video_path,
-            sentences_data,
-            video_output_path
-        )
-        
-        # 删除中间文件
-        self._cleanup_intermediate_files(output_name)
-        
-        print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
-        print(f"✓ 学习版视频已保存: {video_paths['full']}")
-        
-        print("\n" + "=" * 60)
-        print("✓ 所有任务完成！")
-        print("=" * 60)
-        
-        return {
-            'video_path': video_paths['full'],  # 主要返回学习版
-            'video_paths': video_paths,  # 同时返回两个版本
-            'markdown_path': markdown_path,
-            'sentences_count': len(sentences_data),
-            'intermediate_files': {
-                'raw_text': raw_text_path,
-                'sentences': sentences_path,
-                'analysis': analysis_path
-            }
-        }
-    
+   
     def generate_from_video_only(self, video_path: str, output_name: str = None) -> dict:
         """
         仅从视频生成学习视频（自动提取音频并转录）
@@ -386,21 +294,21 @@ class EnglishLearningVideoGenerator:
         if output_name is None:
             output_name = video_filename
         
-        print("\n步骤 0/4: 从视频中提取文字...")
+        print("\n步骤 0/5: 从视频中提取音频...")
         print("-" * 60)
         
         # 1. 提取音频
         audio_path = self.transcriber.extract_audio_from_video(video_path)
         
         # 2. 使用本地 Whisper 模型一次性转录（带单词时间戳）
-        print("\n步骤 1/4: 转录音频并获取时间戳...")
+        print("\n步骤 1/5: 转录音频并获取时间戳...")
         print("-" * 60)
         
         # 一次性转录获取文本和单词时间戳（带进度条）
         transcription = self.transcriber.transcribe_once_with_word_timestamps(audio_path)
         text = transcription["text"]
         
-        print(f"✓ 提取的文字内容:\n{text}\n")
+        # print(f"✓ 提取的文字内容:\n{text}\n")
         
         # 3. 分割句子
         sentences = self.splitter.split_text(text)
@@ -409,28 +317,14 @@ class EnglishLearningVideoGenerator:
         # 4. 使用已有的单词时间戳对齐句子（带进度条）
         print("正在获取每个句子的时间戳...")
         sentence_timestamps = self.transcriber.align_sentences_to_timestamps(
-            transcription["words_with_timestamps"], 
+            audio_path, 
             sentences
         )
         
-        if sentence_timestamps:
-            print(f"✓ 获取了 {len(sentence_timestamps)} 个句子的时间戳")
-            for i, ts in enumerate(sentence_timestamps[:5]):
-                print(f"  句子 {i+1}: {ts['start']:.2f}s - {ts['end']:.2f}s")
-            if len(sentence_timestamps) > 5:
-                print(f"  ...")
-        else:
-            print("⚠️  无法获取时间戳，将使用平均分配")
-        
-        # 保存时间戳信息
-        if sentence_timestamps:
-            segments_path = self._save_json_result(sentence_timestamps, f"{output_name}_segments.json")
-            print(f"✓ 时间戳信息已保存: {segments_path}")
-        
         # 继续处理
-        return self._generate_with_segments(text, video_path, output_name, sentence_timestamps, sentences)
+        return self._generate_with_segments(audio_path, video_path, output_name, sentence_timestamps, sentences)
     
-    def _generate_with_segments(self, text: str, video_path: str, 
+    def _generate_with_segments(self, audio_path: str, video_path: str, 
                                output_name: str, sentence_timestamps: List[Dict] = None,
                                sentences: List[str] = None) -> dict:
         """
@@ -446,13 +340,10 @@ class EnglishLearningVideoGenerator:
             处理结果字典
         """
         # ===== 步骤 1: 分割句子 =====
-        print("\n步骤 1/4: 分割句子...")
+        print("\n步骤 2/5: 分割句子...")
         print("-" * 60)
         
         # 如果已经分割好了句子（从 generate_from_video 传入），就直接使用
-        if sentences is None:
-            sentences = self.splitter.split_text(text)
-        
         print(f"✓ 成功分割为 {len(sentences)} 个句子")
         
         # 保存分割后的句子
@@ -460,11 +351,8 @@ class EnglishLearningVideoGenerator:
         sentences_path = self._save_intermediate_result(sentences_content, f"{output_name}_1_sentences.txt")
         print(f"✓ 句子已保存: {sentences_path}")
         
-        for i, sentence in enumerate(sentences, 1):
-            print(f"  {i}. {sentence[:50]}{'...' if len(sentence) > 50 else ''}")
-        
-        # ===== 步骤 2: 分析句子 =====
-        print("\n步骤 2/4: 分析句子并识别重难点单词...")
+        # ===== 步骤 2: 分析句子 ====
+        print("\n步骤 3/5: 分析句子并识别重难点单词...")
         print("-" * 60)
         sentences_data = self.analyzer.batch_analyze(sentences)
         print(f"✓ 完成 {len(sentences_data)} 个句子的分析")
@@ -474,7 +362,7 @@ class EnglishLearningVideoGenerator:
         print(f"✓ 分析结果已保存: {analysis_path}")
         
         # ===== 步骤 3: 生成Markdown =====
-        print("\n步骤 3/4: 生成Markdown文字稿...")
+        print("\n步骤 4/5: 生成Markdown文字稿...")
         print("-" * 60)
         markdown_path = self.exporter.export(
             sentences_data, 
@@ -483,7 +371,7 @@ class EnglishLearningVideoGenerator:
         print(f"✓ Markdown文字稿已保存: {markdown_path}")
         
         # ===== 步骤 4: 处理视频 =====
-        print("\n步骤 4/4: 处理视频...")
+        print("\n步骤 5/5: 处理视频...")
         print("-" * 60)
         
         # 使用句子时间戳

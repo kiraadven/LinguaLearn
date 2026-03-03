@@ -31,7 +31,7 @@ class AudioTranscriber:
             use_local: 是否使用本地 Whisper 模型
             model_size: Whisper 模型大小 (tiny, base, small, medium, large)
         """
-        self.use_local = config.USE_LOCAL
+      
         self.api_key = config.OPENAI_API_KEY
         self.base_url = config.OPENAI_BASE_URL
         self.model_size = config.WHISPER_MODEL_SIZE
@@ -473,30 +473,27 @@ class AudioTranscriber:
             text = re.sub(r'[^\w\s]', '', text)
             return " ".join(text.lower().split())
         
-        # 预计算：构建累计单词列表和位置数组（只计算一次）
+        # 预计算：构建所有单词的规范化文本列表
         n_words = len(words_with_timestamps)
         
         # 预先规范化所有单词
-        normalized_words = []
-        for w in words_with_timestamps:
-            clean = re.sub(r'[^\w\s]', '', w["word"]).lower()
-            normalized_words.append(clean)
+        normalized_words = [normalize_text(w["word"]) for w in words_with_timestamps]
         
-        # 预计算每个位置的累计文本（用于快速子串匹配）
-        # cumulative[i] = "word0 word1 ... wordi"
-        cumulative = ["" for _ in range(n_words)]
-        for i in range(n_words):
-            if i == 0:
-                cumulative[i] = normalized_words[i]
-            else:
-                cumulative[i] = cumulative[i-1] + " " + normalized_words[i]
+        # 预计算每个位置到末尾的累计文本（更高效的滑动窗口）
+        # suffix[i] = "wordi wordi+1 ... wordn-1"
+        suffix_texts = ["" for _ in range(n_words + 1)]
+        for i in range(n_words - 1, -1, -1):
+            suffix_texts[i] = normalized_words[i] + (" " + suffix_texts[i + 1] if suffix_texts[i + 1] else "")
         
         # 快速相似度函数（使用词集合交集）
         def fast_similarity(window_start, window_end):
-            if window_end <= window_start:
+            if window_end <= window_start or window_start >= n_words:
                 return 0.0
-            window_text = cumulative[window_end - 1] if window_start == 0 else cumulative[window_end - 1][len(cumulative[window_start - 1]) + 1:]
-            window_set = set(window_text.split())
+            # 使用预计算的 suffix 文本
+            window_text = suffix_texts[window_start][:suffix_texts[window_start].rfind(' ') * 0 + (window_end - window_start) * 20]  # 近似
+            # 更简单：直接取窗口内的词
+            window_words = normalized_words[window_start:window_end]
+            window_set = set(window_words)
             target_set = set(normalized_target.split())
             if not target_set:
                 return 0.0
@@ -521,39 +518,51 @@ class AudioTranscriber:
             
             # 估算搜索范围：
             # - 从 search_start 开始（利用句子顺序）
-            # - 向前看最多 len(cumulative) 个位置，但限制搜索步数
-            best_score = 0
+            best_score = 0.0
             best_start = search_start
-            best_end = min(search_start + n_target + 5, n_words)
+            best_end = min(search_start + max(n_target, 1), n_words)
             
-            # 在合理范围内搜索（最多搜索 1000 个位置以保证速度）
-            max_search = min(search_start + 1000, n_words)
+            # 在合理范围内搜索（最多搜索 8000 个位置）
+            max_search = min(search_start + 8000, n_words)
+            
+            # 如果搜索范围太小，扩大到合理范围
+            if max_search <= search_start:
+                max_search = min(search_start + 100, n_words)
+            
+            found_good_match = False
             
             for start_idx in range(search_start, max_search):
-                # 窗口大小为目标句子长度 ±3（允许小幅波动）
-                for window_size in [n_target, n_target + 1, n_target - 1, n_target + 2, n_target - 2]:
-                    if window_size < 1:
-                        continue
+                # 窗口大小从目标句子长度开始，逐步扩大
+                for window_size in range(max(1, n_target - 2), min(n_words - start_idx, n_target + 10) + 1):
                     end_idx = start_idx + window_size
                     if end_idx > n_words:
                         continue
                     
                     # 快速相似度计算
-                    score = fast_similarity(start_idx, end_idx)
+                    window_words = normalized_words[start_idx:end_idx]
+                    window_set = set(window_words)
+                    target_set = set(target_words)
+                    
+                    if not target_set:
+                        continue
+                    
+                    # 计算词重叠率
+                    score = len(window_set & target_set) / len(target_set)
                     
                     if score > best_score:
                         best_score = score
                         best_start = start_idx
                         best_end = end_idx
                         
-                        # 如果找到完美匹配，立即返回
-                        if score >= 0.95:
+                        # 如果找到很好的匹配，提前退出
+                        if score >= 0.85:
+                            found_good_match = True
                             break
-                if best_score >= 0.95:
+                if found_good_match:
                     break
             
-            # 如果找到匹配，保存结果并更新搜索起点
-            if best_score > 0.2:
+            # 只有找到足够好的匹配才使用，否则使用顺序估算
+            if best_score > 0.3:
                 sentence_timestamps.append({
                     "start": words_with_timestamps[best_start]["start"],
                     "end": words_with_timestamps[best_end - 1]["end"],
@@ -562,10 +571,15 @@ class AudioTranscriber:
                 # 下一个句子从当前结束位置开始搜索
                 search_start = best_end
             else:
-                # 没找到匹配，使用位置估算
-                words_per_sentence = n_words // len(sentences)
+                # 没找到匹配，按顺序平均分配位置
+                words_per_sentence = max(1, n_words // len(sentences))
                 start_idx = idx * words_per_sentence
-                end_idx = min(start_idx + max(n_target, words_per_sentence), n_words)
+                end_idx = min(start_idx + words_per_sentence, n_words)
+                
+                # 确保至少有一个词
+                if end_idx <= start_idx:
+                    end_idx = start_idx + 1
+                end_idx = min(end_idx, n_words)
                 
                 sentence_timestamps.append({
                     "start": words_with_timestamps[start_idx]["start"],

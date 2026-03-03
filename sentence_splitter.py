@@ -93,7 +93,7 @@ class SentenceSplitter:
         for idx, sent in enumerate(long_sentences, 1):
             numbered_text += f"{idx}. {sent}\n"
         
-        print(f"调用 API 进行智能拆分: {numbered_text}")
+        print(f"调用 API 进行智能拆分: {len(numbered_text)}个句子")
         try:
             split_result = self._call_api_split(numbered_text)
             

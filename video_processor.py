@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import time
 from typing import List, Dict, Optional
+from tqdm import tqdm
 from moviepy.editor import (
     VideoFileClip, AudioFileClip, AudioClip, CompositeVideoClip, 
     concatenate_videoclips, concatenate_audioclips, ImageClip, TextClip
@@ -27,6 +28,11 @@ class VideoProcessor:
         
         # 标记是否已保存调试图片
         self._debug_saved = True
+        
+        # 缓存已渲染的帧（避免重复调用 Chrome）
+        self._subtitle_cache = {}  # (english_text, chinese_text, width, height) -> np.ndarray
+        self._wordbox_cache = {}    # (words tuple, width, height) -> np.ndarray
+        self._exprbox_cache = {}   # (expressions tuple, width, height) -> np.ndarray
     
     def _create_watermark(self, video_width: int, video_height: int, duration: float = None) -> Optional[ImageClip]:
         """
@@ -150,7 +156,7 @@ class VideoProcessor:
     def create_subtitle_frame(self, english_text: str, chinese_text: str, 
                              width: int, height: int) -> np.ndarray:
         """
-        创建字幕框图像 - 使用 HTML + Chrome 渲染
+        创建字幕框图像 - 使用 HTML + Chrome 渲染（带缓存）
         
         Args:
             english_text: 英文文本
@@ -161,6 +167,13 @@ class VideoProcessor:
         Returns:
             numpy数组格式的图像
         """
+        # 生成缓存 key
+        cache_key = (english_text, chinese_text, width, height)
+        
+        # 检查缓存
+        if cache_key in self._subtitle_cache:
+            return self._subtitle_cache[cache_key]
+        
         # 创建临时输出路径
         temp_path = os.path.join(config.TEMP_DIR, f'subtitle_{int(time.time() * 1000000)}.png')
         
@@ -175,6 +188,9 @@ class VideoProcessor:
         # 读取渲染好的图片并转换为 numpy 数组
         img = Image.open(temp_path)
         result = np.array(img)
+        
+        # 缓存结果
+        self._subtitle_cache[cache_key] = result
         
         # 保存第一个用于调试
         if not self._debug_saved:
@@ -192,7 +208,7 @@ class VideoProcessor:
     def create_word_box_frame(self, words: List[Dict], 
                              width: int, height: int) -> np.ndarray:
         """
-        创建单词框图像 - 使用 HTML + Chrome 渲染
+        创建单词框图像 - 使用 HTML + Chrome 渲染（带缓存）
         
         Args:
             words: 单词信息列表
@@ -202,6 +218,14 @@ class VideoProcessor:
         Returns:
             numpy数组格式的图像
         """
+        # 生成缓存 key（使用单词文本的 tuple）
+        words_key = tuple(w.get('word', '') for w in words)
+        cache_key = (words_key, width, height)
+        
+        # 检查缓存
+        if cache_key in self._wordbox_cache:
+            return self._wordbox_cache[cache_key]
+        
         # 创建临时输出路径
         temp_path = os.path.join(config.TEMP_DIR, f'wordbox_{int(time.time() * 1000000)}.png')
         
@@ -214,9 +238,13 @@ class VideoProcessor:
             raise RuntimeError(f"HTML 单词框渲染失败！words: {[w.get('word', '') for w in words[:2]]}")
         if not os.path.exists(temp_path):
             raise RuntimeError(f"单词框图片不存在！temp_path: {temp_path}")
+        
         # 读取渲染好的图片并转换为 numpy 数组
         img = Image.open(temp_path)
         result = np.array(img)
+        
+        # 缓存结果
+        self._wordbox_cache[cache_key] = result
         
         # 保存第一个用于调试
         if not self._debug_saved:
@@ -234,7 +262,7 @@ class VideoProcessor:
     def create_expression_box_frame(self, expressions: List[Dict], 
                                    width: int, height: int) -> np.ndarray:
         """
-        创建表达框图像 - 使用 HTML + Chrome 渲染
+        创建表达框图像 - 使用 HTML + Chrome 渲染（带缓存）
         
         Args:
             expressions: 表达信息列表
@@ -244,6 +272,14 @@ class VideoProcessor:
         Returns:
             numpy数组格式的图像
         """
+        # 生成缓存 key（使用表达文本的 tuple）
+        expr_key = tuple(e.get('english', '') for e in expressions)
+        cache_key = (expr_key, width, height)
+        
+        # 检查缓存
+        if cache_key in self._exprbox_cache:
+            return self._exprbox_cache[cache_key]
+        
         # 创建临时输出路径
         temp_path = os.path.join(config.TEMP_DIR, f'expressionbox_{int(time.time() * 1000000)}.png')
         
@@ -258,6 +294,9 @@ class VideoProcessor:
         # 读取渲染好的图片并转换为 numpy 数组
         img = Image.open(temp_path)
         result = np.array(img)
+        
+        # 缓存结果
+        self._exprbox_cache[cache_key] = result
         
         # 保存第一个用于调试
         if not self._debug_saved:
@@ -565,22 +604,12 @@ class VideoProcessor:
         print("缩略版模式：仅处理原速视频 + 字幕框")
         
         quick_clips = []
-        for i, sentence_data in enumerate(sentences_data, 1):
-            print(f"正在处理句子 {i}/{len(sentences_data)}...")
-            
-            # 使用时间戳信息
-            if segments_info is not None and i <= len(segments_info):
-                start_time = segments_info[i-1].get('start', 0)
-                end_time = segments_info[i-1].get('end', video.duration)
-            else:
-                # 如果没有时间信息，平均分配
-                total_duration = video.duration
-                total_chars = sum(len(s['original_text']) for s in sentences_data)
-                char_ratio = len(sentence_data['original_text']) / total_chars
-                segment_duration = total_duration * char_ratio
-                start_time = sum(total_duration * (len(s['original_text']) / total_chars) for s in sentences_data[:i-1]) if i > 1 else 0
-                end_time = start_time + segment_duration
-            
+        for i, sentence_data in tqdm(enumerate(sentences_data, 1), 
+                                      total=len(sentences_data), 
+                                      desc="渲染缩略版视频"):
+            start_time = segments_info[i-1].get('start', 0)
+            end_time = segments_info[i-1].get('end', video.duration)
+           
             processed_clip = self.process_sentence_video_quick(
                 video, sentence_data, start_time, end_time
             )
@@ -590,15 +619,16 @@ class VideoProcessor:
         print("正在合并缩略版视频片段...")
         quick_video = concatenate_videoclips(quick_clips)
         
-        # 导出缩略版
+        # 导出缩略版（降低 FPS 加速）
         print(f"正在导出缩略版视频到 {quick_output_path}...")
+
         quick_video.write_videofile(
             quick_output_path,
             codec='libx264',
             audio_codec='aac',
-            fps=config.FPS,
-            preset='slow',
-            bitrate='8000k'
+            fps=quick_video.fps,
+            preset='fast',
+            bitrate='3000k'
         )
         quick_video.close()
         
@@ -610,9 +640,9 @@ class VideoProcessor:
         print("学习版模式：使用提供的时间戳信息...")
         full_clips = []
         
-        for i, (sentence_data, seg_info) in enumerate(zip(sentences_data, segments_info), 1):
-            print(f"正在处理句子 {i}/{len(sentences_data)}...")
-            
+        for i, (sentence_data, seg_info) in tqdm(enumerate(zip(sentences_data, segments_info), 1),
+                                                 total=len(sentences_data),
+                                                 desc="渲染学习版视频"):
             start_time = seg_info.get('start', 0)
             end_time = seg_info.get('end', video.duration)
             
@@ -630,15 +660,15 @@ class VideoProcessor:
         print("正在合并学习版视频片段...")
         full_video = concatenate_videoclips(full_clips)
         
-        # 导出学习版
+        # 导出学习版（降低 FPS 加速）
         print(f"正在导出学习版视频到 {full_output_path}...")
         full_video.write_videofile(
             full_output_path,
             codec='libx264',
             audio_codec='aac',
-            fps=config.FPS,
-            preset='slow',
-            bitrate='8000k'
+            fps=full_video.fps,
+            preset='fast',
+            bitrate='3000k'
         )
         
         # 清理

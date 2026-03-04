@@ -25,6 +25,10 @@ class SentenceSplitter:
         self.max_words = max_words
         self.min_words = min_words
         
+        # 分割映射：记录每个输出句子对应哪个原始句子
+        # 结构: {输出句子索引: 原始句子索引}
+        self.split_mapping = {}
+        
         # 初始化 OpenAI 客户端 (gpt-4-ca)
         self.client = OpenAI(
             api_key=config.SPLITTER_API_KEY,
@@ -60,6 +64,9 @@ class SentenceSplitter:
         Returns:
             适合学习的句子列表
         """
+        # 重置映射
+        self.split_mapping = {}
+        
         if not text or not text.strip():
             return []
         
@@ -68,6 +75,7 @@ class SentenceSplitter:
      
         # 如果文本太短，直接返回
         if len(text) < 50:
+            self.split_mapping[0] = 0  # 输出索引0 -> 原始索引0
             return [self._clean_sentence(text)]
         
         # 用 NLTK 进行句子分割
@@ -85,6 +93,9 @@ class SentenceSplitter:
         
         if not long_sentences:
             # 没有超长句子，直接返回 NLTK 分句结果
+            # 每个输出句子对应原始句子
+            for i in range(len(nltk_sentences)):
+                self.split_mapping[i] = i
             return [self._clean_sentence(s) for s in nltk_sentences]
         
         # 有超长句子，标记序号后一次性送给 API
@@ -102,6 +113,7 @@ class SentenceSplitter:
             
             # 重建结果列表，保持原始位置顺序
             result = []
+            output_idx = 0
             
             for i, sent in enumerate(nltk_sentences):
                 if i in long_indices:
@@ -111,19 +123,37 @@ class SentenceSplitter:
                         # 拆分结果可能有多个句子，全部加入
                         for sub_sent in split_by_index[idx]:
                             result.append(self._clean_sentence(sub_sent))
+                            # 记录映射：输出索引 -> 原始句子索引
+                            self.split_mapping[output_idx] = i
+                            output_idx += 1
                     else:
                         # 如果没有拆分结果，保持原句
                         result.append(self._clean_sentence(sent))
+                        self.split_mapping[output_idx] = i
+                        output_idx += 1
                 else:
                     # 正常句子，直接加入
                     result.append(self._clean_sentence(sent))
+                    self.split_mapping[output_idx] = i
+                    output_idx += 1
             
             return result
             
         except Exception as e:
             print(f"分句时出错: {e}")
             # 出错时使用 NLTK 分句结果
+            for i in range(len(nltk_sentences)):
+                self.split_mapping[i] = i
             return [self._clean_sentence(s) for s in nltk_sentences]
+    
+    def get_split_mapping(self) -> dict:
+        """
+        获取分割映射
+        
+        Returns:
+            字典，key 是输出句子索引，value 是对应的原始句子索引
+        """
+        return self.split_mapping
     
     def _parse_numbered_sentences_grouped(self, content: str) -> dict:
         """

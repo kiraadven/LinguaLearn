@@ -20,6 +20,7 @@ WHISPER_MODEL_SIZE = 'small'
 
 # 视频帧率
 FPS = 30
+AUDIO_FPS = 44100
 SPEED_SLOW = 0.75
 
 # ===== 颜色配置 =====
@@ -67,4 +68,4 @@ OUTPUT_DIR = 'output'
 TEMP_DIR = 'temp'
 
 # 输入视频配置
-INPUT_VIDEO_PATH = 'input_videos/Special Report_ Iran launches retaliatory attacks against Israel and U.S. targets in the Middle East.mp4'  # 在这里设置你的输入视频路径
+INPUT_VIDEO_PATH = 'input_videos/demo.mp4'  # 在这里设置你的输入视频路径

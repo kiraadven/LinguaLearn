@@ -328,8 +328,12 @@ class VideoProcessor:
         Returns:
             处理后的视频片段
         """
-        # 时间处理
-        end_time += 0.1
+        # 时间处理 - 确保不超过视频总时长
+        video_duration = video_clip.duration
+        end_time = min(end_time + 0.1, video_duration)
+        
+        # 计算正确的 duration
+        duration = end_time - start_time
         
         # 获取原始视频尺寸
         orig_width, orig_height = video_clip.size
@@ -350,7 +354,6 @@ class VideoProcessor:
         
         # 提取原速视频片段
         segment = video_clip.subclip(start_time, end_time)
-        duration = segment.duration
         
         # 创建字幕 clip
         if subtitle_arr.shape[2] == 4:
@@ -365,6 +368,9 @@ class VideoProcessor:
         # 合成视频和字幕
         final_clip = CompositeVideoClip([segment, subtitle_clip])
         
+        # 显式设置 duration，防止 moviepy 计算错误
+        final_clip = final_clip.set_duration(duration)
+
         return final_clip
     
     def process_sentence_video(self, video_clip: VideoFileClip, 
@@ -483,7 +489,7 @@ class VideoProcessor:
             part1_clips.append(expr_box_clip.set_duration(gap_duration))
         
         if len(part1_clips) > 1:
-            part1 = CompositeVideoClip(part1_clips)
+            part1 = CompositeVideoClip(part1_clips).set_duration(gap_duration)
         else:
             part1 = part1_segment
         
@@ -519,10 +525,10 @@ class VideoProcessor:
             part2_clips.append(expr_box_clip.set_duration(slow_duration))
         
         if len(part2_clips) > 1:
-            part2 = CompositeVideoClip(part2_clips)
+            part2 = CompositeVideoClip(part2_clips).set_duration(slow_duration)
         else:
             part2 = slow_video
-        
+
         # 添加减速后的音频
         if slowed_audio:
             part2 = part2.set_audio(slowed_audio)
@@ -548,7 +554,7 @@ class VideoProcessor:
             part3_clips.append(expr_box_clip.set_duration(gap_duration))
         
         if len(part3_clips) > 1:
-            part3 = CompositeVideoClip(part3_clips)
+            part3 = CompositeVideoClip(part3_clips).set_duration(gap_duration)
         else:
             part3 = part1_segment
         
@@ -568,7 +574,7 @@ class VideoProcessor:
             final_parts.append(part3)
         
         final_clip = concatenate_videoclips(final_parts)
-        
+
         return final_clip
     
     def process_full_video(self, video_path: str, 
@@ -596,6 +602,7 @@ class VideoProcessor:
         
         print("正在加载视频...")
         video = VideoFileClip(video_path)
+    
         
         # ===== 生成缩略版 (Quick) =====
         print("\n" + "=" * 60)
@@ -618,15 +625,16 @@ class VideoProcessor:
         # 合并缩略版
         print("正在合并缩略版视频片段...")
         quick_video = concatenate_videoclips(quick_clips)
+        quick_video = quick_video.set_fps(config.FPS)
         
         # 导出缩略版（降低 FPS 加速）
         print(f"正在导出缩略版视频到 {quick_output_path}...")
-
         quick_video.write_videofile(
             quick_output_path,
+            fps=config.FPS,
             codec='libx264',
             audio_codec='aac',
-            fps=quick_video.fps,
+            audio_fps=config.AUDIO_FPS,
             preset='fast',
             bitrate='3000k'
         )
@@ -659,14 +667,16 @@ class VideoProcessor:
         # 合并学习版
         print("正在合并学习版视频片段...")
         full_video = concatenate_videoclips(full_clips)
+        full_video = full_video.set_fps(config.FPS)
         
         # 导出学习版（降低 FPS 加速）
         print(f"正在导出学习版视频到 {full_output_path}...")
         full_video.write_videofile(
             full_output_path,
+            fps=config.FPS,
             codec='libx264',
-            audio_codec='aac',
-            fps=full_video.fps,
+            audio_codec='aac', 
+            audio_fps=config.AUDIO_FPS,
             preset='fast',
             bitrate='3000k'
         )

@@ -306,46 +306,15 @@ class EnglishLearningVideoGenerator:
         sentences = self.splitter.split_text(text)
         print(f"✓ 成功分割为 {len(sentences)} 个句子")
         
-        # 获取分割映射
-        split_mapping = self.splitter.get_split_mapping()
-        
         # 4. 对齐句子时间戳
-        # 关键：先用原始 Whisper 句子对齐得到基础时间戳
+        # 直接用用户分割的句子列表和单词时间戳对齐
         print("正在获取每个句子的时间戳...")
         
-        # 获取原始 Whisper 文本分割的句子
-        whisper_sentences = self.transcriber.get_sentences_from_original_transcript()
-        print(f"  Whisper 原始句子数: {len(whisper_sentences)}")
-        
-        # 用原始句子对齐得到基础时间戳
         sentence_timestamps = self.transcriber.align_sentences_to_timestamps(
             audio_path, 
-            whisper_sentences,
+            sentences,
             output_name
         )
-        
-        # 获取总时长
-        word_items = transcription.get("words", [])
-        full_duration = word_items[-1]["end"] if word_items else 0.0
-        
-        # 根据用户句子的分割映射调整时间戳
-        if split_mapping and len(sentence_timestamps) != len(sentences):
-            print(f"⚠️ 时间戳数量不匹配 ({len(sentence_timestamps)} vs {len(sentences)})，正在根据分割映射修复...")
-            sentence_timestamps = self.transcriber.fix_timestamps_by_mapping(
-                sentence_timestamps, sentences, split_mapping, full_duration
-            )
-        
-        # 保存用户的句子分割后的 segments.json
-        segments_data = [
-            {"start": ts.get("start", 0), "end": ts.get("end", 0), "text": ts.get("sentence", "")}
-            for ts in sentence_timestamps
-        ]
-        import config
-        segments_path = os.path.join(config.OUTPUT_DIR, f"{output_name}_segments.json")
-        import json
-        with open(segments_path, 'w', encoding='utf-8') as f:
-            json.dump(segments_data, f, ensure_ascii=False, indent=2)
-        print(f"✓ 用户句子时间戳已保存: {segments_path}")
         
         # 继续处理
         return self._generate_with_segments(audio_path, video_path, output_name, sentence_timestamps, sentences)
@@ -463,9 +432,9 @@ def main():
     
     # ===== 测试模式配置 =====
     # 设置为 True 启用测试模式，从中间结果加载
-    TEST_MODE = False
+    TEST_MODE = True
     TEST_OUTPUT_NAME = "demo"  # 使用哪个输出的中间结果
-    TEST_START_STEP = 3  # 从第几步开始: 1=从句子, 2=从分析结果, 3=直接生成视频
+    TEST_START_STEP =2  # 从第几步开始: 1=从句子, 2=从分析结果, 3=直接生成视频
     
     # 生成视频
     try:

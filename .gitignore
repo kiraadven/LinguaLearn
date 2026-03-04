@@ -12,6 +12,7 @@ build/
 temp/
 output/
 *.mp4
+*.mp3
 *.avi
 *.mov
 *.mkv
@@ -20,3 +21,4 @@ output/
 .idea/
 *.log
 .cursor/
+MoneyPrinter*

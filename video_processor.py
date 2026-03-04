@@ -397,6 +397,8 @@ class VideoProcessor:
             处理后的视频片段
         """
         # 时间处理
+        # 使用句子的实际结束时间，而不是下一个句子的开始时间
+        segment_duration = end_time - start_time
         gap_end_time = next_sentence_start if next_sentence_start is not None else end_time
         gap_duration = gap_end_time - start_time
         
@@ -467,7 +469,8 @@ class VideoProcessor:
                 )
         
         # ===== 第1部分：原速播放 =====
-        part1_segment = video_clip.subclip(start_time, gap_end_time)
+        part1_segment = video_clip.subclip(t_start=start_time, t_end=gap_end_time)
+        print(f"part1_segment.duration={part1_segment.duration:.2f}")
         
         # 根据配置决定是否添加字幕框、单词框和表达框
         part1_clips = [part1_segment]
@@ -534,8 +537,11 @@ class VideoProcessor:
             part2 = part2.set_audio(slowed_audio)
         
         # ===== 第3部分：正常速度播放 =====
+        # 重新截取视频片段，使用正确的结束时间
+        part3_segment = video_clip.subclip(start_time, gap_end_time)
+        
         # 根据配置决定是否添加字幕框、单词框和表达框
-        part3_clips = [part1_segment]
+        part3_clips = [part3_segment]
         if config.PART3_SHOW_SUBTITLE:
             if subtitle_arr.shape[2] == 4:
                 subtitle_clip = ImageClip(subtitle_arr, duration=gap_duration).set_position(
@@ -556,7 +562,7 @@ class VideoProcessor:
         if len(part3_clips) > 1:
             part3 = CompositeVideoClip(part3_clips).set_duration(gap_duration)
         else:
-            part3 = part1_segment
+            part3 = part3_segment
         
         # ===== 合并三个部分（根据配置的播放遍数） =====
         final_parts = []
@@ -573,7 +579,8 @@ class VideoProcessor:
         for _ in range(config.PART3_REPEAT_COUNT):
             final_parts.append(part3)
         
-        final_clip = concatenate_videoclips(final_parts)
+        # 使用 compose 方法确保视频正确连接
+        final_clip = concatenate_videoclips(final_parts, method="compose")
 
         return final_clip
     
@@ -605,40 +612,50 @@ class VideoProcessor:
     
         
         # ===== 生成缩略版 (Quick) =====
-        print("\n" + "=" * 60)
-        print("生成缩略版视频...")
-        print("=" * 60)
-        print("缩略版模式：仅处理原速视频 + 字幕框")
+        # print("\n" + "=" * 60)
+        # print("生成缩略版视频...")
+        # print("=" * 60)
+        # print("缩略版模式：仅处理原速视频 + 字幕框")
         
-        quick_clips = []
-        for i, sentence_data in tqdm(enumerate(sentences_data, 1), 
-                                      total=len(sentences_data), 
-                                      desc="渲染缩略版视频"):
-            start_time = segments_info[i-1].get('start', 0)
-            end_time = segments_info[i-1].get('end', video.duration)
+        # quick_clips = []
+        # for i, sentence_data in tqdm(enumerate(sentences_data, 1), 
+        #                               total=len(sentences_data), 
+        #                               desc="渲染缩略版视频"):
+        #     # 第一个句子从视频开头开始
+        #     if i == 1:
+        #         start_time = 0.0
+        #     else:
+        #         start_time = segments_info[i-1].get('start', 0)
+            
+        #     # 最后一个句子到视频结尾
+        #     if i == len(sentences_data):
+        #         end_time = video.duration
+        #     else:
+        #         # 其他句子使用下一个句子的开始时间
+        #         end_time = segments_info[i].get('start', video.duration)
            
-            processed_clip = self.process_sentence_video_quick(
-                video, sentence_data, start_time, end_time
-            )
-            quick_clips.append(processed_clip)
+        #     processed_clip = self.process_sentence_video_quick(
+        #         video, sentence_data, start_time, end_time
+        #     )
+        #     quick_clips.append(processed_clip)
         
-        # 合并缩略版
-        print("正在合并缩略版视频片段...")
-        quick_video = concatenate_videoclips(quick_clips)
-        quick_video = quick_video.set_fps(config.FPS)
+        # # 合并缩略版
+        # print("正在合并缩略版视频片段...")
+        # quick_video = concatenate_videoclips(quick_clips, method="compose")
+        # quick_video = quick_video.set_fps(config.FPS)
         
-        # 导出缩略版（降低 FPS 加速）
-        print(f"正在导出缩略版视频到 {quick_output_path}...")
-        quick_video.write_videofile(
-            quick_output_path,
-            fps=config.FPS,
-            codec='libx264',
-            audio_codec='aac',
-            audio_fps=config.AUDIO_FPS,
-            preset='fast',
-            bitrate='3000k'
-        )
-        quick_video.close()
+        # # 导出缩略版（降低 FPS 加速）
+        # print(f"正在导出缩略版视频到 {quick_output_path}...")
+        # quick_video.write_videofile(
+        #     quick_output_path,
+        #     fps=config.FPS,
+        #     codec='libx264',
+        #     audio_codec='aac',
+        #     audio_fps=config.AUDIO_FPS,
+        #     preset='fast',
+        #     bitrate='3000k'
+        # )
+        # quick_video.close()
         
         # ===== 生成学习版 (Full) =====
         print("\n" + "=" * 60)
@@ -648,27 +665,37 @@ class VideoProcessor:
         print("学习版模式：使用提供的时间戳信息...")
         full_clips = []
         
-        for i, (sentence_data, seg_info) in tqdm(enumerate(zip(sentences_data, segments_info), 1),
-                                                 total=len(sentences_data),
-                                                 desc="渲染学习版视频"):
+        for i, (sentence_data, seg_info) in tqdm(enumerate(zip(sentences_data, segments_info)), total=len(sentences_data), desc="渲染学习版视频"):
             start_time = seg_info.get('start', 0)
             end_time = seg_info.get('end', video.duration)
             
+            # 获取下一个句子的开始时间（用于确定当前句子的结束点）
             next_sentence_start = None
-            if i < len(segments_info):
-                next_sentence_start = segments_info[i].get('start', None)
+            if i + 1 < len(segments_info):
+                next_sentence_start = segments_info[i + 1].get('start', None)
             
             processed_clip = self.process_sentence_video(
                 video, sentence_data, start_time, end_time, next_sentence_start
             )
+            # 调试信息
+            print(f"句子 {i+1}: start={start_time:.2f}, end={end_time:.2f}, next_start={next_sentence_start}, clip_duration={processed_clip.duration:.2f}")
             full_clips.append(processed_clip)
+        
+        print(f"\n=== 调试信息 ===")
+        print(f"full_clips 数量: {len(full_clips)}")
+        print(f"每个 clip 的 duration:")
+        total = 0
+        for i, clip in enumerate(full_clips):
+            print(f"  clip[{i}]: {clip.duration:.2f}s")
+            total += clip.duration
+        print(f"所有 clip 累加: {total:.2f}s")
        
         
         # 合并学习版
         print("正在合并学习版视频片段...")
-        full_video = concatenate_videoclips(full_clips)
+        full_video = concatenate_videoclips(full_clips, method="compose")
         full_video = full_video.set_fps(config.FPS)
-        
+        print("full_video duration:", full_video.duration)
         # 导出学习版（降低 FPS 加速）
         print(f"正在导出学习版视频到 {full_output_path}...")
         full_video.write_videofile(

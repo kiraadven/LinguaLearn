@@ -1,312 +1,322 @@
-# 英语学习视频自动化生成系统
+# English Learning Video Generator
 
-这是一个功能强大的英语学习视频自动化生成系统，可以将英文新闻视频自动转换为带有精美字幕和重难点单词标注的学习视频。
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-blue?style=for-the-badge&logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/MoviePy-1.0.3-green?style=for-the-badge" alt="MoviePy">
+  <img src="https://img.shields.io/badge/OpenAI-Whisper-orange?style=for-the-badge" alt="Whisper">
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License">
+</p>
 
-## ✨ 功能特点
+> 📺 自动化英语学习视频生成工具 - 将任何英文视频转化为高质量的学习视频
 
-### 🎯 核心功能
+## 📋 项目简介
 
-1. **智能句子分割**
-   - 使用 NLTK 自动识别和分割英文句子
-   - 支持复杂句式和标点符号
+English Learning Video Generator 是一个强大的自动化工具，可以将英文视频转化为结构化的英语学习视频。整个过程自动化完成包括：音频提取、自动转录、句子分割、AI 智能分析、学习内容标注，最终生成带有双语字幕、词汇注释和实用表达的的学习视频。
 
-2. **AI 单词分析**
-   - 使用 OpenAI API 智能识别每句话的重难点单词（2-6个）
-   - 自动获取单词的音标（IPA格式）和中文释义
-   - 按难度等级排序
+### ✨ 核心特性
 
-3. **多速度播放**
-   - 原速无字幕播放（1.0x）
-   - 慢速带字幕播放（0.75x，重复2次）
-   - 正常速度带字幕播放（1.0x）
+- 🎬 **全自动处理**: 从视频输入到学习视频输出，全程自动化
+- 🤖 **AI 智能分析**: 使用大语言模型分析句子，提取关键词和实用表达
+- 📝 **双语字幕**: 清晰的英文原文 + 中文翻译字幕
+- 📚 **词汇卡片**: 自动识别并标注重难点单词（含音标和释义）
+- 💬 **表达积累**: 提取实用英语表达方式，帮助提升口语和写作
+- 🎯 **双重模式**: 
+  - 快速版：原速播放 + 字幕框
+  - 学习版：慢速播放（0.75x）+ 正常速播放 + 字幕框 + 单词框 + 表达框
+- 🎨 **精美 UI**: 使用 HTML + Chrome 渲染高质量字幕和卡片
+- 💾 **断点续传**: 支持从中间步骤加载，继续生成视频
 
-4. **精美视觉设计**
-   - 占画面下方 1/4 的渐变字幕框，显示中英文对照
-   - 占画面右侧 3/16 的单词框，显示重难点单词详情
-   - 现代化的配色方案和动画效果
-
-5. **Markdown 文字稿导出**
-   - 自动生成完整的英汉互译文字稿
-   - 包含所有重难点单词的详细信息
-   - 提供单词汇总和统计信息
-
-## 📋 系统要求
-
-- Python 3.8+
-- FFmpeg（用于视频处理）
-- OpenAI API Key（或兼容的 API 服务）
-
-## 🚀 快速开始
-
-### 1. 安装依赖
-
-```bash
-# 安装 Python 依赖
-pip install -r requirements.txt
-
-# 安装 FFmpeg (Mac)
-brew install ffmpeg
-
-# 安装 FFmpeg (Ubuntu/Debian)
-sudo apt-get install ffmpeg
-
-# 安装 FFmpeg (Windows)
-# 从 https://ffmpeg.org/download.html 下载并安装
-```
-
-### 2. 配置 API Key
-
-```bash
-# 复制配置文件模板
-cp .env.example .env
-
-# 编辑 .env 文件，填入你的 API Key
-# OPENAI_API_KEY=your_api_key_here
-# OPENAI_BASE_URL=https://api.openai.com/v1
-```
-
-### 3. 设置输入视频路径
-
-在 `config.py` 文件中设置你的视频路径：
-
-```python
-# 输入视频配置
-INPUT_VIDEO_PATH = 'your_video.mp4'  # 修改为你的视频路径
-```
-
-### 4. 运行程序
-
-```bash
-python main.py
-```
-
-程序会自动：
-- 从视频中提取音频
-- 使用 Whisper API 转录为文字
-- 分析句子和单词
-- 生成学习视频和 Markdown 文字稿
-
-## 📖 使用方法
-
-### 方式一：自动处理（推荐）
-
-1. 在 `config.py` 中设置视频路径：
-```python
-INPUT_VIDEO_PATH = 'your_video.mp4'
-```
-
-2. 运行程序：
-```bash
-python main.py
-```
-
-程序会自动完成所有处理，无需任何交互！
-
-### 方式二：编程使用
-
-```python
-from main import EnglishLearningVideoGenerator
-
-# 创建生成器
-generator = EnglishLearningVideoGenerator()
-
-# 仅从视频生成（自动提取文字）
-result = generator.generate_from_video_only(
-    video_path="input_video.mp4",
-    output_name="my_learning_video"
-)
-
-print(f"视频已保存到: {result['video_path']}")
-print(f"文字稿已保存到: {result['markdown_path']}")
-```
-
-## 📁 项目结构
+## 🏗️ 系统架构
 
 ```
-automation/
-├── main.py                 # 主程序入口
-├── config.py              # 配置文件（在这里设置视频路径）
-├── sentence_splitter.py   # 句子分割模块
-├── word_analyzer.py       # 单词分析模块
-├── audio_transcriber.py   # 音频转文字模块（Whisper API）
-├── video_processor.py     # 视频处理模块
-├── markdown_exporter.py   # Markdown导出模块
-├── requirements.txt       # Python依赖
-├── .env                   # 环境变量配置（需自行创建）
-├── .env.example          # 环境变量配置模板
-├── README.md             # 项目说明
-├── output/               # 输出目录（自动创建）
-│   ├── *.mp4            # 生成的视频
-│   └── *.md             # 生成的文字稿
-└── temp/                 # 临时文件目录（自动创建）
+输入视频 → 音频提取 → Whisper转录 → 句子分割 → AI分析 → Markdown导出 → 视频合成 → 输出视频
+                                  ↓
+                           ┌──────┴──────┐
+                           ↓             ↓
+                       快速版本      学习版本
 ```
-
-## 🎨 视觉设计
-
-### 字幕框设计
-- 位置：画面底部，占 1/4 高度
-- 背景：深蓝色渐变，带透明度
-- 顶部装饰：金色装饰线
-- 内容：
-  - 英文原文（金色，大字体）
-  - 中文翻译（浅蓝色，中等字体）
-- 效果：文字带阴影，增强可读性
-
-### 单词框设计
-- 位置：画面右侧，占 3/16 宽度
-- 背景：深色圆角矩形
-- 标题栏：粉红色背景，显示 "📚 Key Words"
-- 单词列表：
-  - 序号圆圈（金色背景）
-  - 单词拼写（金色，大字体）
-  - 音标（浅蓝色，小字体）
-  - 中文释义（白色，中等字体）
-- 最多显示 6 个单词
-
-## ⚙️ 配置选项
-
-在 `config.py` 中可以自定义：
-
-- 视频分辨率（默认 1920x1080）
-- 字幕框和单词框的尺寸比例
-- 颜色方案
-- 字体大小
-- 播放速度
-- 输出目录
-
-## 🔧 高级功能
-
-### 自定义 API 服务
-
-支持使用兼容 OpenAI API 的其他服务（如 DeepSeek）：
-
-```bash
-# 在 .env 文件中设置
-OPENAI_API_KEY=your_api_key
-OPENAI_BASE_URL=https://api.deepseek.com/v1
-```
-
-### 批量处理
-
-```python
-from main import EnglishLearningVideoGenerator
-
-generator = EnglishLearningVideoGenerator()
-
-# 批量处理多个视频
-videos = [
-    ("text1.txt", "video1.mp4", "output1"),
-    ("text2.txt", "video2.mp4", "output2"),
-]
-
-for text_file, video_file, output_name in videos:
-    generator.generate_from_text_file(text_file, video_file, output_name)
-```
-
-## 📊 输出示例
-
-### 视频输出
-- 格式：MP4 (H.264 + AAC)
-- 分辨率：1920x1080
-- 帧率：30fps
-- 包含完整的字幕和单词标注
-
-### Markdown 文字稿
-- 包含目录导航
-- 每个句子的详细信息
-- 重难点单词表格
-- 统计信息
-- 单词汇总（按字母排序）
-
-## 🐛 常见问题
-
-### 1. FFmpeg 未找到
-确保已安装 FFmpeg 并添加到系统 PATH。
-
-### 2. API 调用失败
-检查 API Key 是否正确，网络连接是否正常。
-
-### 3. 字体显示问题
-系统会自动尝试使用系统字体，如果显示异常，可以在 `config.py` 中指定字体路径。
-
-### 4. 视频处理速度慢
-视频处理是 CPU 密集型任务，处理时间取决于：
-- 视频长度
-- 句子数量
-- 计算机性能
-
-建议使用较短的视频片段进行测试。
-
-### 5. Whisper 转录不准确
-- 确保视频音频清晰
-- 避免背景噪音过大
-- 建议使用标准英语发音的视频
-
-## 💡 使用提示
-
-1. **首次运行**时，NLTK会自动下载必要的数据包
-2. **视频处理**是CPU密集型任务，建议先用短视频（1-2分钟）测试
-3. **API调用费用**：
-   - Whisper API：约 $0.006/分钟
-   - GPT API：根据使用量计费
-   - 建议使用便宜的API服务（如DeepSeek）
-4. **字体问题**：系统会自动使用系统字体，Mac上效果最佳
-5. **输入视频要求**：
-   - 格式：MP4（推荐）
-   - 音频：清晰的英语语音
-   - 时长：建议5分钟以内（测试用）
-
-## 🎯 工作流程
-
-```
-输入视频 (MP4)
-    ↓
-提取音频 → Whisper API 转录 → 英文文本
-    ↓
-句子分割 (NLTK)
-    ↓
-AI 分析每个句子 → 翻译 + 重难点单词
-    ↓
-视频处理 (MoviePy)
-    ├─ 原速无字幕 (1.0x)
-    ├─ 慢速带字幕 (0.75x × 2)
-    └─ 正常带字幕 (1.0x)
-    ↓
-输出
-    ├─ 学习视频 (MP4)
-    └─ 文字稿 (Markdown)
-```
-
-## 🎯 下一步
-
-1. **准备视频**：找一个英文新闻或演讲视频（MP4格式）
-2. **配置路径**：在 `config.py` 中设置 `INPUT_VIDEO_PATH`
-3. **配置 API**：在 `.env` 中设置 `OPENAI_API_KEY`
-4. **运行程序**：`python main.py`
-5. **开始学习**：查看 `output/` 目录中的视频和文字稿！
-
-## 📝 待办事项
-
-- [ ] 支持音频文件输入（自动生成视频背景）
-- [ ] 支持自定义字体
-- [ ] 添加进度条显示
-- [ ] 支持多语言（不仅限于英语）
-- [ ] 添加 GPU 加速支持
-- [ ] Web 界面
-
-## 📄 许可证
-
-MIT License
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📧 联系方式
-
-如有问题或建议，请提交 Issue。
 
 ---
 
-**享受学习英语的乐趣！** 🎉
+## 🚀 快速开始
 
+### 1. 克隆项目
+
+```bash
+git clone https://github.com/yourusername/english-learning-video-generator.git
+cd english-learning-video-generator
+```
+
+### 2. 创建 Python 环境（推荐使用 conda）
+
+#### 方式一：使用 conda（推荐）
+
+```bash
+# 创建新环境
+conda create -n automation python=3.11 -y
+
+# 激活环境
+conda activate automation
+```
+
+#### 方式二：使用 venv
+
+```bash
+# 创建虚拟环境
+python -m venv venv
+
+# 激活环境
+# Linux/Mac:
+source venv/bin/activate
+# Windows:
+venv\Scripts\activate
+```
+
+### 3. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+> 📌 **注意**：如果你之前已经安装过一些包，可能需要更新：
+> ```bash
+> pip install --upgrade -r requirements.txt
+> ```
+
+### 4. 安装 Whisper 模型
+
+首次运行程序时，Whisper 会自动下载模型（默认为 `small` 模型，约 140MB）。如需手动下载：
+
+```bash
+# 安装 whisper 后运行
+python -c "import whisper; whisper.load_model('small')"
+```
+
+可用的模型大小：
+| 模型 | 大小 | 速度 | 精度 |
+|------|------|------|------|
+| tiny | ~39 MB | 最快 | 较低 |
+| base | ~74 MB | 快 | 一般 |
+| small | ~244 MB | 中等 | 较好 |
+| medium | ~769 MB | 慢 | 好 |
+| large | ~1550 MB | 最慢 | 最好 |
+
+### 5. 配置环境变量
+
+```bash
+# 复制示例配置
+cp .env.example .env
+```
+
+编辑 `.env` 文件，填入你的 API Key：
+
+```env
+# OpenAI API 配置（必须设置）
+# 支持 OpenAI、DeepSeek 或其他 OpenAI 兼容 API
+OPENAI_API_KEY=your_api_key_here
+SPLITTER_API_KEY=your_api_key_here
+
+# API 基础 URL（可选，默认使用 DeepSeek）
+# DeepSeek: https://api.deepseek.com
+# OpenAI: https://api.openai.com/v1
+# Ollama: http://localhost:11434/v1
+OPENAI_BASE_URL=https://api.deepseek.com
+SPLITTER_BASE_URL=https://api.openai.com/v1
+```
+
+### 6. 准备输入视频
+
+将你的英文视频放入项目目录，例如：
+
+```
+english-learning-video-generator/
+├── input_videos/
+│   └── your_video.mp4    # 放入你的视频
+├── main.py
+├── config.py
+└── ...
+```
+
+然后编辑 `config.py`，设置视频路径：
+
+```python
+# config.py
+INPUT_VIDEO_PATH = 'input_videos/your_video.mp4'
+```
+
+### 7. 运行程序
+
+```bash
+python main.py
+```
+
+---
+
+## ⚙️ 配置文件说明
+
+所有配置都在 `config.py` 文件中：
+
+### API 配置
+
+```python
+# API 配置
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
+
+# Whisper 模型大小
+WHISPER_MODEL_SIZE = 'small'  # tiny/base/small/medium/large
+```
+
+### 视频参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `FPS` | 30 | 视频帧率 |
+| `AUDIO_FPS` | 44100 | 音频采样率 |
+| `SPEED_SLOW` | 0.75 | 慢速播放倍数 |
+
+### 句子分割
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `MAX_SENTENCE_WORDS` | 30 | 单句最大单词数 |
+| `MIN_SENTENCE_WORDS` | 5 | 单句最小单词数 |
+
+### 视频各部分配置
+
+每个部分都可以独立配置显示内容：
+
+```python
+# Part 1: 原速播放（从句子开始到下一句开始）
+PART1_REPEAT_COUNT = 1       # 播放几遍
+PART1_SHOW_SUBTITLE = False  # 是否显示字幕框
+PART1_SHOW_WORD_BOX = False  # 是否显示单词框
+PART1_SHOW_EXPRESSION_BOX = False  # 是否显示表达框
+
+# Part 2: 慢速播放（0.75倍速）
+PART2_REPEAT_COUNT = 2       # 播放几遍
+PART2_SHOW_SUBTITLE = True   # 显示字幕框
+PART2_SHOW_WORD_BOX = True   # 显示单词框
+PART2_SHOW_EXPRESSION_BOX = True  # 显示表达框
+
+# Part 3: 正常速度有字幕
+PART3_REPEAT_COUNT = 1       # 播放几遍
+PART3_SHOW_SUBTITLE = True   # 显示字幕框
+PART3_SHOW_WORD_BOX = True   # 显示单词框
+PART3_SHOW_EXPRESSION_BOX = True  # 显示表达框
+```
+
+### 颜色配置
+
+可以自定义字幕框、单词框、表达框的颜色：
+
+```python
+# 单词框颜色
+WORD_BOX_BG_COLOR = "#fef9c3"      # 奶油黄背景
+WORD_BOX_WORD_COLOR = "#0284c7"    # 单词文字颜色
+WORD_BOX_PHONETIC_COLOR = "#6b7280"  # 音标颜色
+WORD_BOX_TRANS_COLOR = "#111827"   # 释义颜色
+
+# 表达框颜色
+EXPR_BOX_BG_COLOR = "#e0f2fe"      # 淡蓝背景
+EXPR_BOX_ENGLISH_COLOR = "#0369a1"  # 英文颜色
+EXPR_BOX_CHINESE_COLOR = "#111827"  # 中文颜色
+
+# 字幕框颜色
+SUBTITLE_BOX_BG_COLOR = "#ffffff"
+SUBTITLE_BOX_ENGLISH_COLOR = "#111827"
+SUBTITLE_BOX_CHINESE_COLOR = "#374151"
+```
+
+
+---
+
+## 📖 使用说明
+
+### 基本使用
+
+1. 在 `config.py` 中设置 `INPUT_VIDEO_PATH` 指向你的视频文件
+2. 确保 `.env` 文件中配置了 `OPENAI_API_KEY`
+3. 运行 `python main.py`
+
+### 测试模式
+
+如果想从中间步骤开始（用于调试或修改）：
+
+```python
+# 在 main.py 中设置
+TEST_MODE = True
+TEST_OUTPUT_NAME = "demo"      # 使用哪个中间结果
+TEST_START_STEP = 2            # 从第几步开始: 
+                                # 1 = 从句子文件加载
+                                # 2 = 从分析结果加载  
+                                # 3 = 直接生成视频
+```
+
+### 程序输出
+
+运行完成后，`output` 目录下会生成：
+
+```
+output/
+├── demo.md                    # Markdown 格式的学习笔记
+├── demo.mp4                   # 视频文件（别名，指向 _full 版本）
+├── demo_quick.mp4            # 快速版视频（原速 + 字幕）
+└── demo_full.mp4             # 学习版视频（慢速 + 单词框 + 表达框）
+```
+
+### 中间文件（处理后自动清理）
+
+```
+output/
+├── demo_1_sentences.txt       # 分割后的句子
+├── demo_2_analysis.json       # AI 分析结果
+└── demo_segments.json         # 句子时间戳信息
+```
+
+---
+
+
+## 📝 Markdown 输出示例
+
+生成的 `demo.md` 文件包含结构化的学习内容：
+
+```markdown
+# English Learning Notes
+
+## Sentence 1
+**Original:** The quality of your life depends on the quality of your thoughts.
+
+**Translation:** 你生活的质量取决于你思想的质量。
+
+### 🎯 Key Words
+| Word | Phonetic | Translation | Difficulty |
+|------|----------|-------------|------------|
+| quality | /ˈkwɒləti/ | 质量 | ⭐⭐⭐ |
+
+### 💬 Useful Expressions
+- **depend on** - 取决于
+- **the quality of** - ...的质量
+```
+
+---
+
+
+---
+
+## 📄 开源协议
+
+本项目基于 MIT 协议开源 - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 🙏 致谢
+
+- [OpenAI Whisper](https://github.com/openai/whisper) - 语音转文字
+- [MoviePy](https://zulko.github.io/moviepy/) - 视频处理
+- [DeepSeek](https://www.deepseek.com/) - 大语言模型 API
+- 所有开源贡献者
+
+---
+
+<p align="center">Made with ❤️ for English learners</p>

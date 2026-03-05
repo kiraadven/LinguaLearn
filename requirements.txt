@@ -1,13 +1,27 @@
+# 视频处理
 moviepy==1.0.3
+
+# 图片处理
 pillow==10.2.0
+
+# AI API
 openai==1.12.0
+
+# 自然语言处理
 nltk==3.8.1
-pydub==0.25.1
+
+# 数值计算
 numpy==1.24.3
-requests==2.31.0
+
+# 环境变量
 python-dotenv==1.0.1
+
+# 语音识别（包含 Whisper）
 openai-whisper
-praatio
+
+# PyTorch（Whisper 依赖）
 torch==2.0.1
 torchaudio==2.0.2
 
+# 进度条
+tqdm

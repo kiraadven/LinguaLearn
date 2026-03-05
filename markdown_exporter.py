@@ -120,12 +120,11 @@ class MarkdownExporter:
             f.write("## 📄 英文原文\n\n")
             for i, sentence_data in enumerate(sentences_data, 1):
                 original_text = sentence_data['original_text']
-                # 移除末尾的句号，避免重复
                 original_text = original_text.rstrip('.!?')
-                f.write(f"{original_text}. ")
+                f.write(f"*{original_text}.* ")
             f.write("\n\n")
             f.write("---\n\n")
-            
+                        
             # ===== 每个句子的详细内容 =====
             for i, sentence_data in enumerate(sentences_data, 1):
                 f.write(f"<div class=\"sentence-card\" id=\"句子-{i}\">\n\n")
@@ -280,7 +279,7 @@ class MarkdownExporter:
             
             # ===== 页脚 =====
             f.write("<div align=\"center\">\n\n")
-            f.write("*📚 本文档由GetEverybodyLearning生成*\n\n")
+            f.write("*📚 本文档由GetEverybodyLearning制作完成*\n\n")
             f.write("*坚持每天学习，让英语进步！* 🚀\n\n")
             f.write("</div>\n")
         

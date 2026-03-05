@@ -10,9 +10,9 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
 
-# 句子分割专用API配置 
-SPLITTER_API_KEY = os.getenv('SPLITTER_API_KEY')
-SPLITTER_BASE_URL = os.getenv('SPLITTER_BASE_URL')
+# 句子分割专用API配置（如果没有单独配置，则使用主API）
+SPLITTER_API_KEY = os.getenv('SPLITTER_API_KEY') or os.getenv('OPENAI_API_KEY')
+SPLITTER_BASE_URL = os.getenv('SPLITTER_BASE_URL') or os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
 SPLITTER_MODEL = 'gpt-4-ca'
 
 

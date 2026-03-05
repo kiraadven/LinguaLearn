@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/Python-3.10+-blue?style=for-the-badge&logo=python" alt="Python">
   <img src="https://img.shields.io/badge/MoviePy-1.0.3-green?style=for-the-badge" alt="MoviePy">
   <img src="https://img.shields.io/badge/OpenAI-Whisper-orange?style=for-the-badge" alt="Whisper">
-  <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License">
+  <img src="https://img.shields.io/badge/License-CC%20BY--NC%204.0-green?style=for-the-badge" alt="License">
 </p>
 
 > 📺 自动化英语学习视频生成工具 - 将任何英文视频转化为高质量的学习视频
@@ -306,7 +306,18 @@ output/
 
 ## 📄 开源协议
 
-本项目基于 MIT 协议开源 - 详见 [LICENSE](LICENSE) 文件
+本项目基于 **CC BY-NC 4.0**（知识共享署名-非商业性使用 4.0 国际）协议开源。
+
+### 你可以：
+- ✅ 自由使用、修改、传播本项目
+- ✅ 用于个人学习或教育目的
+- ✅ 分享本项目时需注明作者来源
+
+### 你不能：
+- ❌ 将本项目用于商业目的
+- ❌ 未经授权将本项目商用
+
+完整协议内容请查看 [LICENSE](LICENSE) 文件。
 
 ---
 

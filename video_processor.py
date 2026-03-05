@@ -678,7 +678,7 @@ class VideoProcessor:
                 video, sentence_data, start_time, end_time, next_sentence_start
             )
             # 调试信息
-            print(f"句子 {i+1}: start={start_time:.2f}, end={end_time:.2f}, next_start={next_sentence_start}, clip_duration={processed_clip.duration:.2f}")
+            # print(f"句子 {i+1}: start={start_time:.2f}, end={end_time:.2f}, next_start={next_sentence_start}, clip_duration={processed_clip.duration:.2f}")
             full_clips.append(processed_clip)
         
         # 合并学习版

@@ -44,7 +44,11 @@ class AudioTranscriber:
         print("正在从视频中提取音频...")
 
         video = VideoFileClip(video_path)
-        audio_path = os.path.join(config.TEMP_DIR, "extracted_audio.mp3")
+        
+        filename = os.path.basename(video_path)
+        name_without_ext = os.path.splitext(filename)[0]
+        audio_filename = name_without_ext + ".mp3"
+        audio_path = os.path.join(config.TEMP_DIR, audio_filename)
 
         video.audio.write_audiofile(audio_path, codec='mp3', verbose=False, logger=None)
         video.close()

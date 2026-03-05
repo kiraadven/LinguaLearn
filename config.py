@@ -68,4 +68,4 @@ OUTPUT_DIR = 'output'
 TEMP_DIR = 'temp'
 
 # 输入视频配置
-INPUT_VIDEO_PATH = 'input_videos/demo.mp4'  # 在这里设置你的输入视频路径
+INPUT_VIDEO_PATH = 'input_videos/OpenAI changing deal with U.S. military after backlash.mp4'  # 在这里设置你的输入视频路径

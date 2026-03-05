@@ -279,7 +279,7 @@ class MarkdownExporter:
             
             # ===== 页脚 =====
             f.write("<div align=\"center\">\n\n")
-            f.write("*📚 本文档由GetEverybodyLearning制作完成*\n\n")
+            f.write("*📚 本文档由GetLearn制作完成*\n\n")
             f.write("*坚持每天学习，让英语进步！* 🚀\n\n")
             f.write("</div>\n")
         

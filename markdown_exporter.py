@@ -108,7 +108,7 @@ class MarkdownExporter:
             
             # ===== 主标题 =====
             f.write("# 🌟 GetEverybodyLearning英语学习文字稿\n\n")
-            f.write(f"**生成时间：** {datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')}\n\n")
+            # f.write(f"**生成时间：** {datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')}\n\n")
             
             # ===== 简介部分 =====
             f.write("---\n\n")
@@ -147,17 +147,15 @@ class MarkdownExporter:
                 if keywords:
                     f.write("\n\n### 📚 重难点单词\n\n")
                     
-                    f.write("| 序号 | 单词 | 音标 | 中文释义 | 难度 |\n")
-                    f.write("|:---:|:---:|:---:|:---:|:---:|\n")
+                    f.write("| 序号 | 单词 | 音标 | 中文释义 |\n")
+                    f.write("|:---:|:---:|:---:|:---:|\n")
                     
                     for j, word_info in enumerate(keywords, 1):
                         word = word_info.get('word', '')
                         phonetic = word_info.get('phonetic', '')
                         translation = word_info.get('translation', '')
-                        difficulty = word_info.get('difficulty', 0)
-                        difficulty_stars = "💫" * difficulty + "☆" * (5 - difficulty)
                         
-                        f.write(f"| {j} | **{word}** | {phonetic} | {translation} | {difficulty_stars} |\n")
+                        f.write(f"| {j} | **{word}** | {phonetic} | {translation} |\n")
                     
                     f.write("\n")
                 
@@ -196,18 +194,16 @@ class MarkdownExporter:
             random.shuffle(shuffled_words)
             
             if shuffled_words:
-                f.write("| 单词 | 音标 | 中文释义 | 难度 |\n")
-                f.write("|:---:|:---:|:---:|:---:|\n")
+                f.write("| 单词 | 音标 | 中文释义 |\n")
+                f.write("|:---:|:---:|:---:|\n")
                 
                 # 使用打乱后的顺序
                 for word_info in shuffled_words:
                     word = word_info.get('word', '')
                     phonetic = word_info.get('phonetic', '')
                     translation = word_info.get('translation', '')
-                    difficulty = word_info.get('difficulty', 0)
-                    difficulty_stars = "💫" * difficulty + "☆" * (5 - difficulty)
                     
-                    f.write(f"| **{word}** | {phonetic} | {translation} | {difficulty_stars} |\n")
+                    f.write(f"| **{word}** | {phonetic} | {translation} |\n")
             
             f.write("\n---\n\n")
             
@@ -215,10 +211,10 @@ class MarkdownExporter:
             f.write("## ✍️ 单词听写练习\n\n")
             f.write("**根据中文提示，写出对应的英文单词：**\n\n")
             
-            # 使用打乱后的单词列表
+            # 使用 HTML 表格确保列宽平均分配
             if shuffled_words:
-                f.write("| 单词1 | 单词2 | 单词3 |\n")
-                f.write("|:---:|:---:|:---:|\n")
+                f.write("<table style='width:100%; table-layout:fixed; text-align:center;'>\n")
+                f.write("<tr><th style='width:33%'>单词1</th><th style='width:33%'>单词2</th><th style='width:33%'>单词3</th></tr>\n")
                 
                 for i in range(0, len(shuffled_words), 3):
                     row = shuffled_words[i:i+3]
@@ -227,7 +223,9 @@ class MarkdownExporter:
                         row.append({'translation': '', 'word': ''})
                     
                     # 每个单词后面紧跟横线
-                    f.write(f"| {row[0]['translation']} __________ | {row[1]['translation']} __________ | {row[2]['translation']} __________ |\n")
+                    f.write(f"<tr><td>{row[0]['translation']} __________ </td><td>{row[1]['translation']} __________ </td><td>{row[2]['translation']} __________ </td></tr>\n")
+                
+                f.write("</table>\n")
             
             f.write("\n---\n\n")
             
@@ -265,15 +263,18 @@ class MarkdownExporter:
                 shuffled_exprs = all_expressions.copy()
                 random.shuffle(shuffled_exprs)
                 
-                f.write("| 表达1 | 表达2 |\n")
-                f.write("|:---|:---|\n")
+                # 使用 HTML 表格确保列宽平均分配
+                f.write("<table style='width:100%; table-layout:fixed; text-align:center;'>\n")
+                f.write("<tr><th style='width:50%'>表达1</th><th style='width:50%'>表达2</th></tr>\n")
                 
                 for i in range(0, len(shuffled_exprs), 2):
                     row = shuffled_exprs[i:i+2]
                     while len(row) < 2:
                         row.append({'chinese': '', 'english': ''})
                     
-                    f.write(f"| {row[0]['chinese']} ____________________ | {row[1]['chinese']} ____________________ |\n")
+                    f.write(f"<tr><td>{row[0]['chinese']} ____________________ </td><td>{row[1]['chinese']} ____________________ </td></tr>\n")
+                
+                f.write("</table>\n")
             
             f.write("\n---\n\n")
             

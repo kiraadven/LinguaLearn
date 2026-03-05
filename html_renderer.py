@@ -184,8 +184,9 @@ class HTMLRenderer:
             是否成功
         """
         # 动态计算字体大小 - 根据高度（1080p适配，整体放大）
-        base_font_size_en = int(height * 0.26)
-        base_font_size_cn = int(height * 0.20)
+        # 调大字体，方便学习和阅读
+        base_font_size_en = int(height * 0.32)
+        base_font_size_cn = int(height * 0.26)
         
         # 根据文本长度调整（文本越长，字体越小）
         en_len = len(english_text)
@@ -207,12 +208,13 @@ class HTMLRenderer:
         else:
             scale_factor = 1.0
         
-        font_size_en = min(80, int(base_font_size_en * scale_factor))
-        font_size_cn = min(56, int(base_font_size_cn * scale_factor))
+        # 调大字体上限，方便学习和阅读
+        font_size_en = min(120, int(base_font_size_en * scale_factor))
+        font_size_cn = min(90, int(base_font_size_cn * scale_factor))
         
-        # 确保字体不会太小（1080p适配）
-        font_size_en = max(font_size_en, 24)
-        font_size_cn = max(font_size_cn, 18)
+        # 确保字体不会太小（1080p适配）- 调大最小值方便阅读
+        font_size_en = max(font_size_en, 36)
+        font_size_cn = max(font_size_cn, 28)
         
         # 读取模板并替换变量
         template = self._read_template('subtitle_template.html')
@@ -317,8 +319,9 @@ class HTMLRenderer:
         num_exprs = min(len(expressions), 3)
         
         # 基于高度的计算 - 1080p适配，整体放大
-        base_font_en = int(height * 0.11)
-        base_font_cn = int(height * 0.08)
+        # 调大字体，方便学习和阅读
+        base_font_en = int(height * 0.13)
+        base_font_cn = int(height * 0.10)
         
         # 根据表达数量动态调整
         height_factor = 1.0
@@ -327,9 +330,9 @@ class HTMLRenderer:
         elif num_exprs >= 2:
             height_factor = 0.85
         
-        # 设置字号范围（1080p适配）
-        font_size_en = max(20, min(36, int(base_font_en * height_factor)))
-        font_size_cn = max(16, min(28, int(base_font_cn * height_factor)))
+        # 设置字号范围（1080p适配）- 调大方便阅读
+        font_size_en = max(30, min(56, int(base_font_en * height_factor)))
+        font_size_cn = max(24, min(44, int(base_font_cn * height_factor)))
         
         # 读取模板
         template = self._read_template('expressionbox_template.html')

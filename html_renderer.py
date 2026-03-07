@@ -185,8 +185,8 @@ class HTMLRenderer:
         """
         # 动态计算字体大小 - 根据高度（1080p适配，整体放大）
         # 调大字体，方便学习和阅读
-        base_font_size_en = int(height * 0.32)
-        base_font_size_cn = int(height * 0.26)
+        base_font_size_en = int(height * 0.19)
+        base_font_size_cn = int(height * 0.13)
         
         # 根据文本长度调整（文本越长，字体越小）
         en_len = len(english_text)
@@ -194,27 +194,27 @@ class HTMLRenderer:
         
         # 英文文本长度调整
         if en_len > 80:
-            scale_factor = 0.40
+            scale_factor = 0.14
         elif en_len > 60:
-            scale_factor = 0.50
+            scale_factor = 0.20
         elif en_len > 50:
-            scale_factor = 0.60
+            scale_factor = 0.30
         elif en_len > 40:
-            scale_factor = 0.70
+            scale_factor = 0.40
         elif en_len > 30:
-            scale_factor = 0.80
+            scale_factor = 0.60
         elif en_len > 20:
-            scale_factor = 0.90
+            scale_factor = 0.80
         else:
             scale_factor = 1.0
         
         # 调大字体上限，方便学习和阅读
-        font_size_en = min(120, int(base_font_size_en * scale_factor))
-        font_size_cn = min(90, int(base_font_size_cn * scale_factor))
+        font_size_en = min(55, int(base_font_size_en * scale_factor))
+        font_size_cn = min(45, int(base_font_size_cn * scale_factor))
         
         # 确保字体不会太小（1080p适配）- 调大最小值方便阅读
-        font_size_en = max(font_size_en, 36)
-        font_size_cn = max(font_size_cn, 28)
+        font_size_en = max(font_size_en, 16)
+        font_size_cn = max(font_size_cn, 12)
         
         # 读取模板并替换变量
         template = self._read_template('subtitle_template.html')
@@ -249,27 +249,27 @@ class HTMLRenderer:
         num_words = min(len(words), 6)
         
         # 基于高度的计算 - 1080p适配，整体放大
-        base_font_word = int(height * 0.11)
-        base_font_phonetic = int(height * 0.065)
-        base_font_trans = int(height * 0.075)
+        base_font_word = int(height * 0.07)
+        base_font_phonetic = int(height * 0.045)
+        base_font_trans = int(height * 0.05)
         
         # 根据单词数量动态调整 - 单词越多，字体越小
         height_factor = 1.0
         if num_words >= 6:
-            height_factor = 0.55
+            height_factor = 0.10
         elif num_words >= 5:
-            height_factor = 0.6
+            height_factor = 0.20
         elif num_words >= 4:
-            height_factor = 0.7
+            height_factor = 0.45
         elif num_words >= 3:
             height_factor = 0.8
         elif num_words >= 2:
             height_factor = 0.9
         
         # 设置字号范围（1080p适配）
-        font_size_word = max(22, min(44, int(base_font_word * height_factor)))
-        font_size_phonetic = max(16, min(28, int(base_font_phonetic * height_factor)))
-        font_size_trans = max(18, min(32, int(base_font_trans * height_factor)))
+        font_size_word = max(16, min(44, int(base_font_word * height_factor)))
+        font_size_phonetic = max(12, min(28, int(base_font_phonetic * height_factor)))
+        font_size_trans = max(14, min(32, int(base_font_trans * height_factor)))
         
         # 读取模板
         template = self._read_template('wordbox_template.html')
@@ -320,19 +320,19 @@ class HTMLRenderer:
         
         # 基于高度的计算 - 1080p适配，整体放大
         # 调大字体，方便学习和阅读
-        base_font_en = int(height * 0.13)
-        base_font_cn = int(height * 0.10)
+        base_font_en = int(height * 0.10)
+        base_font_cn = int(height * 0.07)
         
         # 根据表达数量动态调整
         height_factor = 1.0
         if num_exprs >= 3:
-            height_factor = 0.7
+            height_factor = 0.30
         elif num_exprs >= 2:
-            height_factor = 0.85
+            height_factor = 0.65
         
         # 设置字号范围（1080p适配）- 调大方便阅读
-        font_size_en = max(30, min(56, int(base_font_en * height_factor)))
-        font_size_cn = max(24, min(44, int(base_font_cn * height_factor)))
+        font_size_en = max(16, min(36, int(base_font_en * height_factor)))
+        font_size_cn = max(14, min(28, int(base_font_cn * height_factor)))
         
         # 读取模板
         template = self._read_template('expressionbox_template.html')

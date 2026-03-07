@@ -27,7 +27,7 @@ class VideoProcessor:
         self.html_renderer = HTMLRenderer()
         
         # 标记是否已保存调试图片
-        self._debug_saved = True
+        self._debug_saved = False
         
         # 缓存已渲染的帧（避免重复调用 Chrome）
         self._subtitle_cache = {}  # (english_text, chinese_text, width, height) -> np.ndarray
@@ -195,7 +195,7 @@ class VideoProcessor:
         # 保存第一个用于调试
         if not self._debug_saved:
             img.save(os.path.join(config.OUTPUT_DIR, 'debug_subtitle.png'))
-            print(f"  ✅ 已保存字幕框图片: {os.path.join(config.OUTPUT_DIR, 'debug_subtitle.png')}")
+            # print(f"  ✅ 已保存字幕框图片: {os.path.join(config.OUTPUT_DIR, 'debug_subtitle.png')}")
         
         # 清理临时文件
         try:
@@ -249,7 +249,7 @@ class VideoProcessor:
         # 保存第一个用于调试
         if not self._debug_saved:
             img.save(os.path.join(config.OUTPUT_DIR, 'debug_wordbox.png'))
-            print(f"  ✅ 已保存单词框图片: {os.path.join(config.OUTPUT_DIR, 'debug_wordbox.png')}")
+            # print(f"  ✅ 已保存单词框图片: {os.path.join(config.OUTPUT_DIR, 'debug_wordbox.png')}")
         
         # 清理临时文件
         try:
@@ -301,7 +301,7 @@ class VideoProcessor:
         # 保存第一个用于调试
         if not self._debug_saved:
             img.save(os.path.join(config.OUTPUT_DIR, 'debug_expressionbox.png'))
-            print(f"  ✅ 已保存表达框图片: {os.path.join(config.OUTPUT_DIR, 'debug_expressionbox.png')}")
+            # print(f"  ✅ 已保存表达框图片: {os.path.join(config.OUTPUT_DIR, 'debug_expressionbox.png')}")
             self._debug_saved = True
         
         # 清理临时文件
@@ -313,9 +313,9 @@ class VideoProcessor:
         return result
     
     def process_sentence_video_quick(self, video_clip: VideoFileClip, 
-                                       sentence_data: Dict,
-                                       start_time: float,
-                                       end_time: float) -> VideoFileClip:
+                                      sentence_data: Dict,
+                                      start_time: float,
+                                      end_time: float) -> VideoFileClip:
         """
         快速模式：处理单个句子的视频片段（原速 + 带翻译的字幕框）
         
@@ -328,9 +328,9 @@ class VideoProcessor:
         Returns:
             处理后的视频片段
         """
-        # 时间处理 - 确保不超过视频总时长
+        # 时间处理 - 确保不超过视频总时长（不再额外加0.1秒以避免片段重叠导致卡顿）
         video_duration = video_clip.duration
-        end_time = min(end_time + 0.1, video_duration)
+        end_time = min(end_time, video_duration)
         
         # 计算正确的 duration
         duration = end_time - start_time
@@ -418,7 +418,7 @@ class VideoProcessor:
         
         # 表达框尺寸（放在左上角）
         expr_box_width = int(orig_width * 0.25)
-        expr_box_height = int(orig_height * 0.45)
+        expr_box_height = int(orig_height * 0.55)
         expr_box_margin = int(orig_width * 0.005)
         
         # 创建字幕框（用于Part2和Part3）

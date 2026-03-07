@@ -81,6 +81,59 @@ class EnglishLearningVideoGenerator:
             except Exception as e:
                 print(f"⚠️ 删除临时文件失败: {audio_file}, {e}")
     
+    def _organize_output_files(self, output_name: str):
+        """
+        整理输出文件：创建视频名文件夹，移动并重命名文件
+        
+        - 创建以视频名字命名的文件夹
+        - 将生成的mp4和md文件移动到该文件夹
+        - 重命名规则：
+          - *_full.mp4 -> 逐句精听.mp4
+          - *_quick.mp4 -> 翻译速览.mp4
+          - *.md -> 保持原名
+        """
+        import glob
+        import shutil
+        
+        output_dir = config.OUTPUT_DIR
+        if not os.path.exists(output_dir):
+            print(f"⚠️ 输出目录不存在: {output_dir}")
+            return
+        
+        # 创建以视频名字命名的文件夹
+        video_folder = os.path.join(output_dir, output_name)
+        os.makedirs(video_folder, exist_ok=True)
+        # print(f"📂 已创建输出文件夹: {output_name}")
+        
+        # 查找需要移动的文件
+        # mp4 文件 (full 和 quick 版本)
+        full_video = os.path.join(output_dir, f"{output_name}_full.mp4")
+        quick_video = os.path.join(output_dir, f"{output_name}_quick.mp4")
+        
+        # md 文件
+        md_file = os.path.join(output_dir, f"{output_name}.md")
+        
+        # 移动并重命名文件
+        # 1. 移动 full 视频 -> 逐句精听.mp4
+        if os.path.exists(full_video):
+            target_full = os.path.join(video_folder, "逐句精听.mp4")
+            shutil.move(full_video, target_full)
+            # print(f"✓ 已移动: {output_name}_full.mp4 -> 逐句精听.mp4")
+        
+        # 2. 移动 quick 视频 -> 翻译速览.mp4
+        if os.path.exists(quick_video):
+            target_quick = os.path.join(video_folder, "翻译速览.mp4")
+            shutil.move(quick_video, target_quick)
+            # print(f"✓ 已移动: {output_name}_quick.mp4 -> 翻译速览.mp4")
+        
+        # 3. 移动 md 文件 (保持原名)
+        if os.path.exists(md_file):
+            target_md = os.path.join(video_folder, f"{output_name}.md")
+            shutil.move(md_file, target_md)
+            # print(f"✓ 已移动: {output_name}.md")
+        
+        print(f"✅ 文件整理完成，所有文件已保存到: {video_folder}")
+    
     def _cleanup_intermediate_files(self, output_name: str):
         """删除中间结果文件（txt, segments.json, analysis.json）"""
         import glob
@@ -176,10 +229,22 @@ class EnglishLearningVideoGenerator:
             print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
             print(f"✓ 学习版视频已保存: {video_paths['full']}")
             
+            # 清理临时音频文件
+            self._cleanup_temp_files()
+            
+            # 整理输出文件：创建文件夹并重命名
+            self._organize_output_files(output_name)
+            
+            # 构建新的文件路径（在新文件夹中）
+            new_video_folder = os.path.join(config.OUTPUT_DIR, output_name)
+            
             return {
-                'video_path': video_paths['full'],
-                'video_paths': video_paths,
-                'markdown_path': markdown_path,
+                'video_path': os.path.join(new_video_folder, "逐句精听.mp4"),
+                'video_paths': {
+                    'full': os.path.join(new_video_folder, "逐句精听.mp4"),
+                    'quick': os.path.join(new_video_folder, "翻译速览.mp4")
+                },
+                'markdown_path': os.path.join(new_video_folder, f"{output_name}.md"),
                 'sentences_count': len(sentences_data)
             }
         
@@ -219,10 +284,22 @@ class EnglishLearningVideoGenerator:
             print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
             print(f"✓ 学习版视频已保存: {video_paths['full']}")
             
+            # 清理临时音频文件
+            self._cleanup_temp_files()
+            
+            # 整理输出文件：创建文件夹并重命名
+            self._organize_output_files(output_name)
+            
+            # 构建新的文件路径（在新文件夹中）
+            new_video_folder = os.path.join(config.OUTPUT_DIR, output_name)
+            
             return {
-                'video_path': video_paths['full'],
-                'video_paths': video_paths,
-                'markdown_path': markdown_path,
+                'video_path': os.path.join(new_video_folder, "逐句精听.mp4"),
+                'video_paths': {
+                    'full': os.path.join(new_video_folder, "逐句精听.mp4"),
+                    'quick': os.path.join(new_video_folder, "翻译速览.mp4")
+                },
+                'markdown_path': os.path.join(new_video_folder, f"{output_name}.md"),
                 'sentences_count': len(sentences_data)
             }
         
@@ -256,9 +333,21 @@ class EnglishLearningVideoGenerator:
             print(f"✓ 缩略版视频已保存: {video_paths['quick']}")
             print(f"✓ 学习版视频已保存: {video_paths['full']}")
             
+            # 清理临时音频文件
+            self._cleanup_temp_files()
+            
+            # 整理输出文件：创建文件夹并重命名
+            self._organize_output_files(output_name)
+            
+            # 构建新的文件路径（在新文件夹中）
+            new_video_folder = os.path.join(config.OUTPUT_DIR, output_name)
+            
             return {
-                'video_path': video_paths['full'],
-                'video_paths': video_paths,
+                'video_path': os.path.join(new_video_folder, "逐句精听.mp4"),
+                'video_paths': {
+                    'full': os.path.join(new_video_folder, "逐句精听.mp4"),
+                    'quick': os.path.join(new_video_folder, "翻译速览.mp4")
+                },
                 'sentences_count': len(sentences_data)
             }
         
@@ -393,14 +482,23 @@ class EnglishLearningVideoGenerator:
         # 清理临时音频文件
         self._cleanup_temp_files()
         
+        # 整理输出文件：创建文件夹并重命名
+        self._organize_output_files(output_name)
+        
         print("\n" + "=" * 60)
         print("✓ 所有任务完成！")
         print("=" * 60)
         
+        # 构建新的文件路径（在新文件夹中）
+        new_video_folder = os.path.join(config.OUTPUT_DIR, output_name)
+        
         return {
-            'video_path': video_paths['full'],  # 主要返回学习版
-            'video_paths': video_paths,  # 同时返回两个版本
-            'markdown_path': markdown_path,
+            'video_path': os.path.join(new_video_folder, "逐句精听.mp4"),  # 主要返回学习版
+            'video_paths': {
+                'full': os.path.join(new_video_folder, "逐句精听.mp4"),
+                'quick': os.path.join(new_video_folder, "翻译速览.mp4")
+            },
+            'markdown_path': os.path.join(new_video_folder, f"{output_name}.md"),
             'sentences_count': len(sentences_data)
         }
     

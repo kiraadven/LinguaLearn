@@ -530,9 +530,9 @@ def main():
     
     # ===== 测试模式配置 =====
     # 设置为 True 启用测试模式，从中间结果加载
-    TEST_MODE = False
-    TEST_OUTPUT_NAME = "demo"  # 使用哪个输出的中间结果
-    TEST_START_STEP =2  # 从第几步开始: 1=从句子, 2=从分析结果, 3=直接生成视频
+    TEST_MODE = True
+    TEST_OUTPUT_NAME = "How Anthropic Became The First U.S. Company To Be Designated As A Supply Chain Risk"  # 使用哪个输出的中间结果
+    TEST_START_STEP =3  # 从第几步开始: 1=从句子, 2=从分析结果, 3=直接生成视频
     
     # 生成视频
     try:

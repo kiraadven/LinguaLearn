@@ -27,7 +27,7 @@ class VideoProcessor:
         self.html_renderer = HTMLRenderer()
         
         # 标记是否已保存调试图片
-        self._debug_saved = False
+        self._debug_saved = True
         
         # 缓存已渲染的帧（避免重复调用 Chrome）
         self._subtitle_cache = {}  # (english_text, chinese_text, width, height) -> np.ndarray
@@ -653,7 +653,7 @@ class VideoProcessor:
             audio_codec='aac',
             audio_fps=config.AUDIO_FPS,
             preset='fast',
-            bitrate='3000k'
+            bitrate='8000k'
         )
         quick_video.close()
         
@@ -695,7 +695,7 @@ class VideoProcessor:
             audio_codec='aac', 
             audio_fps=config.AUDIO_FPS,
             preset='fast',
-            bitrate='3000k'
+            bitrate='8000k'
         )
         
         # 清理

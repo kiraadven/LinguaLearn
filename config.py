@@ -68,4 +68,8 @@ OUTPUT_DIR = 'output'
 TEMP_DIR = 'temp'
 
 # 输入视频配置
-INPUT_VIDEO_PATH = 'input_videos/U.S. economy unexpectedly loses 92,000 jobs in February.mp4'  # 在这里设置你的输入视频路径
+INPUT_VIDEO_PATH = "input_videos/demo.mp4"  # 在这里设置你的输入视频路径
+
+# ===== 视频分辨率配置 =====
+# 可选值: "1080p" 或 "720p"
+VIDEO_RESOLUTION = "1080p"

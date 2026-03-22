@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>表达框</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            width: {{width}}px;
+            height: {{h}}px;
+            background: {{bg_color}};
+            font-family: {{font_family}};
+            overflow: hidden;
+        }
+
+        .expr-box-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            padding: {{padding}}px;
+            background: {{bg_color}};
+            overflow: hidden;
+        }
+
+        .box-label {
+            font-size: {{label_size}}px;
+            font-weight: 700;
+            color: {{label_color}};
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: {{label_margin}}px;
+            opacity: 0.6;
+        }
+
+        .expr-list {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            flex: 1;
+            gap: {{item_gap}}px;
+            overflow: hidden;
+        }
+
+        .expr-item {
+            display: flex;
+            flex-direction: column;
+            padding: {{item_pad_v}}px {{item_pad_h}}px;
+            background: {{item_bg}};
+            border-radius: {{item_radius}}px;
+            border-left: {{accent_w}}px solid {{accent_color}};
+            gap: {{inner_gap}}px;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .expr-src-row {
+            display: flex;
+            align-items: center;
+            gap: {{arrow_gap}}px;
+            overflow: hidden;
+        }
+
+        .expr-arrow {
+            font-size: {{font_size_arrow}}px;
+            color: {{accent_color}};
+            flex-shrink: 0;
+            line-height: 1;
+            opacity: 0.8;
+        }
+
+        .expr-english {
+            font-size: {{font_size_en}}px;
+            font-weight: 700;
+            color: {{en_color}};
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: {{line_height_src}};
+        }
+
+        .expr-chinese {
+            font-size: {{font_size_cn}}px;
+            font-weight: 400;
+            color: {{cn_color}};
+            line-height: {{line_height_tgt}};
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            opacity: 0.85;
+            padding-left: {{cn_indent}}px;
+        }
+    </style>
+</head>
+<body>
+    <div class="expr-box-container">
+        <div class="box-label">{{label_text}}</div>
+        <div class="expr-list">
+            {{expressions_html}}
+        </div>
+    </div>
+</body>
+</html>

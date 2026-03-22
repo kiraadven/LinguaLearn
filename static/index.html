@@ -1,0 +1,1973 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LinguaLearn — 多语言学习视频平台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75' fill='%236c63ff'>🎓</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+/* ===== RESET & VARS ===== */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#07071a;--bg2:#0f0f2e;--card:#12122a;--card2:#1a1a38;
+  --border:#ffffff12;--border2:#ffffff22;
+  --accent:#6c63ff;--accent2:#ec4899;--accent3:#06b6d4;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --ok:#10b981;--err:#ef4444;--warn:#f59e0b;
+  --r:14px;--r2:10px;--r3:6px;
+  --shadow:0 8px 32px rgba(0,0,0,.45);
+  --glow:0 0 40px rgba(108,99,255,.25);
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer;border:none;outline:none;font-family:inherit}
+input,select,textarea{font-family:inherit}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--card2);border-radius:3px}
+
+/* ===== PARTICLES ===== */
+#particles{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.pt{position:absolute;border-radius:50%;opacity:0;animation:ptAnim var(--d,20s) var(--delay,0s) infinite linear}
+@keyframes ptAnim{0%{opacity:0;transform:translateY(100vh) scale(.5)}10%{opacity:.6}90%{opacity:.3}100%{opacity:0;transform:translateY(-20vh) scale(1.2)}}
+
+/* ===== NAV ===== */
+#nav{position:fixed;top:0;left:0;right:0;z-index:100;height:60px;display:flex;align-items:center;padding:0 24px;
+  background:rgba(7,7,26,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);gap:8px}
+.nav-logo{font-size:18px;font-weight:900;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-right:12px;white-space:nowrap}
+.nav-btn{padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--text2);background:transparent;transition:all .2s}
+.nav-btn:hover,.nav-btn.active{color:var(--text);background:var(--card2)}
+.nav-spacer{flex:1}
+#nav-user{display:flex;align-items:center;gap:10px}
+.nav-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;cursor:pointer}
+#nav-login-btn{padding:7px 18px;border-radius:20px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:13px;font-weight:600;transition:opacity .2s}
+#nav-login-btn:hover{opacity:.85}
+
+/* ===== PAGE LAYOUT ===== */
+.page{display:none;min-height:100vh;padding-top:60px;position:relative;z-index:1}
+.page.active{display:block}
+
+/* ===== HOME PAGE ===== */
+.hero{min-height:calc(100vh - 60px);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 24px;position:relative}
+.hero-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 16px;border-radius:20px;background:rgba(108,99,255,.15);border:1px solid rgba(108,99,255,.3);font-size:12px;font-weight:600;color:var(--accent);margin-bottom:24px;animation:fadeUp .6s ease both}
+.hero-title{font-size:clamp(36px,6vw,72px);font-weight:900;line-height:1.1;margin-bottom:20px;animation:fadeUp .6s .1s ease both}
+.grad-text{background:linear-gradient(135deg,var(--accent),var(--accent2),var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:clamp(15px,2vw,20px);color:var(--text2);max-width:600px;line-height:1.6;margin-bottom:36px;animation:fadeUp .6s .2s ease both}
+.hero-btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;animation:fadeUp .6s .3s ease both}
+.btn-primary{padding:14px 32px;border-radius:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:15px;font-weight:700;box-shadow:0 4px 24px rgba(108,99,255,.4);transition:transform .2s,box-shadow .2s}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(108,99,255,.55)}
+.btn-secondary{padding:14px 32px;border-radius:30px;background:var(--card2);border:1px solid var(--border2);color:var(--text);font-size:15px;font-weight:600;transition:all .2s}
+.btn-secondary:hover{background:var(--card);border-color:var(--accent)}
+.hero-langs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:40px;animation:fadeUp .6s .4s ease both}
+.lang-pill{padding:6px 14px;border-radius:20px;background:var(--card2);border:1px solid var(--border);font-size:13px;color:var(--text2);animation:float 3s ease-in-out infinite;animation-delay:var(--fd,0s)}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+
+/* scroll sections */
+.section{padding:80px 24px;max-width:1100px;margin:0 auto}
+.section-label{font-size:12px;font-weight:700;letter-spacing:2px;color:var(--accent);text-transform:uppercase;margin-bottom:10px}
+.section-title{font-size:clamp(24px,4vw,40px);font-weight:800;margin-bottom:14px}
+.section-sub{font-size:15px;color:var(--text2);line-height:1.7;max-width:640px;margin-bottom:48px}
+
+/* feature cards */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
+.feat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:28px;transition:all .25s;position:relative;overflow:hidden}
+.feat-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(108,99,255,.06),transparent);opacity:0;transition:opacity .3s}
+.feat-card:hover{border-color:rgba(108,99,255,.4);transform:translateY(-4px);box-shadow:var(--glow)}
+.feat-card:hover::before{opacity:1}
+.feat-icon{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:16px}
+.feat-title{font-size:16px;font-weight:700;margin-bottom:8px}
+.feat-desc{font-size:13px;color:var(--text2);line-height:1.6}
+
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px}
+.step-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px 20px;position:relative}
+.step-num{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;margin-bottom:14px}
+.step-title{font-size:14px;font-weight:700;margin-bottom:6px}
+.step-desc{font-size:12px;color:var(--text2);line-height:1.5}
+
+/* lang grid */
+.lang-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+.lang-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:18px 16px;text-align:center;transition:all .2s}
+.lang-card:hover{border-color:var(--accent);background:var(--card2)}
+.lang-flag{font-size:28px;margin-bottom:6px}
+.lang-name{font-size:13px;font-weight:600}
+.lang-code{font-size:11px;color:var(--text3)}
+
+/* ===== SHARED PANEL STYLES ===== */
+.page-inner{max-width:960px;margin:0 auto;padding:32px 24px}
+.page-header{margin-bottom:32px}
+.page-header h1{font-size:26px;font-weight:800;margin-bottom:6px}
+.page-header p{font-size:14px;color:var(--text2)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px}
+.card+.card{margin-top:20px}
+.card-title{font-size:15px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;gap:8px}
+.card-title span{color:var(--accent)}
+
+/* form elements */
+.form-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:16px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group label{font-size:12px;font-weight:600;color:var(--text2);letter-spacing:.3px}
+.form-group input,.form-group select,.form-group textarea{
+  background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r3);
+  padding:9px 12px;color:var(--text);font-size:14px;transition:border-color .2s}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{
+  outline:none;border-color:var(--accent)}
+.form-group select option{background:var(--card2)}
+.form-hint{font-size:11px;color:var(--text3);margin-top:2px}
+
+/* range slider */
+.range-row{display:flex;align-items:center;gap:10px}
+.range-row input[type=range]{flex:1;accent-color:var(--accent)}
+.range-val{font-size:13px;font-weight:700;color:var(--accent);min-width:36px;text-align:right}
+
+/* toggle */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
+.toggle-row label{font-size:13px;color:var(--text2)}
+.toggle{position:relative;width:40px;height:22px}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:#2d2d4e;border-radius:22px;transition:.3s;cursor:pointer}
+.toggle-slider::before{content:'';position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+.toggle input:checked+.toggle-slider{background:var(--accent)}
+.toggle input:checked+.toggle-slider::before{transform:translateX(18px)}
+
+/* color picker row */
+.color-row{display:flex;align-items:center;gap:8px}
+.color-row input[type=color]{width:32px;height:32px;border:none;border-radius:6px;background:transparent;cursor:pointer;padding:2px}
+.color-row span{font-size:12px;color:var(--text2)}
+
+/* tabs */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:24px}
+.tab{padding:9px 18px;font-size:13px;font-weight:600;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .2s;cursor:pointer}
+.tab.active,.tab:hover{color:var(--text)}
+.tab.active{border-bottom-color:var(--accent);color:var(--accent)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* file drop */
+#drop-zone{border:2px dashed var(--border2);border-radius:var(--r);padding:40px 24px;text-align:center;transition:all .25s;cursor:pointer;background:var(--bg2)}
+#drop-zone:hover,#drop-zone.dragover{border-color:var(--accent);background:rgba(108,99,255,.06)}
+#drop-zone .drop-icon{font-size:36px;margin-bottom:12px}
+#drop-zone p{font-size:14px;color:var(--text2);margin-bottom:4px}
+#drop-zone small{font-size:12px;color:var(--text3)}
+#file-name{font-size:13px;color:var(--ok);margin-top:10px;display:none}
+
+/* lang selector */
+.lang-selector{display:flex;align-items:center;gap:10px}
+.lang-select-wrap{flex:1}
+.lang-swap-btn{padding:8px 12px;background:var(--card2);border:1px solid var(--border2);border-radius:var(--r3);color:var(--text2);font-size:16px;transition:all .2s}
+.lang-swap-btn:hover{color:var(--accent);border-color:var(--accent)}
+
+/* style preset chips */
+.chip-group{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:5px 12px;border-radius:16px;border:1px solid var(--border2);background:var(--bg2);font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;transition:all .2s}
+.chip.active,.chip:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* submit btn */
+.submit-row{display:flex;align-items:center;gap:12px;margin-top:24px}
+#submit-btn{flex:1;padding:14px;border-radius:var(--r3);background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:15px;font-weight:700;transition:opacity .2s}
+#submit-btn:hover{opacity:.9}
+#submit-btn:disabled{opacity:.45;cursor:not-allowed}
+.auth-guard-msg{display:none;background:rgba(108,99,255,.1);border:1px solid rgba(108,99,255,.3);border-radius:var(--r2);padding:16px 20px;text-align:center;font-size:14px;color:var(--text2)}
+.auth-guard-msg a{color:var(--accent);cursor:pointer;font-weight:600}
+
+/* ===== PROGRESS ===== */
+#progress-section{display:none}
+.step-bar{display:flex;align-items:center;margin-bottom:24px;gap:0}
+.step-dot{width:32px;height:32px;border-radius:50%;background:var(--card2);border:2px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;transition:all .3s;color:var(--text3)}
+.step-dot.done{background:var(--ok);border-color:var(--ok);color:#fff}
+.step-dot.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:var(--accent);color:#fff;animation:pulseStep .8s ease-in-out infinite}
+@keyframes pulseStep{0%,100%{box-shadow:0 0 0 0 rgba(108,99,255,.5)}50%{box-shadow:0 0 0 8px rgba(108,99,255,0)}}
+.step-line{flex:1;height:2px;background:var(--border2);transition:background .3s}
+.step-line.done{background:var(--ok)}
+.cur-step-name{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.progress-bar-wrap{margin-bottom:10px}
+.progress-bar-label{font-size:12px;color:var(--text3);margin-bottom:5px;display:flex;justify-content:space-between}
+.progress-bar{height:6px;background:var(--card2);border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s ease}
+.log-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r3);padding:14px;height:180px;overflow-y:auto;font-family:"SF Mono",Monaco,monospace;font-size:12px;line-height:1.6;color:var(--text2)}
+.log-line{padding:1px 0}
+.log-line.err{color:var(--err)}
+.log-line.ok{color:var(--ok)}
+.cancel-btn{padding:10px 22px;border-radius:var(--r3);background:transparent;border:1px solid var(--err);color:var(--err);font-size:13px;font-weight:600;transition:all .2s}
+.cancel-btn:hover{background:var(--err);color:#fff}
+
+/* ===== RESULTS PAGE ===== */
+#results-placeholder{text-align:center;padding:60px 24px;color:var(--text3)}
+#results-placeholder .big-icon{font-size:64px;margin-bottom:16px}
+.job-list-bar{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.job-filter-btn{padding:5px 14px;border-radius:16px;border:1px solid var(--border2);background:var(--bg2);font-size:12px;font-weight:600;color:var(--text3);cursor:pointer;transition:all .2s}
+.job-filter-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.job-item{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--r2);cursor:pointer;transition:all .2s;margin-bottom:8px}
+.job-item:hover,.job-item.active{border-color:var(--accent)}
+.job-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.js-done{background:var(--ok)}
+.js-running{background:var(--accent);animation:pulse 1s infinite}
+.js-error{background:var(--err)}
+.js-queued,.js-cancelled{background:var(--text3)}
+.job-info{flex:1;min-width:0}
+.job-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job-meta{font-size:11px;color:var(--text3);margin-top:2px}
+.job-actions{display:flex;gap:6px;flex-shrink:0}
+.dl-btn{padding:5px 12px;border-radius:var(--r3);background:var(--card2);border:1px solid var(--border2);font-size:12px;color:var(--text2);font-weight:600;transition:all .2s}
+.dl-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* results viewer */
+.results-grid{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
+@media(max-width:700px){.results-grid{grid-template-columns:1fr}}
+#video-player-wrap{position:relative;border-radius:var(--r);overflow:hidden;background:#000;aspect-ratio:16/9}
+#video-player{width:100%;height:100%;display:block}
+.video-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);font-size:13px;color:var(--text2)}
+.md-viewer{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:24px;max-height:480px;overflow-y:auto;font-size:14px;line-height:1.7}
+.md-viewer h1,.md-viewer h2{font-size:18px;font-weight:700;margin:16px 0 8px;color:var(--text)}
+.md-viewer h3{font-size:15px;font-weight:600;margin:12px 0 6px;color:var(--accent)}
+.md-viewer p{color:var(--text2);margin-bottom:10px}
+.md-viewer strong{color:var(--text)}
+.md-viewer table{width:100%;border-collapse:collapse;margin:10px 0}
+.md-viewer th{background:var(--card2);padding:8px 12px;font-size:12px;text-align:left;border:1px solid var(--border)}
+.md-viewer td{padding:7px 12px;font-size:13px;border:1px solid var(--border);color:var(--text2)}
+.md-viewer code{background:var(--card2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:"SF Mono",monospace}
+.results-action-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+
+/* ===== PROFILE PAGE ===== */
+.profile-grid{display:grid;grid-template-columns:250px 1fr;gap:20px;align-items:start}
+@media(max-width:640px){.profile-grid{grid-template-columns:1fr}}
+.profile-card{text-align:center;padding:32px 20px}
+.profile-avatar{width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;margin:0 auto 14px}
+.profile-name{font-size:18px;font-weight:700;margin-bottom:4px}
+.profile-email{font-size:13px;color:var(--text3);margin-bottom:16px}
+.profile-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:12px;background:rgba(108,99,255,.15);border:1px solid rgba(108,99,255,.3);font-size:12px;color:var(--accent);font-weight:600}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+.stat-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r3);padding:14px;text-align:center}
+.stat-val{font-size:22px;font-weight:800;color:var(--accent)}
+.stat-lbl{font-size:11px;color:var(--text3);margin-top:2px}
+.setting-section{border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:20px}
+.setting-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.setting-title{font-size:14px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.setting-title .icon{width:28px;height:28px;border-radius:8px;background:rgba(108,99,255,.15);display:flex;align-items:center;justify-content:center;font-size:14px}
+.logout-btn{width:100%;padding:11px;border-radius:var(--r3);border:1px solid var(--err);background:transparent;color:var(--err);font-size:14px;font-weight:600;transition:all .2s}
+.logout-btn:hover{background:var(--err);color:#fff}
+
+/* ===== AUTH MODAL ===== */
+.modal-overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.65);backdrop-filter:blur(6px);align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--border2);border-radius:20px;padding:36px 32px;width:100%;max-width:420px;position:relative;animation:slideDown .3s ease}
+@keyframes slideDown{from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:translateY(0)}}
+.modal-close{position:absolute;top:16px;right:16px;width:28px;height:28px;border-radius:50%;background:var(--card2);border:1px solid var(--border);color:var(--text2);font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s}
+.modal-close:hover{background:var(--err);color:#fff}
+.modal-title{font-size:20px;font-weight:800;margin-bottom:4px}
+.modal-sub{font-size:13px;color:var(--text3);margin-bottom:24px}
+.auth-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:24px}
+.auth-tab{flex:1;padding:8px;text-align:center;font-size:13px;font-weight:600;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;transition:all .2s}
+.auth-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.auth-panel{display:none}
+.auth-panel.active{display:block}
+.auth-input{width:100%;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r3);padding:11px 14px;color:var(--text);font-size:14px;transition:border-color .2s;margin-bottom:12px}
+.auth-input:focus{outline:none;border-color:var(--accent)}
+.code-row{display:flex;gap:8px;margin-bottom:12px}
+.code-row .auth-input{flex:1;margin-bottom:0}
+.send-code-btn{padding:0 16px;border-radius:var(--r3);background:var(--card2);border:1px solid var(--border2);color:var(--text2);font-size:13px;font-weight:600;white-space:nowrap;height:44px;transition:all .2s}
+.send-code-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.send-code-btn:disabled{opacity:.5;cursor:not-allowed}
+.auth-submit{width:100%;padding:13px;border-radius:var(--r3);background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:15px;font-weight:700;margin-top:4px;transition:opacity .2s}
+.auth-submit:hover{opacity:.88}
+.auth-msg{font-size:12px;text-align:center;margin-top:12px;min-height:18px}
+.auth-msg.ok{color:var(--ok)}
+.auth-msg.err{color:var(--err)}
+
+/* ===== PREVIEW MODAL ===== */
+#prev-mo .modal{max-width:860px;width:95vw}
+.prev-frame{position:relative;width:100%;aspect-ratio:16/9;background:#111;border-radius:var(--r3);overflow:hidden;cursor:crosshair;border:1px solid var(--border2)}
+.lbox{position:absolute;cursor:move;border:2px solid;border-radius:4px;overflow:hidden;user-select:none}
+.lbox img{width:100%;height:100%;object-fit:fill;display:block;pointer-events:none}
+.lbox .rh{position:absolute;bottom:0;right:0;width:14px;height:14px;background:rgba(255,255,255,.9);border-radius:2px 0 0 0;cursor:nwse-resize}
+.prev-legend{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 16px}
+.prev-legend-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text2)}
+.prev-legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.prev-controls{display:flex;gap:8px;margin-bottom:12px;font-size:12px;color:var(--text3)}
+.prev-controls span{background:var(--card2);padding:5px 10px;border-radius:6px;border:1px solid var(--border2)}
+.prev-confirm-btn{padding:10px 28px;border-radius:var(--r3);background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:14px;font-weight:700}
+.prev-note{font-size:12px;color:var(--text3);margin-top:8px}
+
+/* ===== TOAST ===== */
+#toasts{position:fixed;bottom:24px;right:24px;z-index:300;display:flex;flex-direction:column-reverse;gap:8px;pointer-events:none}
+.toast{padding:12px 18px;border-radius:var(--r2);font-size:13px;font-weight:600;max-width:320px;box-shadow:var(--shadow);animation:toastIn .3s ease;pointer-events:all}
+.toast.ok{background:var(--ok);color:#fff}
+.toast.err{background:var(--err);color:#fff}
+.toast.warn{background:var(--warn);color:#000}
+.toast.info{background:var(--card2);border:1px solid var(--border2);color:var(--text)}
+@keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+/* ===== ANIMATIONS ===== */
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeUp .4s ease both}
+</style>
+</head>
+<body>
+
+<!-- PARTICLES -->
+<div id="particles"></div>
+
+<!-- NAV -->
+<nav id="nav">
+  <span class="nav-logo">🎓 LinguaLearn</span>
+  <button class="nav-btn active" onclick="showPage('home')">首页</button>
+  <button class="nav-btn" onclick="goCreate()">生成视频</button>
+  <button class="nav-btn" onclick="showPage('results')">学习结果</button>
+  <div class="nav-spacer"></div>
+  <div id="nav-user">
+    <button id="nav-login-btn" onclick="openAuth()">登录 / 注册</button>
+  </div>
+</nav>
+
+<!-- ========== HOME PAGE ========== -->
+<div id="pg-home" class="page active">
+  <div class="hero">
+    <div class="hero-badge">✨ 支持 7 种语言双向互学</div>
+    <h1 class="hero-title"><span class="grad-text">LinguaLearn</span><br>把外语视频变成学习利器</h1>
+    <p class="hero-sub">上传任意外语视频，AI 自动转录、分析词汇、渲染字幕，生成专属的「逐句精听」学习视频</p>
+    <div class="hero-btns">
+      <button class="btn-primary" onclick="goCreate()">立即开始 →</button>
+      <button class="btn-secondary" onclick="scrollToFeatures()">了解功能</button>
+    </div>
+    <div class="hero-langs" id="lang-pills"></div>
+  </div>
+
+  <!-- Features -->
+  <div class="section" id="features-section">
+    <div class="section-label">核心功能</div>
+    <h2 class="section-title">一站式语言学习解决方案</h2>
+    <p class="section-sub">从原始视频到完整学习材料，全程自动化，零门槛上手</p>
+    <div class="feat-grid">
+      <div class="feat-card"><div class="feat-icon">🎙️</div><div class="feat-title">本地 Whisper 转录</div><div class="feat-desc">使用 OpenAI Whisper 本地模型，支持 7 种语言，带单词级时间戳，精准切割每一句话</div></div>
+      <div class="feat-card"><div class="feat-icon">✂️</div><div class="feat-title">LLM 智能分句</div><div class="feat-desc">大语言模型辅助，根据语义边界切分句子，自动对齐时间戳，每句 5–30 词</div></div>
+      <div class="feat-card"><div class="feat-icon">🧠</div><div class="feat-title">AI 词汇深度分析</div><div class="feat-desc">DeepSeek 并行分析，提取 2–6 个关键词（含音标、释义、难度）和 1–3 个实用表达</div></div>
+      <div class="feat-card"><div class="feat-icon">🎬</div><div class="feat-title">三段式视频结构</div><div class="feat-desc">每句：原速盲听 → 慢速精学（含字幕/词卡）→ 原速巩固，可自由配置每段重复次数</div></div>
+      <div class="feat-card"><div class="feat-icon">📐</div><div class="feat-title">可视化布局编辑器</div><div class="feat-desc">拖拽/缩放字幕框、单词框、表达框，实时预览位置，一次设置永久生效</div></div>
+      <div class="feat-card"><div class="feat-icon">🎨</div><div class="feat-title">样式深度个性化</div><div class="feat-desc">字体族、字号倍率、行间距、背景主题、文字颜色……让每一帧都符合你的审美</div></div>
+      <div class="feat-card"><div class="feat-icon">📊</div><div class="feat-title">实时进度 & 取消</div><div class="feat-desc">WebSocket 推送逐帧渲染进度，卡住时一键取消，不再对着空白屏发愁</div></div>
+      <div class="feat-card"><div class="feat-icon">📝</div><div class="feat-title">Markdown 学习笔记</div><div class="feat-desc">自动生成结构化文字稿：原文、译文、音标表格、实用表达，可直接导入笔记软件</div></div>
+      <div class="feat-card"><div class="feat-icon">▶️</div><div class="feat-title">在线播放 & 阅读</div><div class="feat-desc">无需下载，浏览器内直接播放生成的视频，渲染 Markdown 笔记，随时温习</div></div>
+    </div>
+  </div>
+
+  <!-- Steps -->
+  <div class="section">
+    <div class="section-label">处理流程</div>
+    <h2 class="section-title">五步自动完成</h2>
+    <div class="steps">
+      <div class="step-card"><div class="step-num">1</div><div class="step-title">音频转录</div><div class="step-desc">Whisper 提取音频，生成带时间戳的文字</div></div>
+      <div class="step-card"><div class="step-num">2</div><div class="step-title">智能分句</div><div class="step-desc">按语义切割，精准对齐每句的起止时间</div></div>
+      <div class="step-card"><div class="step-num">3</div><div class="step-title">词汇分析</div><div class="step-desc">AI 并行分析所有句子，提取词汇和表达</div></div>
+      <div class="step-card"><div class="step-num">4</div><div class="step-title">生成文字稿</div><div class="step-desc">导出 Markdown 格式学习笔记</div></div>
+      <div class="step-card"><div class="step-num">5</div><div class="step-title">渲染视频</div><div class="step-desc">Chrome 渲染覆盖层，MoviePy 合成最终视频</div></div>
+    </div>
+  </div>
+
+  <!-- Languages -->
+  <div class="section">
+    <div class="section-label">支持语言</div>
+    <h2 class="section-title">7 种语言，任意互学</h2>
+    <p class="section-sub">每种语言均有专属音标系统（IPA / 拼音 / 假名 / 罗马字）和母语名称显示</p>
+    <div class="lang-grid" id="home-lang-grid"></div>
+  </div>
+
+  <!-- CTA -->
+  <div class="section" style="text-align:center">
+    <h2 class="section-title">准备好了吗？</h2>
+    <p class="section-sub" style="margin:0 auto 28px">注册账号，上传你的第一个视频</p>
+    <button class="btn-primary" onclick="goCreate()" style="font-size:16px;padding:16px 40px">免费开始使用 →</button>
+  </div>
+</div><!-- /home -->
+
+<!-- ========== CREATE PAGE ========== -->
+<div id="pg-create" class="page">
+  <div class="page-inner">
+    <div class="page-header">
+      <h1>生成学习视频</h1>
+      <p>上传视频，配置参数，AI 自动生成专属精听学习视频</p>
+    </div>
+
+    <!-- Auth guard -->
+    <div class="auth-guard-msg" id="create-auth-guard">
+      请先 <a onclick="openAuth()">登录 / 注册</a> 再使用视频生成功能
+    </div>
+
+    <!-- Form -->
+    <div id="create-form-wrap">
+      <!-- Upload card -->
+      <div class="card">
+        <div class="card-title"><span>①</span> 上传视频</div>
+        <div id="drop-zone" onclick="document.getElementById('file-input').click()" ondrop="onDrop(event)" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)">
+          <div class="drop-icon">🎬</div>
+          <p>点击选择文件，或将视频拖拽到此处</p>
+          <small>支持 MP4、MKV、AVI、MOV 等格式，建议 ≤ 30 分钟</small>
+        </div>
+        <div id="file-name"></div>
+        <input type="file" id="file-input" accept="video/*" style="display:none" onchange="onFileSelect(this)">
+      </div>
+
+      <!-- Language -->
+      <div class="card">
+        <div class="card-title"><span>②</span> 语言设置</div>
+        <div class="lang-selector">
+          <div class="lang-select-wrap">
+            <div class="form-group">
+              <label>视频语言（源语言）</label>
+              <select id="src-lang"></select>
+            </div>
+          </div>
+          <button class="lang-swap-btn" onclick="swapLangs()" title="互换">⇄</button>
+          <div class="lang-select-wrap">
+            <div class="form-group">
+              <label>你的语言（目标语言）</label>
+              <select id="tgt-lang"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs for advanced settings -->
+      <div class="card">
+        <div class="card-title"><span>③</span> 高级配置</div>
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab(this,'tab-basic')">基本参数</div>
+          <div class="tab" onclick="switchTab(this,'tab-style')">样式个性化</div>
+          <div class="tab" onclick="switchTab(this,'tab-layout')">布局编辑</div>
+        </div>
+
+        <!-- Basic tab -->
+        <div class="tab-panel active" id="tab-basic">
+          <div class="form-row">
+            <div class="form-group">
+              <label>输出分辨率</label>
+              <select id="resolution">
+                <option value="1080p">1080p（推荐，高质量）</option>
+                <option value="720p">720p（更快）</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>慢速倍率（Part2）</label>
+              <div class="range-row">
+                <input type="range" id="slow-speed" min="0.5" max="0.9" step="0.05" value="0.75" oninput="document.getElementById('slow-val').textContent=this.value+'x'">
+                <span class="range-val" id="slow-val">0.75x</span>
+              </div>
+              <div class="form-hint">Part2 播放速度，越慢越容易跟听</div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Part1 重复次数（原速无字幕）</label>
+              <div class="range-row">
+                <input type="range" id="p1-repeat" min="0" max="3" step="1" value="1" oninput="document.getElementById('p1-val').textContent=this.value+'次'">
+                <span class="range-val" id="p1-val">1次</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Part2 重复次数（慢速有字幕）</label>
+              <div class="range-row">
+                <input type="range" id="p2-repeat" min="1" max="4" step="1" value="2" oninput="document.getElementById('p2-val').textContent=this.value+'次'">
+                <span class="range-val" id="p2-val">2次</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Part3 重复次数（原速有字幕）</label>
+              <div class="range-row">
+                <input type="range" id="p3-repeat" min="0" max="3" step="1" value="1" oninput="document.getElementById('p3-val').textContent=this.value+'次'">
+                <span class="range-val" id="p3-val">1次</span>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>每句最多展示单词数</label>
+              <div class="range-row">
+                <input type="range" id="num-words" min="0" max="6" step="1" value="0" oninput="document.getElementById('nw-val').textContent=this.value==0?'不限':this.value+'个'">
+                <span class="range-val" id="nw-val">不限</span>
+              </div>
+              <div class="form-hint">0 = 使用 AI 自动判断（2–6个）</div>
+            </div>
+            <div class="form-group">
+              <label>每句最多展示表达数</label>
+              <div class="range-row">
+                <input type="range" id="num-exprs" min="0" max="3" step="1" value="0" oninput="document.getElementById('ne-val').textContent=this.value==0?'不限':this.value+'个'">
+                <span class="range-val" id="ne-val">不限</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Style tab -->
+        <div class="tab-panel" id="tab-style">
+          <div class="form-row">
+            <div class="form-group">
+              <label>字体风格</label>
+              <div class="chip-group" id="font-chips">
+                <div class="chip active" data-val="system" onclick="selectChip(this,'font-chips')">系统字体</div>
+                <div class="chip" data-val="serif" onclick="selectChip(this,'font-chips')">衬线（古典）</div>
+                <div class="chip" data-val="rounded" onclick="selectChip(this,'font-chips')">圆体（可爱）</div>
+                <div class="chip" data-val="mono" onclick="selectChip(this,'font-chips')">等宽（科技）</div>
+                <div class="chip" data-val="handwriting" onclick="selectChip(this,'font-chips')">手写（艺术）</div>
+                <div class="chip" data-val="display" onclick="selectChip(this,'font-chips')">展示（大气）</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>字号倍率</label>
+              <div class="range-row">
+                <input type="range" id="font-scale" min="0.7" max="1.4" step="0.1" value="1.0" oninput="document.getElementById('fs-val').textContent=this.value+'x'">
+                <span class="range-val" id="fs-val">1.0x</span>
+              </div>
+              <div class="form-hint">在自动计算字号的基础上缩放</div>
+            </div>
+            <div class="form-group">
+              <label>行间距</label>
+              <div class="chip-group" id="lh-chips">
+                <div class="chip" data-val="compact" onclick="selectChip(this,'lh-chips')">紧凑</div>
+                <div class="chip active" data-val="normal" onclick="selectChip(this,'lh-chips')">标准</div>
+                <div class="chip" data-val="relaxed" onclick="selectChip(this,'lh-chips')">宽松</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 预设颜色方案 -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>预设颜色方案</label>
+              <div class="chip-group" id="color-scheme-chips">
+                <div class="chip active" data-val="default" onclick="applyColorScheme('default')">默认（清爽）</div>
+                <div class="chip" data-val="warm" onclick="applyColorScheme('warm')">暖色（温暖）</div>
+                <div class="chip" data-val="cool" onclick="applyColorScheme('cool')">冷色（现代）</div>
+                <div class="chip" data-val="dark" onclick="applyColorScheme('dark')">深色（护眼）</div>
+                <div class="chip" data-val="vibrant" onclick="applyColorScheme('vibrant')">活力（鲜艳）</div>
+                <div class="chip" data-val="minimal" onclick="applyColorScheme('minimal')">极简（黑白）</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>字幕框背景主题</label>
+              <div class="chip-group" id="sub-bg-chips">
+                <div class="chip active" data-val="light" onclick="selectChip(this,'sub-bg-chips')">白色</div>
+                <div class="chip" data-val="cream" onclick="selectChip(this,'sub-bg-chips')">米黄</div>
+                <div class="chip" data-val="dark" onclick="selectChip(this,'sub-bg-chips')">深色</div>
+                <div class="chip" data-val="blue" onclick="selectChip(this,'sub-bg-chips')">淡蓝</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:16px">
+            <div class="card-title" style="margin-bottom:12px">颜色自定义</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>单词框背景</label>
+                <div class="color-row"><input type="color" id="c-wbg" value="#fef9c3"><span id="c-wbg-lbl">#fef9c3</span></div>
+              </div>
+              <div class="form-group">
+                <label>单词颜色</label>
+                <div class="color-row"><input type="color" id="c-wword" value="#0284c7"><span id="c-wword-lbl">#0284c7</span></div>
+              </div>
+              <div class="form-group">
+                <label>音标颜色</label>
+                <div class="color-row"><input type="color" id="c-wph" value="#6b7280"><span id="c-wph-lbl">#6b7280</span></div>
+              </div>
+              <div class="form-group">
+                <label>释义颜色</label>
+                <div class="color-row"><input type="color" id="c-wtr" value="#111827"><span id="c-wtr-lbl">#111827</span></div>
+              </div>
+              <div class="form-group">
+                <label>表达框背景</label>
+                <div class="color-row"><input type="color" id="c-ebg" value="#e0f2fe"><span id="c-ebg-lbl">#e0f2fe</span></div>
+              </div>
+              <div class="form-group">
+                <label>表达原文颜色</label>
+                <div class="color-row"><input type="color" id="c-een" value="#0369a1"><span id="c-een-lbl">#0369a1</span></div>
+              </div>
+              <div class="form-group">
+                <label>字幕框背景</label>
+                <div class="color-row"><input type="color" id="c-subbg" value="#ffffff"><span id="c-subbg-lbl">#ffffff</span></div>
+              </div>
+              <div class="form-group">
+                <label>字幕框文字颜色</label>
+                <div class="color-row"><input type="color" id="c-subtext" value="#111827"><span id="c-subtext-lbl">#111827</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Layout tab -->
+        <div class="tab-panel" id="tab-layout">
+          <p style="font-size:13px;color:var(--text2);margin-bottom:16px">先配置好语言和单词/表达数量，再点击「生成预览」拖拽调整三个覆盖框的位置和大小。</p>
+          <div class="form-row" style="margin-bottom:20px">
+            <div class="form-group">
+              <label>预览词数（模拟）</label>
+              <div class="range-row">
+                <input type="range" id="prev-words" min="1" max="6" step="1" value="4" oninput="document.getElementById('pw-val').textContent=this.value">
+                <span class="range-val" id="pw-val">4</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>预览表达数（模拟）</label>
+              <div class="range-row">
+                <input type="range" id="prev-exprs" min="1" max="3" step="1" value="2" oninput="document.getElementById('pe-val').textContent=this.value">
+                <span class="range-val" id="pe-val">2</span>
+              </div>
+            </div>
+          </div>
+          <button class="btn-secondary" id="open-prev-btn" onclick="openPreview()" style="margin-bottom:12px">🖼️ 生成预览 / 调整布局</button>
+          <div id="layout-status" style="font-size:13px;color:var(--text3)">尚未设置布局（将使用默认位置）</div>
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <div class="submit-row">
+        <button id="submit-btn" onclick="submitJob()">🚀 开始生成学习视频</button>
+        <button id="save-config-btn" onclick="saveCurrentConfig()" style="padding:14px;border-radius:var(--r3);background:var(--card2);border:1px solid var(--border2);color:var(--text2);font-size:15px;font-weight:600;transition:all .2s" title="保存当前配置以便下次使用">💾 保存配置</button>
+      </div>
+    </div><!-- /create-form-wrap -->
+
+    <!-- Progress section -->
+    <div id="progress-section">
+      <div class="card">
+        <div class="card-title"><span>⚡</span> 处理进度</div>
+        <div class="step-bar" id="prog-steps">
+          <div class="step-dot" id="sd-1">1</div><div class="step-line" id="sl-1"></div>
+          <div class="step-dot" id="sd-2">2</div><div class="step-line" id="sl-2"></div>
+          <div class="step-dot" id="sd-3">3</div><div class="step-line" id="sl-3"></div>
+          <div class="step-dot" id="sd-4">4</div><div class="step-line" id="sl-4"></div>
+          <div class="step-dot" id="sd-5">5</div>
+        </div>
+        <div class="cur-step-name"><span class="status-dot"></span><span id="cur-step-text">准备中...</span></div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-label"><span>片段渲染</span><span id="clips-pct">0%</span></div>
+          <div class="progress-bar"><div class="progress-fill" id="clips-fill" style="width:0%"></div></div>
+        </div>
+        <div class="progress-bar-wrap" style="margin-top:10px">
+          <div class="progress-bar-label"><span>视频写入</span><span id="write-pct">0%</span></div>
+          <div class="progress-bar"><div class="progress-fill" id="write-fill" style="width:0%"></div></div>
+        </div>
+        <div class="log-box" id="log-box"></div>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+          <button class="cancel-btn" id="cancel-btn" onclick="cancelJob()">取消任务</button>
+          <button class="btn-secondary" id="view-result-btn" style="display:none" onclick="viewResult()">查看结果 →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- /create -->
+
+<!-- ========== RESULTS PAGE ========== -->
+<div id="pg-results" class="page">
+  <div class="page-inner">
+    <div class="page-header">
+      <h1>学习结果</h1>
+      <p>在线播放视频，阅读学习笔记，下载文件</p>
+    </div>
+
+    <div id="results-placeholder">
+      <div class="big-icon">📭</div>
+      <p style="font-size:16px;font-weight:600;margin-bottom:8px">暂无完成的任务</p>
+      <p style="font-size:13px;color:var(--text3)">先去「生成视频」页面上传视频</p>
+    </div>
+
+    <div id="results-content" style="display:none">
+      <div class="results-grid">
+        <!-- Left: job list -->
+        <div>
+          <div class="job-list-bar">
+            <button class="job-filter-btn active" onclick="filterJobs('all',this)">全部</button>
+            <button class="job-filter-btn" onclick="filterJobs('done',this)">完成</button>
+            <button class="job-filter-btn" onclick="filterJobs('running',this)">处理中</button>
+            <button class="job-filter-btn" onclick="filterJobs('error',this)">失败</button>
+          </div>
+          <div id="job-list-el"></div>
+        </div>
+
+        <!-- Right: viewer -->
+        <div id="job-detail">
+          <div style="text-align:center;padding:40px;color:var(--text3)">
+            <div style="font-size:40px;margin-bottom:12px">👈</div>
+            <p>从左侧选择一个已完成的任务</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- /results -->
+
+<!-- ========== PROFILE PAGE ========== -->
+<div id="pg-profile" class="page">
+  <div class="page-inner">
+    <div class="page-header"><h1>个人中心</h1><p>管理账号信息和安全设置</p></div>
+    <div class="profile-grid">
+      <!-- Left: avatar + stats -->
+      <div>
+        <div class="card profile-card">
+          <div class="profile-avatar" id="p-avatar">?</div>
+          <div class="profile-name" id="p-name">未登录</div>
+          <div class="profile-email" id="p-email">—</div>
+          <div class="profile-badge">✓ 已验证邮箱</div>
+          <div class="stat-grid">
+            <div class="stat-item"><div class="stat-val" id="p-job-count">0</div><div class="stat-lbl">已生成视频</div></div>
+            <div class="stat-item"><div class="stat-val" id="p-join-date">—</div><div class="stat-lbl">注册时间</div></div>
+          </div>
+        </div>
+      </div>
+      <!-- Right: settings -->
+      <div class="card">
+        <div class="setting-section">
+          <div class="setting-title"><span class="icon">👤</span> 个人信息</div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label>昵称</label>
+            <input class="auth-input" id="p-name-input" placeholder="输入你的昵称" style="margin-bottom:0">
+          </div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label>邮箱</label>
+            <input class="auth-input" id="p-email-input" disabled style="margin-bottom:0;opacity:.6">
+          </div>
+          <button class="btn-secondary" onclick="saveProfile()" style="padding:9px 20px;font-size:13px">保存昵称</button>
+        </div>
+        <div class="setting-section">
+          <div class="setting-title"><span class="icon">🔒</span> 修改密码</div>
+          <input class="auth-input" id="p-old-pw" type="password" placeholder="当前密码">
+          <input class="auth-input" id="p-new-pw" type="password" placeholder="新密码（至少6位）">
+          <input class="auth-input" id="p-new-pw2" type="password" placeholder="确认新密码" style="margin-bottom:0">
+          <div class="auth-msg" id="pw-msg"></div>
+          <button class="btn-secondary" onclick="changePassword()" style="padding:9px 20px;font-size:13px;margin-top:12px">更新密码</button>
+        </div>
+        <div class="setting-section">
+          <div class="setting-title"><span class="icon">🛡️</span> 安全设置</div>
+          <div class="toggle-row">
+            <label>登出所有设备（清除 Token）</label>
+            <button class="btn-secondary" onclick="logoutAll()" style="padding:7px 14px;font-size:12px">执行</button>
+          </div>
+          <div class="toggle-row" style="margin-top:8px">
+            <label>注册时间</label>
+            <span style="font-size:13px;color:var(--text3)" id="p-created">—</span>
+          </div>
+        </div>
+        <div class="setting-section" style="border-bottom:none">
+          <button class="logout-btn" onclick="logout()">退出登录</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- /profile -->
+
+<!-- ========== AUTH MODAL ========== -->
+<div class="modal-overlay" id="auth-mo">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('auth-mo')">✕</button>
+    <div class="modal-title">欢迎使用 LinguaLearn</div>
+    <div class="modal-sub">登录或注册账号，保存你的学习记录</div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" onclick="switchAuthTab('login')">登录</div>
+      <div class="auth-tab" onclick="switchAuthTab('register')">注册</div>
+    </div>
+
+    <!-- LOGIN PANEL -->
+    <div class="auth-panel active" id="auth-login">
+      <div style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">登录方式</div>
+        <div class="chip-group" id="login-type-chips">
+          <div class="chip active" data-val="email_password" onclick="selectLoginType('email_password')">邮箱+密码</div>
+          <div class="chip" data-val="phone_password" onclick="selectLoginType('phone_password')">手机号+密码</div>
+          <div class="chip" data-val="phone_code" onclick="selectLoginType('phone_code')">手机号+验证码</div>
+        </div>
+      </div>
+
+      <!-- 邮箱+密码登陆 -->
+      <div id="login-email-password">
+        <input class="auth-input" id="l-email" type="email" placeholder="邮箱地址">
+        <input class="auth-input" id="l-pw" type="password" placeholder="密码" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+
+      <!-- 手机号+密码登陆 -->
+      <div id="login-phone-password" style="display:none">
+        <input class="auth-input" id="l-phone-pw" type="tel" placeholder="手机号">
+        <input class="auth-input" id="l-pw-pw" type="password" placeholder="密码" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+
+      <!-- 手机号+验证码登陆 -->
+      <div id="login-phone-code" style="display:none">
+        <input class="auth-input" id="l-phone-code" type="tel" placeholder="手机号">
+        <div class="code-row">
+          <input class="auth-input" id="l-code" type="text" placeholder="6位验证码" maxlength="6">
+          <button class="send-code-btn" id="l-send-code-btn" onclick="sendLoginSmsCode()">发送验证码</button>
+        </div>
+      </div>
+
+      <button class="auth-submit" onclick="doLogin()">登录</button>
+      <div class="auth-msg" id="l-msg"></div>
+    </div>
+
+    <!-- REGISTER PANEL -->
+    <div class="auth-panel" id="auth-register">
+      <div style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">注册方式</div>
+        <div class="chip-group" id="register-type-chips">
+          <div class="chip active" data-val="email" onclick="selectRegisterType('email')">邮箱注册</div>
+          <div class="chip" data-val="phone" onclick="selectRegisterType('phone')">手机号注册</div>
+        </div>
+      </div>
+
+      <!-- 邮箱注册 -->
+      <div id="register-email">
+        <input class="auth-input" id="r-name" type="text" placeholder="昵称（可选）">
+        <input class="auth-input" id="r-email" type="email" placeholder="邮箱地址">
+        <div class="code-row">
+          <input class="auth-input" id="r-code" type="text" placeholder="6位验证码" maxlength="6">
+          <button class="send-code-btn" id="send-code-btn" onclick="sendEmailCode()">发送验证码</button>
+        </div>
+        <input class="auth-input" id="r-pw" type="password" placeholder="密码（至少6位）">
+        <input class="auth-input" id="r-pw2" type="password" placeholder="确认密码" onkeydown="if(event.key==='Enter')doRegister()">
+      </div>
+
+      <!-- 手机号注册 -->
+      <div id="register-phone" style="display:none">
+        <input class="auth-input" id="r-phone-name" type="text" placeholder="昵称（可选）">
+        <input class="auth-input" id="r-phone" type="tel" placeholder="手机号">
+        <div class="code-row">
+          <input class="auth-input" id="r-phone-code" type="text" placeholder="6位验证码" maxlength="6">
+          <button class="send-code-btn" id="r-send-code-btn" onclick="sendRegisterSmsCode()">发送验证码</button>
+        </div>
+        <input class="auth-input" id="r-phone-pw" type="password" placeholder="密码（至少6位）">
+        <input class="auth-input" id="r-phone-pw2" type="password" placeholder="确认密码" onkeydown="if(event.key==='Enter')doRegister()">
+      </div>
+
+      <button class="auth-submit" onclick="doRegister()">注册账号</button>
+      <div class="auth-msg" id="r-msg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== PREVIEW MODAL ========== -->
+<div class="modal-overlay" id="prev-mo">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('prev-mo')">✕</button>
+    <div class="modal-title">布局编辑器</div>
+    <div class="modal-sub">拖拽移动框位置，右下角缩放框大小，点击「确认布局」保存</div>
+    <div class="prev-controls">
+      <span>💡 鼠标拖拽移动</span>
+      <span>📏 右下角缩放大小</span>
+    </div>
+    <div class="prev-legend">
+      <div class="prev-legend-item"><div class="prev-legend-dot" style="background:#22c55e"></div>字幕框</div>
+      <div class="prev-legend-item"><div class="prev-legend-dot" style="background:#a855f7"></div>单词框</div>
+      <div class="prev-legend-item"><div class="prev-legend-dot" style="background:#ec4899"></div>表达框</div>
+    </div>
+    <div class="prev-frame" id="prev-frame">
+      <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:13px" id="prev-loading">点击上方「生成预览」加载示例图像...</div>
+    </div>
+    <div class="prev-note" id="prev-note"></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
+      <button class="btn-secondary" onclick="resetLayout()" style="font-size:13px;padding:9px 18px">重置</button>
+      <button class="prev-confirm-btn" onclick="confirmLayout()">确认布局</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toasts"></div>
+
+<script>
+// ===== STATE =====
+let token = localStorage.getItem('ll_token') || '';
+let currentUser = null;
+let currentJobId = null;
+let ws = null;
+let layout = {};
+let langs = [];
+let jobsCache = {};
+let jobFilter = 'all';
+
+// ===== PARTICLES =====
+(function(){
+  const colors = ['#6c63ff','#ec4899','#06b6d4','#10b981','#f59e0b'];
+  const el = document.getElementById('particles');
+  for(let i=0;i<28;i++){
+    const d = document.createElement('div');
+    d.className = 'pt';
+    const sz = 3+Math.random()*8;
+    d.style.cssText = `width:${sz}px;height:${sz}px;left:${Math.random()*100}%;background:${colors[i%colors.length]};--d:${14+Math.random()*20}s;--delay:${-Math.random()*20}s`;
+    el.appendChild(d);
+  }
+})();
+
+// ===== PAGE NAV =====
+function showPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('pg-'+name).classList.add('active');
+  const map={home:0,create:1,results:2};
+  const btns=document.querySelectorAll('.nav-btn');
+  if(map[name]!==undefined) btns[map[name]].classList.add('active');
+  if(name==='results') refreshJobs();
+  if(name==='profile') refreshProfile();
+  window.scrollTo(0,0);
+}
+
+function goCreate(){
+  showPage('create');
+  updateAuthGuard();
+  loadSavedConfig();
+}
+
+function scrollToFeatures(){
+  document.getElementById('features-section').scrollIntoView({behavior:'smooth'});
+}
+
+// ===== AUTH GUARD =====
+function updateAuthGuard(){
+  const guard = document.getElementById('create-auth-guard');
+  const wrap  = document.getElementById('create-form-wrap');
+  if(currentUser){
+    guard.style.display='none';
+    wrap.style.display='block';
+  } else {
+    guard.style.display='block';
+    wrap.style.display='none';
+  }
+}
+
+// ===== LANGUAGES =====
+const FALLBACK_LANGS = [
+  {code:'en', native_name:'English',  flag:'🇺🇸'},
+  {code:'zh', native_name:'中文',      flag:'🇨🇳'},
+  {code:'ja', native_name:'日本語',    flag:'🇯🇵'},
+  {code:'ko', native_name:'한국어',    flag:'🇰🇷'},
+  {code:'de', native_name:'Deutsch',   flag:'🇩🇪'},
+  {code:'fr', native_name:'Français',  flag:'🇫🇷'},
+  {code:'es', native_name:'Español',   flag:'🇪🇸'},
+];
+
+async function loadLanguages(){
+  try{
+    const r = await fetch('/api/languages');
+    const d = await r.json();
+    langs = d.languages && d.languages.length ? d.languages : FALLBACK_LANGS;
+  }catch(e){
+    console.warn('lang load failed, using fallback', e);
+    langs = FALLBACK_LANGS;
+  }
+  populateLangSelects();
+  buildHomeLangGrid();
+  buildHeroLangs();
+}
+
+function populateLangSelects(){
+  ['src-lang','tgt-lang'].forEach((id,i)=>{
+    const s = document.getElementById(id);
+    s.innerHTML = langs.map(l=>`<option value="${l.code}">${l.flag} ${l.native_name}</option>`).join('');
+    if(i===0) s.value='en'; else s.value='zh';
+  });
+}
+
+function buildHomeLangGrid(){
+  const g = document.getElementById('home-lang-grid');
+  g.innerHTML = langs.map(l=>`<div class="lang-card"><div class="lang-flag">${l.flag}</div><div class="lang-name">${l.native_name}</div><div class="lang-code">${l.code.toUpperCase()}</div></div>`).join('');
+}
+
+function buildHeroLangs(){
+  const el = document.getElementById('lang-pills');
+  langs.forEach((l,i)=>{
+    const d = document.createElement('div');
+    d.className='lang-pill';
+    d.style.setProperty('--fd',`${i*0.3}s`);
+    d.textContent=`${l.flag} ${l.native_name}`;
+    el.appendChild(d);
+  });
+}
+
+function swapLangs(){
+  const s=document.getElementById('src-lang'), t=document.getElementById('tgt-lang');
+  [s.value,t.value]=[t.value,s.value];
+}
+
+// ===== TABS =====
+function switchTab(btn, panelId){
+  const card = btn.closest('.card');
+  card.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  card.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(panelId).classList.add('active');
+}
+
+// ===== CHIP SELECT =====
+function selectChip(el, groupId){
+  document.querySelectorAll(`#${groupId} .chip`).forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ===== COLOR SCHEMES =====
+const COLOR_SCHEMES = {
+  default: {
+    'c-wbg': '#fef9c3', 'c-wword': '#0284c7', 'c-wph': '#6b7280', 'c-wtr': '#111827',
+    'c-ebg': '#e0f2fe', 'c-een': '#0369a1', 'c-subbg': '#ffffff', 'c-subtext': '#111827'
+  },
+  warm: {
+    'c-wbg': '#fef3c7', 'c-wword': '#d97706', 'c-wph': '#b45309', 'c-wtr': '#78350f',
+    'c-ebg': '#fef08a', 'c-een': '#f59e0b', 'c-subbg': '#fffbeb', 'c-subtext': '#92400e'
+  },
+  cool: {
+    'c-wbg': '#cffafe', 'c-wword': '#0369a1', 'c-wph': '#0c4a6e', 'c-wtr': '#082f49',
+    'c-ebg': '#e0f2fe', 'c-een': '#0284c7', 'c-subbg': '#f0f9ff', 'c-subtext': '#0c2d48'
+  },
+  dark: {
+    'c-wbg': '#1e293b', 'c-wword': '#60a5fa', 'c-wph': '#94a3b8', 'c-wtr': '#e2e8f0',
+    'c-ebg': '#0f172a', 'c-een': '#38bdf8', 'c-subbg': '#1e293b', 'c-subtext': '#e2e8f0'
+  },
+  vibrant: {
+    'c-wbg': '#fce7f3', 'c-wword': '#ec4899', 'c-wph': '#db2777', 'c-wtr': '#831843',
+    'c-ebg': '#dbeafe', 'c-een': '#0ea5e9', 'c-subbg': '#f3e8ff', 'c-subtext': '#6d28d9'
+  },
+  minimal: {
+    'c-wbg': '#f5f5f5', 'c-wword': '#000000', 'c-wph': '#666666', 'c-wtr': '#000000',
+    'c-ebg': '#ffffff', 'c-een': '#000000', 'c-subbg': '#ffffff', 'c-subtext': '#000000'
+  }
+};
+
+function applyColorScheme(scheme){
+  document.querySelectorAll('#color-scheme-chips .chip').forEach(c=>c.classList.remove('active'));
+  event.target.classList.add('active');
+  const colors = COLOR_SCHEMES[scheme] || COLOR_SCHEMES.default;
+  Object.entries(colors).forEach(([id,val])=>{
+    const el = document.getElementById(id);
+    if(el){ el.value = val; document.getElementById(id+'-lbl').textContent = val; }
+  });
+}
+
+// ===== FILE DROP =====
+function onDrop(e){ e.preventDefault(); onDragLeave(e); const f=e.dataTransfer.files[0]; if(f) setFile(f); }
+function onDragOver(e){ e.preventDefault(); document.getElementById('drop-zone').classList.add('dragover'); }
+function onDragLeave(e){ document.getElementById('drop-zone').classList.remove('dragover'); }
+function onFileSelect(input){ if(input.files[0]) setFile(input.files[0]); }
+function setFile(f){
+  window._selectedFile = f;
+  const fn = document.getElementById('file-name');
+  fn.textContent = `✓ 已选择: ${f.name} (${(f.size/1024/1024).toFixed(1)} MB)`;
+  fn.style.display='block';
+}
+
+// ===== COLLECT STYLE =====
+function collectStyle(){
+  const fontFamily = document.querySelector('#font-chips .chip.active')?.dataset.val || 'system';
+  const lineHeight  = document.querySelector('#lh-chips .chip.active')?.dataset.val || 'normal';
+  const subBgStyle  = document.querySelector('#sub-bg-chips .chip.active')?.dataset.val || 'light';
+  const fontScale   = parseFloat(document.getElementById('font-scale').value);
+  return {
+    font_family: fontFamily,
+    line_height: lineHeight,
+    subtitle_bg_style: subBgStyle,
+    font_size_scale: fontScale,
+    wordbox_bg:            document.getElementById('c-wbg').value,
+    wordbox_word_color:    document.getElementById('c-wword').value,
+    wordbox_phonetic_color:document.getElementById('c-wph').value,
+    wordbox_trans_color:   document.getElementById('c-wtr').value,
+    exprbox_bg:            document.getElementById('c-ebg').value,
+    exprbox_en_color:      document.getElementById('c-een').value,
+    subtitle_bg_color:     document.getElementById('c-subbg').value,
+    subtitle_text_color:   document.getElementById('c-subtext').value,
+  };
+}
+
+// ===== SUBMIT JOB =====
+async function submitJob(){
+  if(!currentUser){ openAuth(); return; }
+  if(!window._selectedFile){ toast('请先选择视频文件','warn'); return; }
+
+  const src=document.getElementById('src-lang').value;
+  const tgt=document.getElementById('tgt-lang').value;
+  if(src===tgt){ toast('源语言和目标语言不能相同','warn'); return; }
+
+  const fd = new FormData();
+  fd.append('video', window._selectedFile);
+  fd.append('source_lang', src);
+  fd.append('target_lang', tgt);
+  fd.append('resolution', document.getElementById('resolution').value);
+  fd.append('part1_repeat', document.getElementById('p1-repeat').value);
+  fd.append('part2_repeat', document.getElementById('p2-repeat').value);
+  fd.append('part3_repeat', document.getElementById('p3-repeat').value);
+  fd.append('part2_slow_speed', document.getElementById('slow-speed').value);
+  fd.append('num_words', document.getElementById('num-words').value);
+  fd.append('num_expressions', document.getElementById('num-exprs').value);
+  fd.append('layout', JSON.stringify(layout));
+  fd.append('style', JSON.stringify(collectStyle()));
+
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('progress-section').style.display='block';
+  document.getElementById('view-result-btn').style.display='none';
+  document.getElementById('log-box').innerHTML='';
+  resetStepBar();
+
+  try{
+    const r = await fetch('/api/jobs', {method:'POST', headers:{'Authorization':'Bearer '+token}, body:fd});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||'提交失败');
+    currentJobId = d.job_id;
+    toast('任务已提交，开始处理','ok');
+    connectWS(currentJobId);
+  }catch(e){
+    toast(e.message,'err');
+    document.getElementById('submit-btn').disabled=false;
+  }
+}
+
+// ===== WEBSOCKET =====
+function connectWS(jobId){
+  if(ws){ ws.close(); ws=null; }
+  const proto = location.protocol==='https:'?'wss':'ws';
+  ws = new WebSocket(`${proto}://${location.host}/api/ws/${jobId}`);
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    switch(msg.type){
+      case 'log':
+        addLog(msg.data); break;
+      case 'step':
+        setStep(msg.data.step, msg.data.name); break;
+      case 'video_clips':
+        setPct('clips', msg.data.pct||0); break;
+      case 'video_write':
+        setPct('write', msg.data.pct||0); break;
+      case 'done':
+        onJobDone(); break;
+      case 'error':
+        onJobError(msg.data); break;
+      case 'cancelled':
+        onJobCancelled(); break;
+    }
+  };
+  ws.onerror = () => { addLog('WebSocket 连接中断，切换轮询模式'); startPolling(jobId); };
+}
+
+function startPolling(jobId){
+  const iv = setInterval(async()=>{
+    try{
+      const r = await fetch('/api/jobs/'+jobId);
+      const d = await r.json();
+      if(d.step_name) document.getElementById('cur-step-text').textContent=d.step_name;
+      if(d.video_clips_pct) setPct('clips',d.video_clips_pct);
+      if(d.video_write_pct) setPct('write',d.video_write_pct);
+      if(d.status==='done'){ clearInterval(iv); onJobDone(); }
+      if(d.status==='error'){ clearInterval(iv); onJobError(d.error); }
+      if(d.status==='cancelled'){ clearInterval(iv); onJobCancelled(); }
+    }catch(e){}
+  }, 3000);
+}
+
+function addLog(text){
+  const box=document.getElementById('log-box');
+  const d=document.createElement('div');
+  d.className='log-line'+(text.includes('❌')||text.includes('Error')?' err':text.includes('✓')||text.includes('完成')?' ok':'');
+  d.textContent=text;
+  box.appendChild(d);
+  box.scrollTop=box.scrollHeight;
+}
+
+function setStep(n, name){
+  document.getElementById('cur-step-text').textContent=`步骤 ${n}/5：${name}`;
+  for(let i=1;i<=5;i++){
+    const dot=document.getElementById(`sd-${i}`);
+    const line=document.getElementById(`sl-${i}`);
+    dot.className='step-dot'+(i<n?' done':i===n?' active':'');
+    if(line) line.className='step-line'+(i<n?' done':'');
+  }
+}
+
+function setPct(type, pct){
+  const p=Math.round(pct);
+  document.getElementById(`${type}-pct`).textContent=p+'%';
+  document.getElementById(`${type}-fill`).style.width=p+'%';
+}
+
+function resetStepBar(){
+  for(let i=1;i<=5;i++){
+    const d=document.getElementById(`sd-${i}`);
+    const l=document.getElementById(`sl-${i}`);
+    if(d) d.className='step-dot';
+    if(l) l.className='step-line';
+  }
+  setPct('clips',0); setPct('write',0);
+  document.getElementById('cur-step-text').textContent='准备中...';
+}
+
+function onJobDone(){
+  setStep(5,'完成！'); setPct('clips',100); setPct('write',100);
+  toast('视频生成完成！','ok');
+  document.getElementById('view-result-btn').style.display='inline-flex';
+  document.getElementById('submit-btn').disabled=false;
+  document.getElementById('cancel-btn').style.display='none';
+}
+
+function onJobError(msg){
+  document.getElementById('cur-step-text').textContent='处理失败：'+msg;
+  toast('处理失败: '+msg,'err');
+  document.getElementById('submit-btn').disabled=false;
+}
+
+function onJobCancelled(){
+  document.getElementById('cur-step-text').textContent='已取消';
+  toast('任务已取消','warn');
+  document.getElementById('submit-btn').disabled=false;
+}
+
+function viewResult(){
+  showPage('results');
+}
+
+async function cancelJob(){
+  if(!currentJobId) return;
+  if(!confirm('确定取消当前任务？')) return;
+  try{
+    await fetch('/api/jobs/'+currentJobId, {method:'DELETE', headers:{'Authorization':'Bearer '+token}});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// ===== RESULTS =====
+async function refreshJobs(){
+  try{
+    const r = await fetch('/api/jobs', {headers:{'Authorization':'Bearer '+token}});
+    const d = await r.json();
+    const list = d.jobs||[];
+    list.forEach(j=>{ jobsCache[j.id]=j; });
+    renderJobList(list);
+    if(list.length>0){
+      document.getElementById('results-placeholder').style.display='none';
+      document.getElementById('results-content').style.display='block';
+    }
+  }catch(e){}
+}
+
+function filterJobs(status, btn){
+  jobFilter=status;
+  document.querySelectorAll('.job-filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const list=Object.values(jobsCache);
+  renderJobList(status==='all'?list:list.filter(j=>j.status===status));
+}
+
+function renderJobList(jobs){
+  const el=document.getElementById('job-list-el');
+  if(!jobs.length){ el.innerHTML='<div style="text-align:center;color:var(--text3);padding:24px;font-size:13px">暂无记录</div>'; return; }
+  el.innerHTML=jobs.map(j=>`
+    <div class="job-item ${j.id===currentJobId?'active':''}" onclick="selectJob('${j.id}')">
+      <div class="job-status-dot js-${j.status}"></div>
+      <div class="job-info">
+        <div class="job-name">${j.video_filename||j.id}</div>
+        <div class="job-meta">${j.status} · ${j.source_lang||'?'} → ${j.target_lang||'?'} · ${new Date(j.created_at).toLocaleDateString()}</div>
+      </div>
+    </div>`).join('');
+}
+
+function selectJob(jobId){
+  const job = jobsCache[jobId];
+  if(!job) return;
+  document.querySelectorAll('.job-item').forEach(el=>{
+    el.classList.toggle('active', el.onclick.toString().includes(jobId));
+  });
+  const det=document.getElementById('job-detail');
+  if(job.status!=='done'||!job.result){
+    det.innerHTML=`<div class="card" style="text-align:center;padding:32px"><div style="font-size:32px;margin-bottom:12px">${job.status==='running'?'⚙️':job.status==='error'?'❌':'⏳'}</div><p style="font-weight:600">${job.step_name||job.status}</p>${job.error?`<p style="color:var(--err);font-size:13px;margin-top:8px">${job.error}</p>`:''}</div>`;
+    return;
+  }
+  const r=job.result;
+  const vidFile=r.full_video;
+  const mdFile=r.markdown;
+  det.innerHTML=`
+    <div class="results-action-row">
+      ${vidFile?`<a class="dl-btn" href="/api/jobs/${jobId}/download/${vidFile}" download>⬇ 下载视频</a>`:''}
+      ${mdFile?`<a class="dl-btn" href="/api/jobs/${jobId}/download/${mdFile}" download>⬇ 下载笔记 (Markdown)</a>`:''}
+      ${mdFile?`<button class="dl-btn" onclick="exportMDAsHTML('${jobId}','${mdFile}')">📄 导出为 HTML</button>`:''}
+    </div>
+    ${vidFile?`
+    <div id="video-player-wrap" class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <video id="video-player" controls style="width:100%;border-radius:var(--r)">
+        <source src="/api/jobs/${jobId}/stream/${vidFile}" type="video/mp4">
+      </video>
+    </div>`:'<div class="card" style="text-align:center;padding:24px;color:var(--text3)">视频文件不存在</div>'}
+    <div id="md-area" class="card" style="padding:0;margin-bottom:16px">
+      <div style="padding:20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:16px">学习笔记</h3>
+        <button class="dl-btn" onclick="copyMDToClipboard('${jobId}','${mdFile}')" style="padding:6px 12px;font-size:12px" title="复制到剪贴板">📋 复制内容</button>
+      </div>
+      <div class="md-viewer" id="md-content" style="padding:20px"></div>
+    </div>
+    <div style="font-size:12px;color:var(--text3)">
+      句子数: ${r.sentences_count||'?'} · ${r.source_lang||'?'} → ${r.target_lang||'?'}
+    </div>`;
+
+  // 自动加载并显示 markdown
+  if(mdFile) loadMDAndDisplay(jobId, mdFile);
+}
+
+async function loadMD(jobId, mdFile){
+  try{
+    const r=await fetch(`/api/jobs/${jobId}/preview/${mdFile}`);
+    const d=await r.json();
+    const area=document.getElementById('md-area');
+    document.getElementById('md-content').innerHTML=marked.parse(d.content||'');
+    area.style.display='block';
+    area.scrollIntoView({behavior:'smooth'});
+  }catch(e){ toast('加载笔记失败','err'); }
+}
+
+async function loadMDAndDisplay(jobId, mdFile){
+  try{
+    const r=await fetch(`/api/jobs/${jobId}/preview/${mdFile}`);
+    const d=await r.json();
+    const content = d.content || '';
+    document.getElementById('md-content').innerHTML = marked.parse(content);
+  }catch(e){
+    document.getElementById('md-content').innerHTML = '<p style="color:var(--err)">加载笔记失败</p>';
+  }
+}
+
+async function copyMDToClipboard(jobId, mdFile){
+  try{
+    const r=await fetch(`/api/jobs/${jobId}/preview/${mdFile}`);
+    const d=await r.json();
+    const content = d.content || '';
+    navigator.clipboard.writeText(content);
+    toast('✓ 已复制到剪贴板','ok');
+  }catch(e){
+    toast('复制失败','err');
+  }
+}
+
+async function exportMDAsHTML(jobId, mdFile){
+  try{
+    const r=await fetch(`/api/jobs/${jobId}/preview/${mdFile}`);
+    const d=await r.json();
+    const content = d.content || '';
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LinguaLearn 学习笔记</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 0 auto; padding: 40px 20px; line-height: 1.8; color: #333; }
+    h1, h2, h3 { margin-top: 24px; margin-bottom: 12px; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+    th { background: #f5f5f5; font-weight: 600; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-family: 'Monaco', monospace; }
+    pre { background: #f5f5f5; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  </style>
+</head>
+<body>${marked.parse(content)}</body>
+</html>`;
+
+    const blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = mdFile.replace('.md', '.html');
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('✓ 已导出为 HTML','ok');
+  }catch(e){
+    toast('导出失败','err');
+  }
+}
+
+// ===== PREVIEW LAYOUT =====
+let lboxes={};
+
+async function openPreview(){
+  if(!currentUser){
+    toast('请先登录再使用预览功能','warn');
+    openAuth();
+    return;
+  }
+
+  const src=document.getElementById('src-lang').value;
+  const tgt=document.getElementById('tgt-lang').value;
+  const res=document.getElementById('resolution').value;
+  const nw=parseInt(document.getElementById('prev-words').value);
+  const ne=parseInt(document.getElementById('prev-exprs').value);
+  const style=collectStyle();
+
+  document.getElementById('prev-mo').classList.add('open');
+  const loadingEl = document.getElementById('prev-loading');
+  if(loadingEl){
+    loadingEl.style.display='flex';
+    loadingEl.textContent='正在生成预览（使用 Chrome 渲染，请稍候…）';
+  }
+
+  const fd=new FormData();
+  fd.append('source_lang',src); fd.append('target_lang',tgt);
+  fd.append('resolution',res); fd.append('num_words',nw);
+  fd.append('num_expressions',ne); fd.append('style',JSON.stringify(style));
+
+  try{
+    const r=await fetch('/api/preview',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
+    if(r.status===401){ throw new Error('登录已过期，请重新登录'); }
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.detail||d.message||'预览失败');
+    renderLayoutBoxes(d);
+  }catch(e){
+    toast(e.message,'err');
+    closeModal('prev-mo');
+  }
+}
+
+function renderLayoutBoxes(data){
+  const frame=document.getElementById('prev-frame');
+  frame.innerHTML='';
+  lboxes={};
+
+  const fw=data.layout.frame_w, fh=data.layout.frame_h;
+  const boxes=[
+    {key:'subtitle', color:'#22c55e', img:data.subtitle, l:data.layout.subtitle},
+    {key:'wordbox',  color:'#a855f7', img:data.wordbox,  l:data.layout.wordbox},
+    {key:'exprbox',  color:'#ec4899', img:data.exprbox,  l:data.layout.exprbox},
+  ];
+
+  boxes.forEach(({key,color,img,l})=>{
+    if(!img||!l) return;
+    const box=document.createElement('div');
+    box.className='lbox';
+    box.dataset.key=key;
+    box.style.cssText=`left:${l.x_pct*100}%;top:${l.y_pct*100}%;width:${l.width_pct*100}%;height:${l.height_pct*100}%;border-color:${color}`;
+    box.innerHTML=`<img src="${img}" alt="${key}"><div class="rh"></div>`;
+    makeDrag(box, box, frame);
+    makeResize(box, box.querySelector('.rh'), frame);
+    frame.appendChild(box);
+    lboxes[key]=box;
+  });
+
+  const loadingEl = document.getElementById('prev-loading');
+  if(loadingEl) loadingEl.style.display='none';
+  document.getElementById('prev-note').textContent='蓝色=字幕框 / 紫色=单词框 / 粉色=表达框';
+}
+
+function makeDrag(el, handle, container){
+  handle.addEventListener('mousedown', e=>{
+    if(e.target.classList.contains('rh')) return;
+    e.preventDefault();
+    const cr=container.getBoundingClientRect();
+    const sx=e.clientX-el.offsetLeft/100*cr.width,sy=e.clientY-el.offsetTop/100*cr.height;
+    // use absolute px during drag
+    let startL=el.offsetLeft,startT=el.offsetTop;
+    const mx=e2=>{
+      const nl=e2.clientX-(e.clientX-startL);
+      const nt=e2.clientY-(e.clientY-startT);
+      el.style.left=Math.max(0,Math.min(cr.width-el.offsetWidth,nl))+'px';
+      el.style.top =Math.max(0,Math.min(cr.height-el.offsetHeight,nt))+'px';
+    };
+    const mu=()=>{ document.removeEventListener('mousemove',mx); document.removeEventListener('mouseup',mu); };
+    document.addEventListener('mousemove',mx);
+    document.addEventListener('mouseup',mu);
+  });
+}
+
+function makeResize(el, rh, container){
+  rh.addEventListener('mousedown', e=>{
+    e.preventDefault(); e.stopPropagation();
+    const sw=el.offsetWidth, sh=el.offsetHeight, sx=e.clientX, sy=e.clientY;
+    const cr=container.getBoundingClientRect();
+    const mx=e2=>{
+      const nw=Math.max(60,sw+(e2.clientX-sx));
+      const nh=Math.max(40,sh+(e2.clientY-sy));
+      el.style.width =Math.min(cr.width-el.offsetLeft, nw)+'px';
+      el.style.height=Math.min(cr.height-el.offsetTop, nh)+'px';
+    };
+    const mu=()=>{ document.removeEventListener('mousemove',mx); document.removeEventListener('mouseup',mu); };
+    document.addEventListener('mousemove',mx);
+    document.addEventListener('mouseup',mu);
+  });
+}
+
+function confirmLayout(){
+  const frame=document.getElementById('prev-frame');
+  const cr=frame.getBoundingClientRect();
+  const newLayout={};
+  Object.entries(lboxes).forEach(([key,box])=>{
+    const l=parseFloat(box.style.left)||box.offsetLeft;
+    const t=parseFloat(box.style.top)||box.offsetTop;
+    const w=box.offsetWidth, h=box.offsetHeight;
+    newLayout[`${key}_x_pct`]    = (typeof box.style.left==='string'&&box.style.left.endsWith('%')) ? parseFloat(box.style.left)/100 : l/cr.width;
+    newLayout[`${key}_y_pct`]    = (typeof box.style.top==='string'&&box.style.top.endsWith('%'))   ? parseFloat(box.style.top)/100  : t/cr.height;
+    newLayout[`${key}_width_pct`] = w/cr.width;
+    newLayout[`${key}_height_pct`]= h/cr.height;
+  });
+  layout=newLayout;
+  document.getElementById('layout-status').textContent='✓ 已保存自定义布局';
+  document.getElementById('layout-status').style.color='var(--ok)';
+  closeModal('prev-mo');
+  toast('布局已保存','ok');
+}
+
+function resetLayout(){
+  layout={};
+  document.getElementById('layout-status').textContent='尚未设置布局（将使用默认位置）';
+  document.getElementById('layout-status').style.color='';
+  closeModal('prev-mo');
+  toast('已重置为默认布局','info');
+}
+
+// ===== 配置保存/加载 =====
+
+async function saveCurrentConfig(){
+  if(!currentUser){
+    toast('请先登录','warn');
+    return;
+  }
+
+  const config = {
+    source_lang: document.getElementById('src-lang').value,
+    target_lang: document.getElementById('tgt-lang').value,
+    resolution: document.getElementById('resolution').value,
+    slow_speed: document.getElementById('slow-speed').value,
+    p1_repeat: document.getElementById('p1-repeat').value,
+    p2_repeat: document.getElementById('p2-repeat').value,
+    p3_repeat: document.getElementById('p3-repeat').value,
+    num_words: document.getElementById('num-words').value,
+    num_exprs: document.getElementById('num-exprs').value,
+    style: collectStyle(),
+    layout: layout,
+  };
+
+  const fd = new FormData();
+  fd.append('config_json', JSON.stringify(config));
+
+  try{
+    const r = await fetch('/api/config/save', {method:'POST', headers:{'Authorization':'Bearer '+token}, body:fd});
+    if(!r.ok) throw new Error('保存失败');
+    toast('✓ 配置已保存，下次打开时自动加载','ok');
+  }catch(e){
+    toast('保存配置失败: '+e.message,'err');
+  }
+}
+
+async function loadSavedConfig(){
+  if(!currentUser || !token) return;
+
+  try{
+    const r = await fetch('/api/config/load', {headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok) return;
+    const d = await r.json();
+    if(!d.config) return;
+
+    const cfg = JSON.parse(d.config);
+    if(cfg.source_lang) document.getElementById('src-lang').value = cfg.source_lang;
+    if(cfg.target_lang) document.getElementById('tgt-lang').value = cfg.target_lang;
+    if(cfg.resolution) document.getElementById('resolution').value = cfg.resolution;
+    if(cfg.slow_speed) document.getElementById('slow-speed').value = cfg.slow_speed;
+    if(cfg.p1_repeat) document.getElementById('p1-repeat').value = cfg.p1_repeat;
+    if(cfg.p2_repeat) document.getElementById('p2-repeat').value = cfg.p2_repeat;
+    if(cfg.p3_repeat) document.getElementById('p3-repeat').value = cfg.p3_repeat;
+    if(cfg.num_words) document.getElementById('num-words').value = cfg.num_words;
+    if(cfg.num_exprs) document.getElementById('num-exprs').value = cfg.num_exprs;
+
+    // 恢复样式
+    if(cfg.style){
+      Object.entries(cfg.style).forEach(([k,v])=>{
+        const id = k.replace(/^(font_family|line_height|subtitle_bg_style|font_size_scale)$/, match => {
+          if(match==='font_family') return null;
+          if(match==='line_height') return null;
+          if(match==='subtitle_bg_style') return null;
+          if(match==='font_size_scale') return null;
+          return match;
+        });
+        if(k==='font_size_scale') document.getElementById('font-scale').value = v;
+        if(k.startsWith('wordbox_') || k.startsWith('exprbox_') || k.startsWith('subtitle_')){
+          const colorId = k.replace(/_(color|bg)$/, m => {
+            if(m==='_color') return '';
+            if(m==='_bg') return '';
+            return m;
+          }).replace(/^wordbox/, 'c-w').replace(/^exprbox/, 'c-e').replace(/^subtitle/, 'c-sub');
+          if(document.getElementById(colorId)) {
+            document.getElementById(colorId).value = v;
+            const lbl = document.getElementById(colorId + '-lbl');
+            if(lbl) lbl.textContent = v;
+          }
+        }
+      });
+    }
+
+    // 恢复布局
+    if(cfg.layout && Object.keys(cfg.layout).length > 0){
+      layout = cfg.layout;
+      document.getElementById('layout-status').textContent = '✓ 已加载保存的自定义布局';
+      document.getElementById('layout-status').style.color = 'var(--ok)';
+    }
+
+    toast('✓ 已加载上次的配置','info');
+  }catch(e){
+    // 加载失败时沉默处理
+  }
+}
+
+// ===== AUTH =====
+let currentLoginType = 'email_password';
+let currentRegisterType = 'email';
+let smsCodeCooldown = 0;
+
+function openAuth(tab){
+  document.getElementById('auth-mo').classList.add('open');
+  if(tab) switchAuthTab(tab);
+}
+
+function switchAuthTab(tab){
+  document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.auth-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelector(`.auth-tab:${tab==='login'?'first':'last'}-child`).classList.add('active');
+  document.getElementById('auth-'+tab).classList.add('active');
+  // 重置错误信息
+  setMsg('l-msg', '', '');
+  setMsg('r-msg', '', '');
+  // 重置表单
+  if(tab === 'login') {
+    currentLoginType = 'email_password';
+    selectLoginType('email_password');
+  } else {
+    currentRegisterType = 'email';
+    selectRegisterType('email');
+  }
+}
+
+function selectLoginType(type){
+  currentLoginType = type;
+  document.querySelectorAll('#login-type-chips .chip').forEach(c=>c.classList.remove('active'));
+  document.querySelector(`#login-type-chips [data-val="${type}"]`).classList.add('active');
+
+  document.getElementById('login-email-password').style.display = 'none';
+  document.getElementById('login-phone-password').style.display = 'none';
+  document.getElementById('login-phone-code').style.display = 'none';
+
+  if(type === 'email_password') {
+    document.getElementById('login-email-password').style.display = 'block';
+  } else if(type === 'phone_password') {
+    document.getElementById('login-phone-password').style.display = 'block';
+  } else if(type === 'phone_code') {
+    document.getElementById('login-phone-code').style.display = 'block';
+  }
+}
+
+function selectRegisterType(type){
+  currentRegisterType = type;
+  document.querySelectorAll('#register-type-chips .chip').forEach(c=>c.classList.remove('active'));
+  document.querySelector(`#register-type-chips [data-val="${type}"]`).classList.add('active');
+
+  document.getElementById('register-email').style.display = 'none';
+  document.getElementById('register-phone').style.display = 'none';
+
+  if(type === 'email') {
+    document.getElementById('register-email').style.display = 'block';
+  } else if(type === 'phone') {
+    document.getElementById('register-phone').style.display = 'block';
+  }
+}
+
+let emailCodeCooldown = 0;
+async function sendEmailCode(){
+  const email = document.getElementById('r-email').value.trim();
+  if(!email){ toast('请先填写邮箱','warn'); return; }
+  if(emailCodeCooldown > 0){ toast(`请等待 ${emailCodeCooldown}s 后重试`,'warn'); return; }
+  const btn = document.getElementById('send-code-btn');
+  btn.disabled = true;
+  try{
+    const fd = new FormData(); fd.append('email', email);
+    const r = await fetch('/api/auth/send-code', {method:'POST', body:fd});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||'发送失败');
+    if(d.dev_mode){
+      setMsg('r-msg', `开发模式：验证码 ${d.dev_code}（生产环境将发送邮件）`, 'ok');
+      document.getElementById('r-code').value = d.dev_code;
+    } else {
+      setMsg('r-msg', '验证码已发送，请查收邮件', 'ok');
+    }
+    // 60s cooldown
+    emailCodeCooldown = 60;
+    const iv = setInterval(()=>{
+      emailCodeCooldown--;
+      btn.textContent = emailCodeCooldown > 0 ? `${emailCodeCooldown}s 后重试` : '发送验证码';
+      if(emailCodeCooldown <= 0){ clearInterval(iv); btn.disabled = false; }
+    }, 1000);
+  }catch(e){
+    setMsg('r-msg', e.message, 'err');
+    btn.disabled = false;
+  }
+}
+
+async function sendRegisterSmsCode(){
+  const phone = document.getElementById('r-phone').value.trim();
+  if(!phone){ toast('请先填写手机号','warn'); return; }
+  if(smsCodeCooldown > 0){ toast(`请等待 ${smsCodeCooldown}s 后重试`,'warn'); return; }
+  const btn = document.getElementById('r-send-code-btn');
+  btn.disabled = true;
+  try{
+    const fd = new FormData(); fd.append('phone', phone);
+    const r = await fetch('/api/auth/send-sms-code', {method:'POST', body:fd});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||'发送失败');
+    if(d.dev_mode){
+      setMsg('r-msg', `开发模式：验证码 ${d.dev_code}（生产环境将发送短信）`, 'ok');
+      document.getElementById('r-phone-code').value = d.dev_code;
+    } else {
+      setMsg('r-msg', '验证码已发送，请查收短信', 'ok');
+    }
+    // 60s cooldown
+    smsCodeCooldown = 60;
+    const iv = setInterval(()=>{
+      smsCodeCooldown--;
+      btn.textContent = smsCodeCooldown > 0 ? `${smsCodeCooldown}s 后重试` : '发送验证码';
+      if(smsCodeCooldown <= 0){ clearInterval(iv); btn.disabled = false; }
+    }, 1000);
+  }catch(e){
+    setMsg('r-msg', e.message, 'err');
+    btn.disabled = false;
+  }
+}
+
+async function sendLoginSmsCode(){
+  const phone = document.getElementById('l-phone-code').value.trim();
+  if(!phone){ toast('请先填写手机号','warn'); return; }
+  if(smsCodeCooldown > 0){ toast(`请等待 ${smsCodeCooldown}s 后重试`,'warn'); return; }
+  const btn = document.getElementById('l-send-code-btn');
+  btn.disabled = true;
+  try{
+    const fd = new FormData(); fd.append('phone', phone);
+    const r = await fetch('/api/auth/send-sms-code', {method:'POST', body:fd});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||'发送失败');
+    if(d.dev_mode){
+      setMsg('l-msg', `开发模式：验证码 ${d.dev_code}（生产环境将发送短信）`, 'ok');
+      document.getElementById('l-code').value = d.dev_code;
+    } else {
+      setMsg('l-msg', '验证码已发送，请查收短信', 'ok');
+    }
+    // 60s cooldown
+    smsCodeCooldown = 60;
+    const iv = setInterval(()=>{
+      smsCodeCooldown--;
+      btn.textContent = smsCodeCooldown > 0 ? `${smsCodeCooldown}s 后重试` : '发送验证码';
+      if(smsCodeCooldown <= 0){ clearInterval(iv); btn.disabled = false; }
+    }, 1000);
+  }catch(e){
+    setMsg('l-msg', e.message, 'err');
+    btn.disabled = false;
+  }
+}
+
+async function doRegister(){
+  if(currentRegisterType === 'email'){
+    // 邮箱注册
+    const name = document.getElementById('r-name').value.trim();
+    const email = document.getElementById('r-email').value.trim();
+    const code = document.getElementById('r-code').value.trim();
+    const pw = document.getElementById('r-pw').value;
+    const pw2 = document.getElementById('r-pw2').value;
+    if(!email||!code||!pw){ setMsg('r-msg','请填写完整信息','err'); return; }
+    if(pw !== pw2){ setMsg('r-msg','两次密码不一致','err'); return; }
+    const fd = new FormData();
+    fd.append('email', email); fd.append('password', pw);
+    fd.append('name', name); fd.append('code', code);
+    try{
+      const r = await fetch('/api/auth/register', {method:'POST', body:fd});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.detail||'注册失败');
+      setToken(d.token, {email:d.email, name:d.name});
+      closeModal('auth-mo');
+      toast('注册成功，欢迎 '+d.name, 'ok');
+      updateAuthGuard();
+      updateNavUser();
+    }catch(e){ setMsg('r-msg', e.message, 'err'); }
+  } else if(currentRegisterType === 'phone'){
+    // 手机号注册
+    const name = document.getElementById('r-phone-name').value.trim();
+    const phone = document.getElementById('r-phone').value.trim();
+    const code = document.getElementById('r-phone-code').value.trim();
+    const pw = document.getElementById('r-phone-pw').value;
+    const pw2 = document.getElementById('r-phone-pw2').value;
+    if(!phone||!code||!pw){ setMsg('r-msg','请填写完整信息','err'); return; }
+    if(pw !== pw2){ setMsg('r-msg','两次密码不一致','err'); return; }
+    const fd = new FormData();
+    fd.append('phone', phone); fd.append('password', pw);
+    fd.append('name', name); fd.append('code', code);
+    try{
+      const r = await fetch('/api/auth/register', {method:'POST', body:fd});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.detail||'注册失败');
+      setToken(d.token, {phone:d.phone, name:d.name});
+      closeModal('auth-mo');
+      toast('注册成功，欢迎 '+d.name, 'ok');
+      updateAuthGuard();
+      updateNavUser();
+    }catch(e){ setMsg('r-msg', e.message, 'err'); }
+  }
+}
+
+async function doLogin(){
+  if(currentLoginType === 'email_password'){
+    // 邮箱+密码
+    const email = document.getElementById('l-email').value.trim();
+    const pw = document.getElementById('l-pw').value;
+    if(!email||!pw){ setMsg('l-msg','请填写邮箱和密码','err'); return; }
+    const fd = new FormData();
+    fd.append('login_type', 'email_password');
+    fd.append('email', email); fd.append('password', pw);
+    try{
+      const r = await fetch('/api/auth/login', {method:'POST', body:fd});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.detail||'登录失败');
+      setToken(d.token, {email:d.email, name:d.name});
+      closeModal('auth-mo');
+      toast('登录成功，欢迎回来 '+d.name, 'ok');
+      updateAuthGuard();
+      updateNavUser();
+    }catch(e){ setMsg('l-msg', e.message, 'err'); }
+  } else if(currentLoginType === 'phone_password'){
+    // 手机号+密码
+    const phone = document.getElementById('l-phone-pw').value.trim();
+    const pw = document.getElementById('l-pw-pw').value;
+    if(!phone||!pw){ setMsg('l-msg','请填写手机号和密码','err'); return; }
+    const fd = new FormData();
+    fd.append('login_type', 'phone_password');
+    fd.append('phone', phone); fd.append('password', pw);
+    try{
+      const r = await fetch('/api/auth/login', {method:'POST', body:fd});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.detail||'登录失败');
+      setToken(d.token, {phone:d.phone, name:d.name});
+      closeModal('auth-mo');
+      toast('登录成功，欢迎回来 '+d.name, 'ok');
+      updateAuthGuard();
+      updateNavUser();
+    }catch(e){ setMsg('l-msg', e.message, 'err'); }
+  } else if(currentLoginType === 'phone_code'){
+    // 手机号+验证码
+    const phone = document.getElementById('l-phone-code').value.trim();
+    const code = document.getElementById('l-code').value.trim();
+    if(!phone||!code){ setMsg('l-msg','请填写手机号和验证码','err'); return; }
+    const fd = new FormData();
+    fd.append('login_type', 'phone_code');
+    fd.append('phone', phone); fd.append('code', code);
+    try{
+      const r = await fetch('/api/auth/login', {method:'POST', body:fd});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.detail||'登录失败');
+      setToken(d.token, {phone:d.phone, name:d.name});
+      closeModal('auth-mo');
+      toast('登录成功，欢迎回来 '+d.name, 'ok');
+      updateAuthGuard();
+      updateNavUser();
+    }catch(e){ setMsg('l-msg', e.message, 'err'); }
+  }
+}
+
+function setToken(t,user){ token=t; currentUser=user; localStorage.setItem('ll_token',t); }
+
+function logout(){
+  token=''; currentUser=null; localStorage.removeItem('ll_token');
+  updateNavUser(); updateAuthGuard();
+  showPage('home'); toast('已退出登录','info');
+}
+
+function logoutAll(){ logout(); }
+
+async function checkAuth(){
+  if(!token) return;
+  try{
+    const r=await fetch('/api/auth/me',{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){ token=''; localStorage.removeItem('ll_token'); return; }
+    currentUser=await r.json();
+    updateNavUser(); updateAuthGuard();
+  }catch(e){ token=''; localStorage.removeItem('ll_token'); }
+}
+
+function updateNavUser(){
+  const area=document.getElementById('nav-user');
+  if(currentUser){
+    const initials=(currentUser.name||'U').slice(0,2).toUpperCase();
+    area.innerHTML=`
+      <div class="nav-avatar" onclick="showPage('profile')" title="${currentUser.email}">${initials}</div>`;
+  } else {
+    area.innerHTML=`<button id="nav-login-btn" onclick="openAuth()">登录 / 注册</button>`;
+  }
+}
+
+// ===== PROFILE =====
+async function refreshProfile(){
+  if(!currentUser){ showPage('home'); openAuth(); return; }
+  document.getElementById('p-name').textContent=currentUser.name||'—';
+  document.getElementById('p-email').textContent=currentUser.email||'—';
+  document.getElementById('p-avatar').textContent=(currentUser.name||'U').slice(0,2).toUpperCase();
+  document.getElementById('p-name-input').value=currentUser.name||'';
+  document.getElementById('p-email-input').value=currentUser.email||'';
+  try{
+    const r=await fetch('/api/auth/me',{headers:{'Authorization':'Bearer '+token}});
+    const d=await r.json();
+    document.getElementById('p-created').textContent=new Date(d.created_at).toLocaleDateString();
+    document.getElementById('p-join-date').textContent=new Date(d.created_at).toLocaleDateString().slice(0,7);
+  }catch(e){}
+  try{
+    const r=await fetch('/api/jobs',{headers:{'Authorization':'Bearer '+token}});
+    const d=await r.json();
+    document.getElementById('p-job-count').textContent=(d.jobs||[]).length;
+  }catch(e){}
+}
+
+async function saveProfile(){
+  const name=document.getElementById('p-name-input').value.trim();
+  if(!name){ toast('昵称不能为空','warn'); return; }
+  if(currentUser) currentUser.name=name;
+  updateNavUser();
+  toast('昵称已更新（仅本地，刷新后恢复）','info');
+}
+
+async function changePassword(){
+  const oldPw =document.getElementById('p-old-pw').value;
+  const newPw =document.getElementById('p-new-pw').value;
+  const newPw2=document.getElementById('p-new-pw2').value;
+  if(!oldPw||!newPw){ setMsg('pw-msg','请填写完整','err'); return; }
+  if(newPw!==newPw2){ setMsg('pw-msg','两次密码不一致','err'); return; }
+  const fd=new FormData(); fd.append('old_password',oldPw); fd.append('new_password',newPw);
+  try{
+    const r=await fetch('/api/auth/change-password',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.detail||'修改失败');
+    setMsg('pw-msg','密码已修改','ok');
+    ['p-old-pw','p-new-pw','p-new-pw2'].forEach(id=>document.getElementById(id).value='');
+  }catch(e){ setMsg('pw-msg',e.message,'err'); }
+}
+
+// ===== HELPERS =====
+function setMsg(id,msg,type){
+  const el=document.getElementById(id);
+  el.textContent=msg; el.className='auth-msg '+type;
+}
+
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+function toast(msg,type='info'){
+  const el=document.createElement('div');
+  el.className='toast '+type; el.textContent=msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>el.remove(),3500);
+}
+
+// ===== INIT =====
+(async function(){
+  await loadLanguages();
+  await checkAuth();
+  // Colour pickers: sync label on load
+  const colorPairs=[['c-wbg','c-wbg-lbl'],['c-wword','c-wword-lbl'],['c-wph','c-wph-lbl'],['c-wtr','c-wtr-lbl'],['c-ebg','c-ebg-lbl'],['c-een','c-een-lbl'],['c-subbg','c-subbg-lbl'],['c-subtext','c-subtext-lbl']];
+  colorPairs.forEach(([cid,lid])=>{
+    const el=document.getElementById(cid);
+    if(el){
+      el.value = el.value || '#ffffff';
+      document.getElementById(lid).textContent=el.value;
+      el.addEventListener('input',()=>{ document.getElementById(lid).textContent=el.value; });
+    }
+  });
+})();
+</script>
+</body>
+</html>

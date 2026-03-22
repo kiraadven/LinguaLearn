@@ -19,14 +19,21 @@ try:
 except ImportError:
     HAS_DIFFLIB = False
 
-def _normalize_token(token: str) -> str:
+def _normalize_token(token: str, is_cjk: bool = False) -> str:
     """归一化单词，用于模糊匹配"""
+    if is_cjk:
+        return re.sub(r'\s+', '', token).lower()
     return re.sub(r"[^a-zA-Z']", "", token).lower()
 
 class AudioTranscriber:
-    def __init__(self):
+    def __init__(self, source_lang: str = None):
         """初始化音频转文字器（仅使用本地 Whisper 模型）"""
         self.model_size = config.WHISPER_MODEL_SIZE
+        self.source_lang = source_lang or getattr(config, 'SOURCE_LANGUAGE', 'en')
+        # 映射到 Whisper 支持的语言代码
+        whisper_map = getattr(config, 'WHISPER_LANGUAGE_MAP', {})
+        self.whisper_lang = whisper_map.get(self.source_lang, self.source_lang)
+        self.is_cjk = self.source_lang in getattr(config, 'CJK_LANGUAGES', {'zh', 'ja', 'ko'})
 
         import whisper
         self.whisper_model = whisper.load_model(self.model_size)
@@ -79,7 +86,7 @@ class AudioTranscriber:
         try:
             result = self.whisper_model.transcribe(
                 audio_path,
-                language="en",
+                language=self.whisper_lang,
                 verbose=False,
                 task="transcribe",
                 word_timestamps=True
@@ -125,10 +132,10 @@ class AudioTranscriber:
 
         normalized_stream = []
         for w in self._last_word_items:
-            norm = _normalize_token(w.get("word", ""))
+            norm = _normalize_token(w.get("word", ""), self.is_cjk)
             if norm:
                 normalized_stream.append({
-                    "word": w.get("word", ""),  # 保留原始单词
+                    "word": w.get("word", ""),
                     "norm": norm,
                     "start": w["start"],
                     "end": w["end"]
@@ -137,13 +144,22 @@ class AudioTranscriber:
 
     def _tokenize_sentence(self, sentence: str) -> List[str]:
         """将句子拆分成归一化后的 token 列表"""
-        raw_tokens = re.findall(r"\b\w+'\w+|\b\w+\b", sentence)
-        tokens = []
-        for t in raw_tokens:
-            norm = _normalize_token(t)
-            if norm:
-                tokens.append(norm)
-        return tokens
+        if self.is_cjk:
+            # CJK语言：按字符分割
+            tokens = []
+            for char in sentence:
+                norm = _normalize_token(char, True)
+                if norm:
+                    tokens.append(norm)
+            return tokens
+        else:
+            raw_tokens = re.findall(r"\b\w+'\w+|\b\w+\b", sentence)
+            tokens = []
+            for t in raw_tokens:
+                norm = _normalize_token(t)
+                if norm:
+                    tokens.append(norm)
+            return tokens
 
     def align_sentences_to_timestamps(self, audio_path: str, sentences: List[str], 
                                        output_name: str = None) -> List[Dict]:

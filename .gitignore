@@ -9,6 +9,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+input_videos/
 temp/
 output/
 *.mp4
@@ -22,3 +23,4 @@ output/
 *.log
 .cursor/
 MoneyPrinter*
+.claude/

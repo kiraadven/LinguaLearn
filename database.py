@@ -72,6 +72,27 @@ def init_db():
         )
     ''')
 
+    # Jobs 表（保存视频处理历史）
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS jobs (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            status TEXT NOT NULL,
+            step INTEGER,
+            step_name TEXT,
+            source_lang TEXT,
+            target_lang TEXT,
+            video_filename TEXT,
+            result_json TEXT,
+            error TEXT,
+            video_clips_pct INTEGER DEFAULT 0,
+            video_write_pct INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (email) REFERENCES users(email)
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -296,6 +317,84 @@ def get_user_config(email: str) -> str:
     row = c.fetchone()
     conn.close()
     return row["config_json"] if row else None
+
+# ===== Jobs 操作 =====
+
+def save_job(job_id: str, email: str, status: str, step: int, step_name: str,
+             source_lang: str, target_lang: str, video_filename: str,
+             result_json: str = None, error: str = None) -> bool:
+    """保存或更新 Job"""
+    conn = get_db()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    try:
+        c.execute('''
+            INSERT OR REPLACE INTO jobs
+            (id, email, status, step, step_name, source_lang, target_lang,
+             video_filename, result_json, error, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (job_id, email, status, step, step_name, source_lang, target_lang,
+              video_filename, result_json, error, now, now))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[DB Error] save_job: {e}")
+        return False
+    finally:
+        conn.close()
+
+def update_job_status(job_id: str, **fields) -> bool:
+    """更新 Job 状态（status, step, step_name, error, result_json, video_clips_pct, video_write_pct）"""
+    conn = get_db()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+
+    # 白名单，只允许更新特定字段
+    allowed = {'status', 'step', 'step_name', 'error', 'result_json', 'video_clips_pct', 'video_write_pct'}
+    fields = {k: v for k, v in fields.items() if k in allowed}
+    fields['updated_at'] = now
+
+    if not fields:
+        conn.close()
+        return False
+
+    set_clause = ', '.join([f"{k} = ?" for k in fields.keys()])
+    values = list(fields.values()) + [job_id]
+
+    try:
+        c.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", values)
+        conn.commit()
+        return c.rowcount > 0
+    except Exception as e:
+        print(f"[DB Error] update_job_status: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_job(job_id: str) -> dict:
+    """获取 Job 信息"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''SELECT id, email, status, step, step_name, source_lang, target_lang,
+                 video_filename, result_json, error, video_clips_pct, video_write_pct,
+                 created_at, updated_at FROM jobs WHERE id = ?''', (job_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return None
+
+def get_user_jobs(email: str, limit: int = 50) -> list:
+    """获取用户的所有 Jobs"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''SELECT id, email, status, step, step_name, source_lang, target_lang,
+                 video_filename, result_json, error, video_clips_pct, video_write_pct,
+                 created_at, updated_at FROM jobs WHERE email = ?
+                 ORDER BY created_at DESC LIMIT ?''', (email, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 # 初始化数据库
 init_db()

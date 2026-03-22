@@ -13,6 +13,7 @@ import io
 import hashlib
 import random
 import smtplib
+import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from contextlib import redirect_stdout
@@ -195,6 +196,18 @@ def update_job(job_id: str, **kwargs):
     if job_id in jobs:
         jobs[job_id].update(kwargs)
         jobs[job_id]["updated_at"] = datetime.now().isoformat()
+        # 同步保存到数据库
+        job = jobs[job_id]
+        database.update_job_status(
+            job_id,
+            status=job.get("status"),
+            step=job.get("step"),
+            step_name=job.get("step_name"),
+            error=job.get("error"),
+            result_json=json.dumps(job.get("result")) if job.get("result") else None,
+            video_clips_pct=job.get("video_clips_pct", 0),
+            video_write_pct=job.get("video_write_pct", 0),
+        )
 
 
 # ===== Video processing task =====
@@ -206,9 +219,16 @@ async def process_video_job(
     part2_slow_speed: float,
     num_words: int, num_expressions: int,
     layout: Optional[dict], style: Optional[dict],
+    parts_list: Optional[list],
     loop: asyncio.AbstractEventLoop,
 ):
     def run_in_thread():
+        # 这行打印直接输出到真实终端（在 stdout 重定向之前）
+        import sys as _sys
+        _real_stdout = _sys.__stdout__
+        _real_stdout.write(f"\n[Thread] ✅ 后台线程启动: job={job_id[:8]}\n")
+        _real_stdout.flush()
+
         capture    = ProgressCapture(job_id, loop)
         old_stdout = sys.stdout
         sys.stdout = capture
@@ -217,10 +237,29 @@ async def process_video_job(
             config.SOURCE_LANGUAGE    = source_lang
             config.TARGET_LANGUAGE    = target_lang
             config.VIDEO_RESOLUTION   = resolution
-            config.PART1_REPEAT_COUNT = part1_repeat
-            config.PART2_REPEAT_COUNT = part2_repeat
-            config.PART3_REPEAT_COUNT = part3_repeat
-            config.SPEED_SLOW         = part2_slow_speed
+            
+            # Use new parts_list if provided
+            if parts_list and len(parts_list) > 0:
+                print(f"📋 使用新的 Part 配置: {len(parts_list)} 个 Part")
+                # 优先使用新配置
+                if len(parts_list) >= 1:
+                    config.PART1_REPEAT_COUNT = parts_list[0].get('repeat', part1_repeat)
+                if len(parts_list) >= 2:
+                    config.PART2_REPEAT_COUNT = parts_list[1].get('repeat', part2_repeat)
+                    config.SPEED_SLOW         = 0.75 if parts_list[1].get('slow', False) else 1.0
+                if len(parts_list) >= 3:
+                    config.PART3_REPEAT_COUNT = parts_list[2].get('repeat', part3_repeat)
+                # 打印配置
+                print(f"🔧 Part1 重复: {config.PART1_REPEAT_COUNT}x")
+                print(f"🔧 Part2 重复: {config.PART2_REPEAT_COUNT}x, 慢速: {config.SPEED_SLOW}x")
+                print(f"🔧 Part3 重复: {config.PART3_REPEAT_COUNT}x")
+            else:
+                # 使用旧配置
+                config.PART1_REPEAT_COUNT = part1_repeat
+                config.PART2_REPEAT_COUNT = part2_repeat
+                config.PART3_REPEAT_COUNT = part3_repeat
+                config.SPEED_SLOW         = part2_slow_speed
+                print("📋 使用旧的 Part 配置")
 
             update_job(job_id, status="running", step=1, step_name="正在提取音频...")
 
@@ -238,6 +277,16 @@ async def process_video_job(
 
             output_name = Path(video_path).stem[:50]
 
+            print(f"\n{'='*60}")
+            print(f"🎬 开始处理任务 {job_id[:8]}")
+            print(f"📁 视频路径: {video_path}")
+            print(f"📁 输出目录: {job_out}")
+            print(f"🌐 {source_lang} -> {target_lang} | 分辨率: {config.VIDEO_RESOLUTION}")
+            print(f"🔧 Part1: repeat={config.PART1_REPEAT_COUNT}, sub={config.PART1_SHOW_SUBTITLE}, wb={config.PART1_SHOW_WORD_BOX}, eb={config.PART1_SHOW_EXPRESSION_BOX}")
+            print(f"🔧 Part2: repeat={config.PART2_REPEAT_COUNT}, slow={config.SPEED_SLOW}, sub={config.PART2_SHOW_SUBTITLE}, wb={config.PART2_SHOW_WORD_BOX}, eb={config.PART2_SHOW_EXPRESSION_BOX}")
+            print(f"🔧 Part3: repeat={config.PART3_REPEAT_COUNT}, sub={config.PART3_SHOW_SUBTITLE}, wb={config.PART3_SHOW_WORD_BOX}, eb={config.PART3_SHOW_EXPRESSION_BOX}")
+            print(f"{'='*60}\n")
+
             def check_cancelled():
                 return jobs.get(job_id, {}).get('status') == 'cancelled'
 
@@ -250,32 +299,43 @@ async def process_video_job(
             if check_cancelled(): return
             asyncio.run_coroutine_threadsafe(
                 _push(job_id, "step", {"step": 1, "name": "音频转录", "total": 5}), loop)
+            print(f"🎵 开始提取音频: {video_path}")
             transcriber = AudioTranscriber(source_lang=source_lang)
             audio_path  = transcriber.extract_audio_from_video(video_path)
+            print(f"🎵 音频提取完成: {audio_path}")
+            print("🎙️ 开始转录音频...")
             transcription = transcriber.transcribe_once_with_word_timestamps(audio_path)
             text = transcription["text"]
+            print(f"✅ 转录完成，文本长度: {len(text)} 字符")
 
             # Step 2 – split sentences
             if check_cancelled(): return
             asyncio.run_coroutine_threadsafe(
                 _push(job_id, "step", {"step": 2, "name": "智能分句", "total": 5}), loop)
             update_job(job_id, step=2, step_name="正在分割句子...")
+            print("✂️ 开始分割句子...")
             splitter   = SentenceSplitter(max_words=config.MAX_SENTENCE_WORDS,
                                           min_words=config.MIN_SENTENCE_WORDS,
                                           source_lang=source_lang)
             sentences  = splitter.split_text(text)
+            print(f"✂️ 句子分割完成，共 {len(sentences)} 句")
+            print("⏰ 开始对齐时间戳...")
             timestamps = transcriber.align_sentences_to_timestamps(audio_path, sentences, output_name)
+            print("✅ 时间戳对齐完成")
 
             # Step 3 – analyse
             if check_cancelled(): return
             asyncio.run_coroutine_threadsafe(
                 _push(job_id, "step", {"step": 3, "name": "词汇分析", "total": 5}), loop)
             update_job(job_id, step=3, step_name=f"正在分析 {len(sentences)} 个句子...")
+            print(f"🧠 开始分析 {len(sentences)} 个句子...")
             analyzer       = WordAnalyzer(source_lang=source_lang, target_lang=target_lang)
             sentences_data = analyzer.batch_analyze(sentences)
+            print("✅ 词汇分析完成")
 
             # Trim words/expressions per sentence if user set limits
             if num_words > 0 or num_expressions > 0:
+                print(f"✏️ 限制每句单词数: {num_words}, 表达数: {num_expressions}")
                 for sd in sentences_data:
                     if num_words > 0:
                         sd['key_words'] = sd.get('key_words', [])[:num_words]
@@ -287,32 +347,44 @@ async def process_video_job(
             asyncio.run_coroutine_threadsafe(
                 _push(job_id, "step", {"step": 4, "name": "生成文字稿", "total": 5}), loop)
             update_job(job_id, step=4, step_name="正在生成学习文档...")
+            print("📝 开始生成 Markdown 学习文档...")
             exporter = MarkdownExporter(output_dir=str(job_out),
                                         source_lang=source_lang, target_lang=target_lang)
             markdown_path = exporter.export(sentences_data, f"{output_name}.md")
+            print(f"✅ 文档生成完成: {markdown_path}")
 
             # Step 5 – render video
             if check_cancelled(): return
             asyncio.run_coroutine_threadsafe(
                 _push(job_id, "step", {"step": 5, "name": "渲染学习视频", "total": 5}), loop)
             update_job(job_id, step=5, step_name="正在渲染视频（最耗时）...")
+            print("🎬 开始渲染视频...")
             processor     = VideoProcessor()
             segments_info = [{"start": ts.get("start", 0), "end": ts.get("end", 0)} for ts in timestamps]
             video_output  = str(job_out / f"{output_name}.mp4")
+            print(f"🎯 输出路径: {video_output}")
 
             # Merge layout + style into combined style dict
             combined_style = {}
             if style:
                 combined_style.update(style)
+                print("🎨 应用样式配置")
             if layout:
                 combined_style.update(layout)
+                print("📐 应用布局配置")
 
+            print(f"\n📐 最终布局参数:")
+            for k, v in combined_style.items():
+                if any(x in k for x in ['_pct', '_x_', '_y_', 'width', 'height']):
+                    print(f"   {k} = {v}")
+            print(f"🚀 开始处理完整视频...")
             video_paths = processor.process_full_video(
                 video_path, sentences_data, video_output, segments_info,
                 progress_callback=progress_callback,
                 style=combined_style or None,
                 cancelled_fn=check_cancelled,
             )
+            print("🎬 视频处理完成")
 
             if video_paths.get('cancelled'):
                 return
@@ -342,7 +414,9 @@ async def process_video_job(
         finally:
             sys.stdout = old_stdout
 
+    print(f"[process_video_job] 🚀 Coroutine 启动, job={job_id[:8]}, 即将 run_in_executor")
     await asyncio.get_event_loop().run_in_executor(None, run_in_thread)
+    print(f"[process_video_job] 🏁 run_in_executor 完成, job={job_id[:8]}")
 
 
 # ============================================================
@@ -570,6 +644,88 @@ async def change_password(
 # PREVIEW route
 # ============================================================
 
+@app.post("/api/render-box")
+async def render_box(
+    box_type:        str   = Form(...),     # subtitle / wordbox / expressionbox
+    width_pct:       float = Form(0.8),     # % of frame width
+    height_pct:      float = Form(0.2),     # % of frame height
+    source_lang:     str   = Form("en"),
+    target_lang:     str   = Form("zh"),
+    resolution:      str   = Form("1080p"),
+    num_words:       int   = Form(4),
+    num_expressions: int   = Form(2),
+    style:           str   = Form("{}"),
+    current_user: dict = Depends(get_current_user),
+):
+    """实时渲染单个框，返回 base64 PNG 用于预览"""
+    if box_type not in ('subtitle', 'wordbox', 'expressionbox'):
+        raise HTTPException(400, "不支持的框类型")
+
+    config.VIDEO_RESOLUTION = resolution
+    try:
+        style_dict = json.loads(style) if style else {}
+    except Exception:
+        style_dict = {}
+
+    try:
+        from core.html_renderer import HTMLRenderer
+        renderer = HTMLRenderer()
+
+        # 根据分辨率计算像素尺寸
+        is_1080p = resolution == "1080p"
+        frame_w = 1920 if is_1080p else 1280
+        frame_h = 1080 if is_1080p else 720
+
+        width_px = int(frame_w * width_pct)
+        height_px = int(frame_h * height_pct)
+
+        # 限制最小尺寸（避免渲染过小的框）
+        width_px = max(80, width_px)
+        height_px = max(60, height_px)
+
+        print(f"[render-box] type={box_type} width_pct={width_pct:.3f} height_pct={height_pct:.3f} => {width_px}x{height_px}px  res={resolution}")
+
+        preview_dir = str(TEMP_DIR / "render-box")
+        os.makedirs(preview_dir, exist_ok=True)
+
+        # 获取示例数据
+        from core.html_renderer import _PREVIEW_EXAMPLES
+        example = _PREVIEW_EXAMPLES.get(source_lang, _PREVIEW_EXAMPLES['en'])
+
+        result = {}
+
+        if box_type == 'subtitle':
+            sentence = example['sentence']
+            translation = example['translations'].get(target_lang) or list(example['translations'].values())[0]
+            filepath = os.path.join(preview_dir, f'render_sub_{int(time.time()*1000)}.png')
+            if renderer.render_subtitle(sentence, translation, width_px, height_px, filepath, style=style_dict):
+                with open(filepath, 'rb') as f:
+                    result['image'] = 'data:image/png;base64,' + base64.b64encode(f.read()).decode()
+                os.unlink(filepath)
+
+        elif box_type == 'wordbox':
+            words = example['words'][:max(1, min(num_words, 6))]
+            filepath = os.path.join(preview_dir, f'render_wb_{int(time.time()*1000)}.png')
+            if renderer.render_wordbox(words, width_px, height_px, filepath, style=style_dict):
+                with open(filepath, 'rb') as f:
+                    result['image'] = 'data:image/png;base64,' + base64.b64encode(f.read()).decode()
+                os.unlink(filepath)
+
+        elif box_type == 'expressionbox':
+            expressions = example['expressions'][:max(1, min(num_expressions, 3))]
+            filepath = os.path.join(preview_dir, f'render_expr_{int(time.time()*1000)}.png')
+            if renderer.render_expressionbox(expressions, width_px, height_px, filepath, style=style_dict):
+                with open(filepath, 'rb') as f:
+                    result['image'] = 'data:image/png;base64,' + base64.b64encode(f.read()).decode()
+                os.unlink(filepath)
+
+        return result
+
+    except Exception as e:
+        import traceback
+        raise HTTPException(500, f"框渲染失败: {e}\n{traceback.format_exc()}")
+
+
 @app.post("/api/preview")
 async def generate_preview(
     source_lang:     str   = Form("en"),
@@ -632,8 +788,9 @@ async def create_job(
     part2_slow_speed:   float = Form(0.75),
     num_words:          int   = Form(0),      # 0 = no limit
     num_expressions:    int   = Form(0),
-    layout:             str   = Form("{}"),   # position percentages
+    layout:             str   = Form("{}"),   # position percentages（旧格式，保留兼容）
     style:              str   = Form("{}"),   # visual style options
+    parts_json:         str   = Form("[]"),   # 新的 Part 配置
     current_user: dict = Depends(require_user),
 ):
     valid_langs = set(config.LANGUAGE_NATIVE_NAMES.keys())
@@ -650,6 +807,71 @@ async def create_job(
         style_dict = json.loads(style) if style else {}
     except Exception:
         style_dict = {}
+    try:
+        parts_list = json.loads(parts_json) if parts_json else []
+    except Exception:
+        parts_list = []
+
+    # ===== 从 parts_list 提取框的布局信息 =====
+    # 将新的 parts/boxes 系统中的框位置（0-100%）转换为 VideoProcessor 期望的格式（0-1小数）
+    if parts_list:
+        print(f"\n{'='*60}")
+        print(f"📦 解析 parts_list: {len(parts_list)} 个 Part")
+        for i, p in enumerate(parts_list):
+            box_types = [b.get('type','?') for b in p.get('boxes', [])]
+            print(f"  Part {i+1} [{p.get('label','?')}]: repeat={p.get('repeat',1)}, slow={p.get('slow',False)}, boxes={box_types}")
+        print(f"{'='*60}\n")
+
+        # 遍历所有 Part 的 boxes，提取各类型框的位置（以第一次出现为准）
+        for part in parts_list:
+            for box in part.get('boxes', []):
+                btype = box.get('type', '')
+                x = box.get('x', 0) / 100.0
+                y = box.get('y', 0) / 100.0
+                w = box.get('w', 0) / 100.0
+                h = box.get('h', 0) / 100.0
+
+                if btype == 'subtitle' and 'subtitle_width_pct' not in layout_dict:
+                    layout_dict['subtitle_x_pct'] = x
+                    layout_dict['subtitle_y_pct'] = y
+                    layout_dict['subtitle_width_pct'] = w
+                    layout_dict['subtitle_height_pct'] = h
+                    print(f"📐 subtitle 布局: x={x:.3f}, y={y:.3f}, w={w:.3f}, h={h:.3f}")
+
+                elif btype == 'wordbox' and 'wordbox_width_pct' not in layout_dict:
+                    layout_dict['wordbox_x_pct'] = x
+                    layout_dict['wordbox_y_pct'] = y
+                    layout_dict['wordbox_width_pct'] = w
+                    layout_dict['wordbox_height_pct'] = h
+                    print(f"📐 wordbox 布局: x={x:.3f}, y={y:.3f}, w={w:.3f}, h={h:.3f}")
+
+                elif btype == 'expressionbox' and 'exprbox_width_pct' not in layout_dict:
+                    layout_dict['exprbox_x_pct'] = x
+                    layout_dict['exprbox_y_pct'] = y
+                    layout_dict['exprbox_width_pct'] = w
+                    layout_dict['exprbox_height_pct'] = h
+                    print(f"📐 exprbox 布局: x={x:.3f}, y={y:.3f}, w={w:.3f}, h={h:.3f}")
+
+        # 根据 parts_list 设置每个 Part 的框显示配置（映射到固定的 3-Part 结构）
+        import config as cfg_module
+        for i, part in enumerate(parts_list[:3]):
+            box_types = set(b.get('type', '') for b in part.get('boxes', []))
+            show_sub  = 'subtitle' in box_types
+            show_wb   = 'wordbox' in box_types
+            show_eb   = 'expressionbox' in box_types
+            print(f"🎬 Part{i+1} 显示配置: subtitle={show_sub}, wordbox={show_wb}, exprbox={show_eb}")
+            if i == 0:
+                cfg_module.PART1_SHOW_SUBTITLE       = show_sub
+                cfg_module.PART1_SHOW_WORD_BOX       = show_wb
+                cfg_module.PART1_SHOW_EXPRESSION_BOX = show_eb
+            elif i == 1:
+                cfg_module.PART2_SHOW_SUBTITLE       = show_sub
+                cfg_module.PART2_SHOW_WORD_BOX       = show_wb
+                cfg_module.PART2_SHOW_EXPRESSION_BOX = show_eb
+            elif i == 2:
+                cfg_module.PART3_SHOW_SUBTITLE       = show_sub
+                cfg_module.PART3_SHOW_WORD_BOX       = show_wb
+                cfg_module.PART3_SHOW_EXPRESSION_BOX = show_eb
 
     job_id        = str(uuid.uuid4())
     video_filename = f"{job_id}_{video.filename}"
@@ -674,17 +896,31 @@ async def create_job(
         "video_clips_pct": 0,
         "video_write_pct": 0,
     }
+
+    # 保存到数据库
+    database.save_job(
+        job_id=job_id,
+        email=current_user["email"],
+        status="queued",
+        step=0,
+        step_name="等待处理...",
+        source_lang=source_lang,
+        target_lang=target_lang,
+        video_filename=video.filename,
+    )
+
     job_ws_queues[job_id] = asyncio.Queue()
 
     asyncio.create_task(process_video_job(
-        job_id=job_id, video_path=str(video_path),
-        source_lang=source_lang, target_lang=target_lang, resolution=resolution,
-        part1_repeat=part1_repeat, part2_repeat=part2_repeat, part3_repeat=part3_repeat,
-        part2_slow_speed=part2_slow_speed,
-        num_words=num_words, num_expressions=num_expressions,
-        layout=layout_dict or None, style=style_dict or None,
-        loop=asyncio.get_event_loop(),
-    ))
+            job_id=job_id, video_path=str(video_path),
+            source_lang=source_lang, target_lang=target_lang, resolution=resolution,
+            part1_repeat=part1_repeat, part2_repeat=part2_repeat, part3_repeat=part3_repeat,
+            part2_slow_speed=part2_slow_speed,
+            num_words=num_words, num_expressions=num_expressions,
+            layout=layout_dict or None, style=style_dict or None,
+            parts_list=parts_list or None,
+            loop=asyncio.get_event_loop(),
+        ))
 
     return {"job_id": job_id, "status": "queued"}
 
@@ -776,11 +1012,25 @@ async def preview_file(job_id: str, filename: str):
 
 @app.get("/api/jobs")
 async def list_jobs(current_user: Optional[dict] = Depends(get_current_user)):
-    job_list = sorted(jobs.values(), key=lambda x: x.get("created_at", ""), reverse=True)
-    # Only show user's own jobs if logged in
     if current_user:
-        job_list = [j for j in job_list if j.get("created_by") == current_user["email"]]
-    return {"jobs": job_list[:50]}
+        # 从数据库加载用户的 jobs
+        db_jobs = database.get_user_jobs(current_user["email"], limit=50)
+        # 用内存中的活跃 jobs 更新数据库的数据（获取最新的实时进度）
+        for db_job in db_jobs:
+            if db_job["id"] in jobs:
+                db_job.update({
+                    "status": jobs[db_job["id"]]["status"],
+                    "step": jobs[db_job["id"]]["step"],
+                    "step_name": jobs[db_job["id"]]["step_name"],
+                    "video_clips_pct": jobs[db_job["id"]]["video_clips_pct"],
+                    "video_write_pct": jobs[db_job["id"]]["video_write_pct"],
+                    "error": jobs[db_job["id"]].get("error"),
+                })
+        return {"jobs": db_jobs}
+    else:
+        # 未登录只显示内存中的公开 jobs（最多50个）
+        job_list = sorted(jobs.values(), key=lambda x: x.get("created_at", ""), reverse=True)
+        return {"jobs": job_list[:50]}
 
 
 # ===== 配置保存/加载 =====

@@ -164,6 +164,14 @@ input,select,textarea{font-family:inherit}
 .chip{padding:5px 12px;border-radius:16px;border:1px solid var(--border2);background:var(--bg2);font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;transition:all .2s}
 .chip.active,.chip:hover{background:var(--accent);border-color:var(--accent);color:#fff}
 
+/* font preview grid */
+.font-preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+.font-card{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px;border:2px solid var(--border2);border-radius:var(--r2);cursor:pointer;transition:all .2s;background:var(--bg2)}
+.font-card:hover{border-color:var(--accent);background:var(--card)}
+.font-card.active{border-color:var(--accent);background:linear-gradient(135deg,rgba(108,99,255,.1),rgba(236,72,153,.05))}
+.font-sample{font-size:16px;font-weight:600;text-align:center;line-height:1.4;word-break:break-word;overflow:hidden;max-height:64px}
+.font-label{font-size:12px;font-weight:600;color:var(--text2);text-align:center;line-height:1.3}
+
 /* submit btn */
 .submit-row{display:flex;align-items:center;gap:12px;margin-top:24px}
 #submit-btn{flex:1;padding:14px;border-radius:var(--r3);background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:15px;font-weight:700;transition:opacity .2s}
@@ -434,8 +442,7 @@ input,select,textarea{font-family:inherit}
       <div class="card">
         <div class="card-title"><span>③</span> 高级配置</div>
         <div class="tabs">
-          <div class="tab active" onclick="switchTab(this,'tab-basic')">基本参数</div>
-          <div class="tab" onclick="switchTab(this,'tab-style')">样式个性化</div>
+          <div class="tab active" onclick="switchTab(this,'tab-basic')">基本设置</div>
           <div class="tab" onclick="switchTab(this,'tab-layout')">布局编辑</div>
         </div>
 
@@ -449,39 +456,6 @@ input,select,textarea{font-family:inherit}
                 <option value="720p">720p（更快）</option>
               </select>
             </div>
-            <div class="form-group">
-              <label>慢速倍率（Part2）</label>
-              <div class="range-row">
-                <input type="range" id="slow-speed" min="0.5" max="0.9" step="0.05" value="0.75" oninput="document.getElementById('slow-val').textContent=this.value+'x'">
-                <span class="range-val" id="slow-val">0.75x</span>
-              </div>
-              <div class="form-hint">Part2 播放速度，越慢越容易跟听</div>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Part1 重复次数（原速无字幕）</label>
-              <div class="range-row">
-                <input type="range" id="p1-repeat" min="0" max="3" step="1" value="1" oninput="document.getElementById('p1-val').textContent=this.value+'次'">
-                <span class="range-val" id="p1-val">1次</span>
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Part2 重复次数（慢速有字幕）</label>
-              <div class="range-row">
-                <input type="range" id="p2-repeat" min="1" max="4" step="1" value="2" oninput="document.getElementById('p2-val').textContent=this.value+'次'">
-                <span class="range-val" id="p2-val">2次</span>
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Part3 重复次数（原速有字幕）</label>
-              <div class="range-row">
-                <input type="range" id="p3-repeat" min="0" max="3" step="1" value="1" oninput="document.getElementById('p3-val').textContent=this.value+'次'">
-                <span class="range-val" id="p3-val">1次</span>
-              </div>
-            </div>
-          </div>
-          <div class="form-row">
             <div class="form-group">
               <label>每句最多展示单词数</label>
               <div class="range-row">
@@ -498,101 +472,119 @@ input,select,textarea{font-family:inherit}
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Style tab -->
-        <div class="tab-panel" id="tab-style">
-          <div class="form-row">
-            <div class="form-group">
-              <label>字体风格</label>
-              <div class="chip-group" id="font-chips">
-                <div class="chip active" data-val="system" onclick="selectChip(this,'font-chips')">系统字体</div>
-                <div class="chip" data-val="serif" onclick="selectChip(this,'font-chips')">衬线（古典）</div>
-                <div class="chip" data-val="rounded" onclick="selectChip(this,'font-chips')">圆体（可爱）</div>
-                <div class="chip" data-val="mono" onclick="selectChip(this,'font-chips')">等宽（科技）</div>
-                <div class="chip" data-val="handwriting" onclick="selectChip(this,'font-chips')">手写（艺术）</div>
-                <div class="chip" data-val="display" onclick="selectChip(this,'font-chips')">展示（大气）</div>
+          <!-- 字体和样式设置 -->
+          <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+            <div class="form-row">
+              <div class="form-group" style="grid-column:1/-1">
+                <label>字体风格（点击预览）</label>
+                <div class="font-preview-grid" id="font-chips">
+                  <div class="font-card active" data-val="system" onclick="selectFont(this)">
+                    <div class="font-sample" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Hello 你好<br>Bonjour</div>
+                    <div class="font-label">系统字体<br><span style="font-size:11px;color:var(--text3)">系统默认</span></div>
+                  </div>
+                  <div class="font-card" data-val="serif" onclick="selectFont(this)">
+                    <div class="font-sample" style="font-family: Georgia, 'Times New Roman', serif;">Hello 你好<br>Bonjour</div>
+                    <div class="font-label">衬线<br><span style="font-size:11px;color:var(--text3)">古典优雅</span></div>
+                  </div>
+                  <div class="font-card" data-val="rounded" onclick="selectFont(this)">
+                    <div class="font-sample" style="font-family: 'Varela Round', 'M PLUS Rounded 1c', sans-serif;">Hello 你好<br>Bonjour</div>
+                    <div class="font-label">圆体<br><span style="font-size:11px;color:var(--text3)">温暖可爱</span></div>
+                  </div>
+                  <div class="font-card" data-val="mono" onclick="selectFont(this)">
+                    <div class="font-sample" style="font-family: 'SF Mono', 'Fira Code', Monaco, monospace;">Hello 你好<br>Bonjour</div>
+                    <div class="font-label">等宽<br><span style="font-size:11px;color:var(--text3)">科技感</span></div>
+                  </div>
+                  <div class="font-card" data-val="handwriting" onclick="selectFont(this)">
+                    <div class="font-sample" style="font-family: 'Segoe Print', 'Comic Sans MS', cursive;">Hello 你好<br>Bonjour</div>
+                    <div class="font-label">手写<br><span style="font-size:11px;color:var(--text3)">艺术感</span></div>
+                  </div>
+                  <div class="font-card" data-val="display" onclick="selectFont(this)">
+                    <div class="font-sample" style="font-family: 'Impact', 'Arial Black', sans-serif; font-weight: 900;">Hello 你好<br>Bonjour</div>
+                    <div class="font-label">展示<br><span style="font-size:11px;color:var(--text3)">大气醒目</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>字号倍率</label>
+                <div class="range-row">
+                  <input type="range" id="font-scale" min="0.7" max="1.4" step="0.1" value="1.0" oninput="document.getElementById('fs-val').textContent=this.value+'x'">
+                  <span class="range-val" id="fs-val">1.0x</span>
+                </div>
+                <div class="form-hint">在自动计算字号的基础上缩放</div>
+              </div>
+              <div class="form-group">
+                <label>行间距</label>
+                <div class="chip-group" id="lh-chips">
+                  <div class="chip" data-val="compact" onclick="selectChip(this,'lh-chips')">紧凑</div>
+                  <div class="chip active" data-val="normal" onclick="selectChip(this,'lh-chips')">标准</div>
+                  <div class="chip" data-val="relaxed" onclick="selectChip(this,'lh-chips')">宽松</div>
+                </div>
               </div>
             </div>
-            <div class="form-group">
-              <label>字号倍率</label>
-              <div class="range-row">
-                <input type="range" id="font-scale" min="0.7" max="1.4" step="0.1" value="1.0" oninput="document.getElementById('fs-val').textContent=this.value+'x'">
-                <span class="range-val" id="fs-val">1.0x</span>
-              </div>
-              <div class="form-hint">在自动计算字号的基础上缩放</div>
-            </div>
-            <div class="form-group">
-              <label>行间距</label>
-              <div class="chip-group" id="lh-chips">
-                <div class="chip" data-val="compact" onclick="selectChip(this,'lh-chips')">紧凑</div>
-                <div class="chip active" data-val="normal" onclick="selectChip(this,'lh-chips')">标准</div>
-                <div class="chip" data-val="relaxed" onclick="selectChip(this,'lh-chips')">宽松</div>
-              </div>
-            </div>
-          </div>
 
-          <!-- 预设颜色方案 -->
-          <div class="form-row">
-            <div class="form-group">
-              <label>预设颜色方案</label>
-              <div class="chip-group" id="color-scheme-chips">
-                <div class="chip active" data-val="default" onclick="applyColorScheme('default')">默认（清爽）</div>
-                <div class="chip" data-val="warm" onclick="applyColorScheme('warm')">暖色（温暖）</div>
-                <div class="chip" data-val="cool" onclick="applyColorScheme('cool')">冷色（现代）</div>
-                <div class="chip" data-val="dark" onclick="applyColorScheme('dark')">深色（护眼）</div>
-                <div class="chip" data-val="vibrant" onclick="applyColorScheme('vibrant')">活力（鲜艳）</div>
-                <div class="chip" data-val="minimal" onclick="applyColorScheme('minimal')">极简（黑白）</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label>字幕框背景主题</label>
-              <div class="chip-group" id="sub-bg-chips">
-                <div class="chip active" data-val="light" onclick="selectChip(this,'sub-bg-chips')">白色</div>
-                <div class="chip" data-val="cream" onclick="selectChip(this,'sub-bg-chips')">米黄</div>
-                <div class="chip" data-val="dark" onclick="selectChip(this,'sub-bg-chips')">深色</div>
-                <div class="chip" data-val="blue" onclick="selectChip(this,'sub-bg-chips')">淡蓝</div>
-              </div>
-            </div>
-          </div>
-
-          <div style="margin-top:16px">
-            <div class="card-title" style="margin-bottom:12px">颜色自定义</div>
+            <!-- 预设颜色方案 -->
             <div class="form-row">
               <div class="form-group">
-                <label>单词框背景</label>
-                <div class="color-row"><input type="color" id="c-wbg" value="#fef9c3"><span id="c-wbg-lbl">#fef9c3</span></div>
+                <label>预设颜色方案</label>
+                <div class="chip-group" id="color-scheme-chips">
+                  <div class="chip active" data-val="default" onclick="applyColorScheme('default')">默认（清爽）</div>
+                  <div class="chip" data-val="warm" onclick="applyColorScheme('warm')">暖色（温暖）</div>
+                  <div class="chip" data-val="cool" onclick="applyColorScheme('cool')">冷色（现代）</div>
+                  <div class="chip" data-val="dark" onclick="applyColorScheme('dark')">深色（护眼）</div>
+                  <div class="chip" data-val="vibrant" onclick="applyColorScheme('vibrant')">活力（鲜艳）</div>
+                  <div class="chip" data-val="minimal" onclick="applyColorScheme('minimal')">极简（黑白）</div>
+                </div>
               </div>
+            </div>
+
+            <div class="form-row">
               <div class="form-group">
-                <label>单词颜色</label>
-                <div class="color-row"><input type="color" id="c-wword" value="#0284c7"><span id="c-wword-lbl">#0284c7</span></div>
+                <label>字幕框背景主题</label>
+                <div class="chip-group" id="sub-bg-chips">
+                  <div class="chip active" data-val="light" onclick="selectChip(this,'sub-bg-chips')">白色</div>
+                  <div class="chip" data-val="cream" onclick="selectChip(this,'sub-bg-chips')">米黄</div>
+                  <div class="chip" data-val="dark" onclick="selectChip(this,'sub-bg-chips')">深色</div>
+                  <div class="chip" data-val="blue" onclick="selectChip(this,'sub-bg-chips')">淡蓝</div>
+                </div>
               </div>
-              <div class="form-group">
-                <label>音标颜色</label>
-                <div class="color-row"><input type="color" id="c-wph" value="#6b7280"><span id="c-wph-lbl">#6b7280</span></div>
-              </div>
-              <div class="form-group">
-                <label>释义颜色</label>
-                <div class="color-row"><input type="color" id="c-wtr" value="#111827"><span id="c-wtr-lbl">#111827</span></div>
-              </div>
-              <div class="form-group">
-                <label>表达框背景</label>
-                <div class="color-row"><input type="color" id="c-ebg" value="#e0f2fe"><span id="c-ebg-lbl">#e0f2fe</span></div>
-              </div>
-              <div class="form-group">
-                <label>表达原文颜色</label>
-                <div class="color-row"><input type="color" id="c-een" value="#0369a1"><span id="c-een-lbl">#0369a1</span></div>
-              </div>
-              <div class="form-group">
-                <label>字幕框背景</label>
-                <div class="color-row"><input type="color" id="c-subbg" value="#ffffff"><span id="c-subbg-lbl">#ffffff</span></div>
-              </div>
-              <div class="form-group">
-                <label>字幕框文字颜色</label>
-                <div class="color-row"><input type="color" id="c-subtext" value="#111827"><span id="c-subtext-lbl">#111827</span></div>
+            </div>
+
+            <div style="margin-top:16px">
+              <div class="card-title" style="margin-bottom:12px">颜色自定义</div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>单词框背景</label>
+                  <div class="color-row"><input type="color" id="c-wbg" value="#fef9c3"><span id="c-wbg-lbl">#fef9c3</span></div>
+                </div>
+                <div class="form-group">
+                  <label>单词颜色</label>
+                  <div class="color-row"><input type="color" id="c-wword" value="#0284c7"><span id="c-wword-lbl">#0284c7</span></div>
+                </div>
+                <div class="form-group">
+                  <label>音标颜色</label>
+                  <div class="color-row"><input type="color" id="c-wph" value="#6b7280"><span id="c-wph-lbl">#6b7280</span></div>
+                </div>
+                <div class="form-group">
+                  <label>释义颜色</label>
+                  <div class="color-row"><input type="color" id="c-wtr" value="#111827"><span id="c-wtr-lbl">#111827</span></div>
+                </div>
+                <div class="form-group">
+                  <label>表达框背景</label>
+                  <div class="color-row"><input type="color" id="c-ebg" value="#e0f2fe"><span id="c-ebg-lbl">#e0f2fe</span></div>
+                </div>
+                <div class="form-group">
+                  <label>表达原文颜色</label>
+                  <div class="color-row"><input type="color" id="c-een" value="#0369a1"><span id="c-een-lbl">#0369a1</span></div>
+                </div>
+                <div class="form-group">
+                  <label>字幕框背景</label>
+                  <div class="color-row"><input type="color" id="c-subbg" value="#ffffff"><span id="c-subbg-lbl">#ffffff</span></div>
+                </div>
+                <div class="form-group">
+                  <label>字幕框文字颜色</label>
+                  <div class="color-row"><input type="color" id="c-subtext" value="#111827"><span id="c-subtext-lbl">#111827</span></div>
+                </div>
               </div>
             </div>
           </div>
@@ -600,25 +592,66 @@ input,select,textarea{font-family:inherit}
 
         <!-- Layout tab -->
         <div class="tab-panel" id="tab-layout">
-          <p style="font-size:13px;color:var(--text2);margin-bottom:16px">先配置好语言和单词/表达数量，再点击「生成预览」拖拽调整三个覆盖框的位置和大小。</p>
-          <div class="form-row" style="margin-bottom:20px">
-            <div class="form-group">
-              <label>预览词数（模拟）</label>
-              <div class="range-row">
-                <input type="range" id="prev-words" min="1" max="6" step="1" value="4" oninput="document.getElementById('pw-val').textContent=this.value">
-                <span class="range-val" id="pw-val">4</span>
+          <div style="display:grid;grid-template-columns:1fr 3fr 1fr;gap:16px;min-height:calc(100vh - 300px)">
+            <!-- 左：Part 列表 -->
+            <div style="display:flex;flex-direction:column;gap:8px;border-right:1px solid var(--border)">
+              <div style="font-size:13px;font-weight:600;color:var(--text2);padding-bottom:8px">Part 列表</div>
+              <div id="parts-timeline" style="display:flex;flex-direction:column;gap:6px;overflow-y:auto;flex:1"></div>
+              <button onclick="addNewPart()" style="padding:8px;background:var(--accent);color:#fff;border:0;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">+ 添加 Part</button>
+            </div>
+
+            <!-- 中：编辑画布 -->
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <!-- 零件库 + 缩放控制 -->
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:var(--bg2);border-radius:6px">
+                <div style="display:flex;gap:6px">
+                  <div class="box-type-chip" draggable="true" ondragstart="dragBoxType(event,'subtitle')" style="padding:6px 10px;background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.4);border-radius:4px;font-size:11px;font-weight:600;color:var(--ok);cursor:move">📝 字幕</div>
+                  <div class="box-type-chip" draggable="true" ondragstart="dragBoxType(event,'wordbox')" style="padding:6px 10px;background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);border-radius:4px;font-size:11px;font-weight:600;color:var(--accent2);cursor:move">📚 单词</div>
+                  <div class="box-type-chip" draggable="true" ondragstart="dragBoxType(event,'expressionbox')" style="padding:6px 10px;background:rgba(236,72,153,.2);border:1px solid rgba(236,72,153,.4);border-radius:4px;font-size:11px;font-weight:600;color:#ec4899;cursor:move">💬 表达</div>
+                </div>
+                <div style="display:flex;gap:4px;align-items:center;font-size:12px;color:var(--text3)">
+                  <button onclick="zoomCanvas(-1)" style="padding:4px 8px;background:var(--border);border:0;border-radius:4px;cursor:pointer;color:var(--text2)">−</button>
+                  <span id="zoom-val" style="min-width:40px;text-align:center">100%</span>
+                  <button onclick="zoomCanvas(1)" style="padding:4px 8px;background:var(--border);border:0;border-radius:4px;cursor:pointer;color:var(--text2)">+</button>
+                </div>
+              </div>
+
+              <!-- Canvas -->
+              <div id="canvas-container" style="flex:1;background:#111;border-radius:6px;overflow:auto;position:relative;border:1px solid var(--border)">
+                <div id="canvas-bg" style="position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:0">
+                  <div style="color:var(--text3);font-size:13px;text-align:center">
+                    <div style="font-size:32px;margin-bottom:8px">👈</div>
+                    左侧选择 Part，拖拽框类型添加
+                  </div>
+                </div>
+                <div id="canvas-boxes" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:1"></div>
               </div>
             </div>
-            <div class="form-group">
-              <label>预览表达数（模拟）</label>
-              <div class="range-row">
-                <input type="range" id="prev-exprs" min="1" max="3" step="1" value="2" oninput="document.getElementById('pe-val').textContent=this.value">
-                <span class="range-val" id="pe-val">2</span>
+
+            <!-- 右：属性面板 -->
+            <div style="border-left:1px solid var(--border);overflow-y:auto;padding-left:12px">
+              <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:12px">框属性</div>
+              <div id="box-props" style="display:none;font-size:12px">
+                <div style="margin-bottom:12px">
+                  <label style="display:block;margin-bottom:4px;color:var(--text3)">位置 & 大小</label>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+                    <div><label style="font-size:11px;color:var(--text3)">X %</label><input id="box-x" type="number" min="0" max="100" step="0.5" style="width:100%;padding:4px;font-size:11px;border:1px solid var(--border);border-radius:4px" onchange="updateBoxFromProps()"></div>
+                    <div><label style="font-size:11px;color:var(--text3)">Y %</label><input id="box-y" type="number" min="0" max="100" step="0.5" style="width:100%;padding:4px;font-size:11px;border:1px solid var(--border);border-radius:4px" onchange="updateBoxFromProps()"></div>
+                    <div><label style="font-size:11px;color:var(--text3)">W %</label><input id="box-w" type="number" min="10" max="100" step="0.5" style="width:100%;padding:4px;font-size:11px;border:1px solid var(--border);border-radius:4px" onchange="updateBoxFromProps()"></div>
+                    <div><label style="font-size:11px;color:var(--text3)">H %</label><input id="box-h" type="number" min="10" max="100" step="0.5" style="width:100%;padding:4px;font-size:11px;border:1px solid var(--border);border-radius:4px" onchange="updateBoxFromProps()"></div>
+                  </div>
+                </div>
+                <div style="margin-bottom:12px">
+                  <label style="display:block;margin-bottom:4px;color:var(--text3)">字号倍率</label>
+                  <input id="box-font-scale" type="range" min="0.5" max="2" step="0.1" value="1" style="width:100%" oninput="updateBoxFromProps()">
+                  <div style="font-size:11px;color:var(--text3);text-align:center" id="box-font-scale-val">1.0x</div>
+                </div>
+                <div id="color-props"></div>
+                <button onclick="deleteSelectedBox()" style="width:100%;padding:8px;background:var(--err);color:#fff;border:0;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;margin-top:12px">🗑️ 删除框</button>
               </div>
+              <div id="box-empty-msg" style="color:var(--text3);font-size:12px;text-align:center;padding:20px 0">选择一个框以编辑属性</div>
             </div>
           </div>
-          <button class="btn-secondary" id="open-prev-btn" onclick="openPreview()" style="margin-bottom:12px">🖼️ 生成预览 / 调整布局</button>
-          <div id="layout-status" style="font-size:13px;color:var(--text3)">尚未设置布局（将使用默认位置）</div>
         </div>
       </div>
 
@@ -994,11 +1027,32 @@ function switchTab(btn, panelId){
   card.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById(panelId).classList.add('active');
+
+  if (panelId === 'tab-layout') {
+    console.log('[Tab] 📐 切换到布局编辑标签，启动自动渲染时钟');
+    // 重置全局样式hash，确保首次渲染
+    lastGlobalStyleHash = '';
+    boxLastRenderState = {};
+    startLayoutWatcher();
+    // 立即渲染当前Part的所有框
+    const part = parts.find(p => p.id === currentPartId);
+    if (part && part.boxes.length > 0) {
+      console.log(`[Tab] 🖼️ 立即渲染当前Part的 ${part.boxes.length} 个框`);
+      part.boxes.forEach(box => renderBoxSingleFrame(box.id));
+    }
+  } else {
+    stopLayoutWatcher();
+  }
 }
 
 // ===== CHIP SELECT =====
 function selectChip(el, groupId){
   document.querySelectorAll(`#${groupId} .chip`).forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function selectFont(el){
+  document.querySelectorAll('#font-chips .font-card').forEach(c=>c.classList.remove('active'));
   el.classList.add('active');
 }
 
@@ -1052,9 +1106,532 @@ function setFile(f){
   fn.style.display='block';
 }
 
+// ===== PART LAYOUT MANAGER =====
+let parts = [];
+let currentPartId = null;
+let selectedBoxId = null;
+
+// ===== LAYOUT EDITOR STATE =====
+let canvasZoom = 1;
+let dragContext = { type: null, element: null, startX: 0, startY: 0, startBox: null };
+let draggedPartIndex = -1;
+let boxImageCache = {};       // boxId -> base64 data URL（渲染图片缓存）
+let renderingInProgress = {}; // boxId -> bool（防并发）
+
+function initParts(){
+  if(parts.length === 0){
+    parts = [
+      { id: `p_${Date.now()}_1`, label: 'Part 1', repeat: 1, slow: false, boxes: [] },
+      { id: `p_${Date.now()}_2`, label: 'Part 2', repeat: 2, slow: true,  boxes: [] },
+      { id: `p_${Date.now()}_3`, label: 'Part 3', repeat: 1, slow: false, boxes: [] },
+    ];
+  }
+  if(parts.length > 0) currentPartId = parts[0].id;
+  renderPartsList();
+  if(currentPartId) renderCanvas();
+}
+
+function renderPartsList(){
+  const el = document.getElementById('parts-timeline');
+  if(!el) return;
+  el.innerHTML = parts.map((p, i) => `
+    <div draggable="true" data-part-id="${p.id}" data-part-index="${i}"
+         ondragstart="dragPartStart(event)" ondragover="dragPartOver(event)" ondrop="dragPartDrop(event)" ondragend="dragPartEnd(event)"
+         onclick="selectPart('${p.id}')"
+         style="padding:10px;background:${currentPartId === p.id ? 'var(--accent)' : 'var(--card)'};
+                border:1px solid ${currentPartId === p.id ? 'var(--accent)' : 'var(--border)'};
+                border-radius:6px;cursor:move;user-select:none;transition:all .2s;position:relative">
+      <div style="font-weight:600;color:${currentPartId === p.id ? '#fff' : 'var(--text2)'}">
+        <span style="display:inline-block;width:20px">${i+1}</span> ${p.label}
+      </div>
+      <div style="display:flex;gap:4px;margin-top:6px;font-size:11px;color:${currentPartId === p.id ? 'rgba(255,255,255,0.8)' : 'var(--text3)'}">
+        <span>📦 ${p.boxes.length}</span>
+        <span>🔁 ${p.repeat}×</span>
+        <button onclick="togglePartSlow('${p.id}',event)" style="padding:2px 6px;background:${p.slow ? 'var(--ok)' : 'var(--border)'};border:0;border-radius:3px;color:#fff;font-size:10px;cursor:pointer;font-weight:600">🐢 ${p.slow ? '慢速' : '正常'}</button>
+      </div>
+      <div style="display:flex;gap:4px;margin-top:6px">
+        <button onclick="updatePartRepeat('${p.id}', -1)" style="flex:1;padding:3px;font-size:11px;background:${currentPartId === p.id ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'};border:0;border-radius:3px;color:inherit;cursor:pointer">−</button>
+        <button onclick="updatePartRepeat('${p.id}', 1)" style="flex:1;padding:3px;font-size:11px;background:${currentPartId === p.id ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'};border:0;border-radius:3px;color:inherit;cursor:pointer">+</button>
+        <button onclick="duplicatePart('${p.id}')" style="flex:1;padding:3px;font-size:11px;background:${currentPartId === p.id ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'};border:0;border-radius:3px;color:inherit;cursor:pointer" title="复制此 Part">📋</button>
+        <button onclick="deletePart('${p.id}')" style="flex:1;padding:3px;font-size:11px;background:var(--err);border:0;border-radius:3px;color:#fff;cursor:pointer">×</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectPart(partId){
+  currentPartId = partId;
+  selectedBoxId = null;
+  renderPartsList();
+  renderCanvas();
+  document.getElementById('box-props').style.display = 'none';
+  document.getElementById('box-empty-msg').style.display = 'block';
+
+  // 切换Part时重置渲染状态，重新渲染该Part的所有框
+  boxLastRenderState = {};
+  const part = parts.find(p => p.id === partId);
+  if (part && part.boxes.length > 0 && document.getElementById('tab-layout').classList.contains('active')) {
+    console.log(`[Part] 🔄 切换到 ${part.label}，重渲 ${part.boxes.length} 个框`);
+    part.boxes.forEach(box => renderBoxSingleFrame(box.id));
+  }
+}
+
+function addNewPart(){
+  const part = {
+    id: `p_${Date.now()}`,
+    label: `Part ${parts.length + 1}`,
+    repeat: 1,
+    slow: false,
+    boxes: []
+  };
+  parts.push(part);
+  selectPart(part.id);
+}
+
+function deletePart(partId){
+  if(parts.length <= 1) { toast('至少保留一个 Part','warn'); return; }
+  if(!confirm('确定删除此 Part？')) return;
+  parts = parts.filter(p => p.id !== partId);
+  if(currentPartId === partId) currentPartId = parts[0].id;
+  selectPart(currentPartId);
+}
+
+function duplicatePart(partId){
+  const src = parts.find(p => p.id === partId);
+  if(!src) return;
+  const copy = {
+    id: `p_${Date.now()}`,
+    label: src.label + ' (副本)',
+    repeat: src.repeat,
+    slow: src.slow,
+    boxes: JSON.parse(JSON.stringify(src.boxes))
+  };
+  const idx = parts.findIndex(p => p.id === partId);
+  parts.splice(idx + 1, 0, copy);
+  selectPart(copy.id);
+  toast('已复制 Part','ok');
+}
+
+function updatePartRepeat(partId, delta){
+  const part = parts.find(p => p.id === partId);
+  if(!part) return;
+  part.repeat = Math.max(1, part.repeat + delta);
+  renderPartsList();
+}
+
+function togglePartSlow(partId, event){
+  event.stopPropagation();
+  const part = parts.find(p => p.id === partId);
+  if(!part) return;
+  part.slow = !part.slow;
+  renderPartsList();
+}
+
+function dragPartStart(e){
+  draggedPartIndex = parseInt(e.currentTarget.getAttribute('data-part-index'));
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.style.opacity = '0.5';
+}
+
+function dragPartOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+}
+
+function dragPartDrop(e){
+  e.preventDefault();
+  if(draggedPartIndex < 0) return;
+  const targetIndex = parseInt(e.currentTarget.getAttribute('data-part-index'));
+  if(draggedPartIndex !== targetIndex){
+    const [moved] = parts.splice(draggedPartIndex, 1);
+    parts.splice(targetIndex, 0, moved);
+    renderPartsList();
+  }
+}
+
+function dragPartEnd(e){
+  e.currentTarget.style.opacity = '1';
+  draggedPartIndex = -1;
+}
+
+// ===== CANVAS RENDERING =====
+// 缓存已渲染的图片，避免 renderCanvas() 重建DOM时丢失（声明在上方 LAYOUT EDITOR STATE 区域）
+
+function renderCanvas(){
+  const container = document.getElementById('canvas-container');
+  const boxesEl = document.getElementById('canvas-boxes');
+  const part = parts.find(p => p.id === currentPartId);
+
+  if(!part || !boxesEl) return;
+
+  boxesEl.innerHTML = part.boxes.map(b => {
+    const typeIcon  = b.type === 'subtitle' ? '📝' : b.type === 'wordbox' ? '📚' : '💬';
+    const typeLabel = b.type === 'subtitle' ? '字幕框' : b.type === 'wordbox' ? '单词框' : '表达框';
+    const hasCached = !!boxImageCache[b.id];
+    return `
+    <div class="canvas-box" data-box-id="${b.id}"
+         onclick="selectBox('${b.id}',event)"
+         onmousedown="startBoxDrag(event,'${b.id}')"
+         style="position:absolute;left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;
+                border:${selectedBoxId === b.id ? '2px solid var(--accent)' : '2px dashed rgba(255,255,255,0.3)'};
+                border-radius:4px;overflow:hidden;cursor:move;
+                background:rgba(108,99,255,0.05);
+                transition:border-color .1s;user-select:none">
+      <!-- 渲染后的图片 -->
+      <img data-rendered="${b.id}"
+           src="${hasCached ? boxImageCache[b.id] : ''}"
+           style="position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:${hasCached ? 'block' : 'none'};pointer-events:none">
+      <!-- 占位符（无渲染时显示） -->
+      <div data-placeholder="${b.id}"
+           style="position:absolute;inset:0;display:${hasCached ? 'none' : 'flex'};align-items:center;justify-content:center;flex-direction:column;gap:4px;color:var(--text3);font-size:12px;pointer-events:none">
+        <div style="font-size:20px;opacity:0.5">${typeIcon}</div>
+        <div style="font-size:10px;opacity:0.6">渲染中…</div>
+      </div>
+      <!-- 类型角标 -->
+      <div style="position:absolute;top:3px;left:4px;font-size:10px;color:rgba(255,255,255,0.5);pointer-events:none;background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px">${typeLabel}</div>
+      <!-- 缩放手柄 -->
+      <div style="position:absolute;right:0;bottom:0;width:14px;height:14px;background:var(--accent);border-radius:2px 0 4px 0;cursor:nwse-resize;z-index:2"
+           onmousedown="startBoxResize(event,'${b.id}')" onmousemove="event.stopPropagation()"></div>
+    </div>`;
+  }).join('');
+
+  setupCanvasDropZone();
+}
+
+function setupCanvasDropZone(){
+  const canvas = document.getElementById('canvas-boxes');
+  if(!canvas) return;
+  canvas.ondragover = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
+  canvas.ondrop = dropBoxTypeOnCanvas;
+}
+
+function dragBoxType(e, type){
+  e.dataTransfer.effectAllowed = 'copy';
+  e.dataTransfer.setData('boxType', type);
+}
+
+function dropBoxTypeOnCanvas(e){
+  e.preventDefault();
+  e.stopPropagation();
+  if(!currentPartId) { toast('请先选择 Part','warn'); return; }
+
+  const type = e.dataTransfer.getData('boxType');
+  const canvas = document.getElementById('canvas-container');
+  const rect = canvas.getBoundingClientRect();
+
+  let x = (e.clientX - rect.left) / rect.width * 100 / canvasZoom;
+  let y = (e.clientY - rect.top) / rect.height * 100 / canvasZoom;
+  x = Math.max(0, Math.min(100, x - 10));
+  y = Math.max(0, Math.min(100, y - 7.5));
+
+  const box = {
+    id: `b_${Date.now()}`,
+    type,
+    x: Math.round(x * 10) / 10,
+    y: Math.round(y * 10) / 10,
+    w: type === 'subtitle' ? 80 : 25,
+    h: type === 'subtitle' ? 20 : (type === 'wordbox' ? 65 : 55),
+    style: { font_size_scale: 1 }
+  };
+
+  console.log('📦 拖拽添加框:', box);
+  
+  const part = parts.find(p => p.id === currentPartId);
+  part.boxes.push(box);
+  selectBox(box.id);
+  renderBoxSingleFrame(box.id);
+  console.log('✅ 框添加完成，开始渲染预览');
+}
+
+// ===== BOX INTERACTIONS =====
+function selectBox(boxId, event){
+  if(event) event.stopPropagation();
+  console.log('🎯 选择框:', boxId);
+  selectedBoxId = boxId;
+  const part = parts.find(p => p.id === currentPartId);
+  const box = part?.boxes.find(b => b.id === boxId);
+
+  if(box){
+    console.log('📋 框属性:', box);
+    document.getElementById('box-x').value = Math.round(box.x * 10) / 10;
+    document.getElementById('box-y').value = Math.round(box.y * 10) / 10;
+    document.getElementById('box-w').value = Math.round(box.w * 10) / 10;
+    document.getElementById('box-h').value = Math.round(box.h * 10) / 10;
+    document.getElementById('box-font-scale').value = box.style.font_size_scale || 1;
+    document.getElementById('box-font-scale-val').textContent = (box.style.font_size_scale || 1).toFixed(1) + 'x';
+
+    document.getElementById('box-props').style.display = 'block';
+    document.getElementById('box-empty-msg').style.display = 'none';
+  }
+  renderCanvas();
+  console.log('✅ 框选择完成');
+}
+
+function updateBoxFromProps(){
+  console.log('📝 更新框属性');
+  const part = parts.find(p => p.id === currentPartId);
+  const box = part?.boxes.find(b => b.id === selectedBoxId);
+  if(!box) return;
+
+  box.x = parseFloat(document.getElementById('box-x').value) || 0;
+  box.y = parseFloat(document.getElementById('box-y').value) || 0;
+  box.w = parseFloat(document.getElementById('box-w').value) || 10;
+  box.h = parseFloat(document.getElementById('box-h').value) || 10;
+  box.style.font_size_scale = parseFloat(document.getElementById('box-font-scale').value) || 1;
+
+  console.log('📋 新属性:', { x: box.x, y: box.y, w: box.w, h: box.h, font_scale: box.style.font_size_scale });
+  document.getElementById('box-font-scale-val').textContent = box.style.font_size_scale.toFixed(1) + 'x';
+  renderCanvas();
+  renderBoxSingleFrame(selectedBoxId);
+  console.log('✅ 框属性更新完成');
+}
+
+function deleteSelectedBox(){
+  console.log('🗑️ 删除框:', selectedBoxId);
+  const part = parts.find(p => p.id === currentPartId);
+  if(!part) return;
+  // 清除该框的缓存和渲染状态
+  if(selectedBoxId) {
+    delete boxImageCache[selectedBoxId];
+    delete boxLastRenderState[selectedBoxId];
+    delete renderingInProgress[selectedBoxId];
+  }
+  part.boxes = part.boxes.filter(b => b.id !== selectedBoxId);
+  selectedBoxId = null;
+  document.getElementById('box-props').style.display = 'none';
+  document.getElementById('box-empty-msg').style.display = 'block';
+  renderCanvas();
+  console.log('✅ 框删除完成');
+}
+
+function startBoxDrag(e, boxId){
+  e.preventDefault();
+  selectBox(boxId, e);
+  dragContext = { type: 'drag', startX: e.clientX, startY: e.clientY, element: e.currentTarget };
+  document.addEventListener('mousemove', doBoxDrag);
+  document.addEventListener('mouseup', endBoxDrag);
+}
+
+function doBoxDrag(e){
+  if(dragContext.type !== 'drag' || !selectedBoxId) return;
+  const part = parts.find(p => p.id === currentPartId);
+  const box = part?.boxes.find(b => b.id === selectedBoxId);
+  if(!box) return;
+
+  const canvas = document.getElementById('canvas-container');
+  const rect = canvas.getBoundingClientRect();
+  const deltaX = (e.clientX - dragContext.startX) / rect.width * 100 / canvasZoom;
+  const deltaY = (e.clientY - dragContext.startY) / rect.height * 100 / canvasZoom;
+
+  box.x = Math.max(0, Math.min(100, box.x + deltaX));
+  box.y = Math.max(0, Math.min(100, box.y + deltaY));
+
+  dragContext.startX = e.clientX;
+  dragContext.startY = e.clientY;
+
+  renderCanvas();
+}
+
+function endBoxDrag(e){
+  document.removeEventListener('mousemove', doBoxDrag);
+  document.removeEventListener('mouseup', endBoxDrag);
+  if(selectedBoxId) renderBoxSingleFrame(selectedBoxId);
+  dragContext = { type: null };
+}
+
+function startBoxResize(e, boxId){
+  e.preventDefault();
+  e.stopPropagation();
+  selectBox(boxId);
+  dragContext = { type: 'resize', startX: e.clientX, startY: e.clientY };
+  document.addEventListener('mousemove', doBoxResize);
+  document.addEventListener('mouseup', endBoxResize);
+}
+
+function doBoxResize(e){
+  if(dragContext.type !== 'resize' || !selectedBoxId) return;
+  const part = parts.find(p => p.id === currentPartId);
+  const box = part?.boxes.find(b => b.id === selectedBoxId);
+  if(!box) return;
+
+  const canvas = document.getElementById('canvas-container');
+  const rect = canvas.getBoundingClientRect();
+  const deltaX = (e.clientX - dragContext.startX) / rect.width * 100 / canvasZoom;
+  const deltaY = (e.clientY - dragContext.startY) / rect.height * 100 / canvasZoom;
+
+  box.w = Math.max(10, box.w + deltaX);
+  box.h = Math.max(10, box.h + deltaY);
+
+  dragContext.startX = e.clientX;
+  dragContext.startY = e.clientY;
+
+  renderCanvas();
+}
+
+function endBoxResize(e){
+  document.removeEventListener('mousemove', doBoxResize);
+  document.removeEventListener('mouseup', endBoxResize);
+  document.getElementById('box-w').value = Math.round(parts.find(p => p.id === currentPartId)?.boxes.find(b => b.id === selectedBoxId)?.w * 10) / 10;
+  document.getElementById('box-h').value = Math.round(parts.find(p => p.id === currentPartId)?.boxes.find(b => b.id === selectedBoxId)?.h * 10) / 10;
+  if(selectedBoxId) renderBoxSingleFrame(selectedBoxId);
+  dragContext = { type: null };
+}
+
+// ===== REAL-TIME RENDERING =====
+// 记录正在进行的渲染请求，避免重复并发
+async function renderBoxSingleFrame(boxId){
+  const part = parts.find(p => p.id === currentPartId);
+  const box = part?.boxes.find(b => b.id === boxId);
+  if(!box) return;
+
+  // 防止同一框并发渲染
+  if(renderingInProgress[boxId]) {
+    console.log(`[Render] ⏳ 框 ${boxId} 正在渲染中，跳过本次`);
+    return;
+  }
+  renderingInProgress[boxId] = true;
+
+  console.log(`[Render] 🔄 开始渲染框: ${boxId} (${box.type}) w=${box.w}% h=${box.h}%`);
+
+  // 显示加载状态
+  const imgEl = document.querySelector(`img[data-rendered="${boxId}"]`);
+  const phEl  = document.querySelector(`[data-placeholder="${boxId}"]`);
+  if(phEl) { phEl.style.display = 'flex'; phEl.querySelector('div:last-child').textContent = '渲染中…'; }
+  if(imgEl) imgEl.style.opacity = '0.4';
+
+  try{
+    const src = document.getElementById('src-lang')?.value || 'en';
+    const tgt = document.getElementById('tgt-lang')?.value || 'zh';
+    const res = document.getElementById('resolution')?.value || '1080p';
+    const nw  = parseInt(document.getElementById('num-words')?.value) || 4;
+    const ne  = parseInt(document.getElementById('num-exprs')?.value) || 2;
+
+    // width_pct / height_pct 传给后端：0-100的百分比值
+    const fd = new FormData();
+    fd.append('box_type',        box.type);
+    fd.append('width_pct',       box.w / 100);    // 后端期望 0-1 小数
+    fd.append('height_pct',      box.h / 100);
+    fd.append('source_lang',     src);
+    fd.append('target_lang',     tgt);
+    fd.append('resolution',      res);
+    fd.append('num_words',       nw);
+    fd.append('num_expressions', ne);
+    fd.append('style', JSON.stringify({
+      ...collectStyle(),
+      font_size_scale: box.style?.font_size_scale || 1
+    }));
+
+    const headers = {};
+    if(token) headers['Authorization'] = 'Bearer ' + token;
+
+    console.log(`[Render] 📡 POST /api/render-box  type=${box.type} w=${(box.w/100).toFixed(3)} h=${(box.h/100).toFixed(3)}`);
+    const r = await fetch('/api/render-box', { method:'POST', headers, body:fd });
+
+    console.log(`[Render] 📡 响应状态: ${r.status}`);
+    if(!r.ok){
+      const errText = await r.text();
+      throw new Error(`HTTP ${r.status}: ${errText}`);
+    }
+    const d = await r.json();
+
+    if(d.image){
+      // 存入缓存
+      boxImageCache[boxId] = d.image;
+
+      // 更新 DOM 中的 img 元素（不重建整个 DOM）
+      if(imgEl){
+        imgEl.src = d.image;
+        imgEl.style.display = 'block';
+        imgEl.style.opacity = '1';
+      }
+      if(phEl) phEl.style.display = 'none';
+      console.log(`[Render] ✅ 框 ${boxId} 渲染成功，图片大小: ${Math.round(d.image.length/1024)}KB`);
+    } else {
+      throw new Error('后端未返回图片');
+    }
+  }catch(e){
+    console.error(`[Render] ❌ 框 ${boxId} 渲染失败:`, e.message);
+    if(imgEl) imgEl.style.opacity = '1';
+    if(phEl) {
+      phEl.style.display = 'flex';
+      phEl.querySelector('div:last-child').textContent = '渲染失败';
+      phEl.style.color = 'var(--err)';
+    }
+  } finally {
+    renderingInProgress[boxId] = false;
+  }
+}
+
+// ===== ZOOM CONTROL =====
+function zoomCanvas(delta){
+  const levels = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+  const curr = levels.indexOf(canvasZoom);
+  const next = Math.max(0, Math.min(levels.length - 1, curr + delta));
+  canvasZoom = levels[next];
+  document.getElementById('zoom-val').textContent = Math.round(canvasZoom * 100) + '%';
+  document.getElementById('canvas-boxes').style.transform = `scale(${canvasZoom})`;
+  document.getElementById('canvas-boxes').style.transformOrigin = '0 0';
+}
+
+// ===== 自动渲染时钟 =====
+let layoutWatcherTimer = null;
+let boxLastRenderState = {}; // boxId -> state string
+let lastGlobalStyleHash = '';
+
+function getBoxStateKey(box) {
+  return JSON.stringify({
+    x: Math.round(box.x * 10) / 10,
+    y: Math.round(box.y * 10) / 10,
+    w: Math.round(box.w * 10) / 10,
+    h: Math.round(box.h * 10) / 10,
+    fontScale: box.style?.font_size_scale || 1,
+  });
+}
+
+function getGlobalStyleHash() {
+  try { return JSON.stringify(collectStyle()); } catch(e) { return ''; }
+}
+
+function startLayoutWatcher() {
+  stopLayoutWatcher();
+  console.log('[时钟] 🕐 布局自动渲染时钟已启动，每1秒检测一次');
+  layoutWatcherTimer = setInterval(() => {
+    const part = parts.find(p => p.id === currentPartId);
+    if (!part || part.boxes.length === 0) return;
+
+    const currentGlobalStyle = getGlobalStyleHash();
+    const globalChanged = currentGlobalStyle !== lastGlobalStyleHash;
+    if (globalChanged) {
+      console.log('[时钟] 🎨 检测到全局样式变化，将重渲所有框');
+      lastGlobalStyleHash = currentGlobalStyle;
+    }
+
+    part.boxes.forEach(box => {
+      const stateKey = getBoxStateKey(box);
+      const prevKey = boxLastRenderState[box.id];
+      if (stateKey !== prevKey || globalChanged) {
+        console.log(`[时钟] 🔄 框 ${box.id} (${box.type}) 发生变化，触发重渲 | prev=${prevKey || 'none'} | curr=${stateKey}`);
+        boxLastRenderState[box.id] = stateKey;
+        renderBoxSingleFrame(box.id);
+      }
+    });
+  }, 1000);
+}
+
+function stopLayoutWatcher() {
+  if (layoutWatcherTimer) {
+    clearInterval(layoutWatcherTimer);
+    layoutWatcherTimer = null;
+    console.log('[时钟] ⏹️ 布局自动渲染时钟已停止');
+  }
+}
+
+// ===== INIT =====
+initParts();
+
 // ===== COLLECT STYLE =====
 function collectStyle(){
-  const fontFamily = document.querySelector('#font-chips .chip.active')?.dataset.val || 'system';
+  const fontFamily = document.querySelector('#font-chips .font-card.active')?.dataset.val || 'system';
   const lineHeight  = document.querySelector('#lh-chips .chip.active')?.dataset.val || 'normal';
   const subBgStyle  = document.querySelector('#sub-bg-chips .chip.active')?.dataset.val || 'light';
   const fontScale   = parseFloat(document.getElementById('font-scale').value);
@@ -1082,20 +1659,37 @@ async function submitJob(){
   const src=document.getElementById('src-lang').value;
   const tgt=document.getElementById('tgt-lang').value;
   if(src===tgt){ toast('源语言和目标语言不能相同','warn'); return; }
+  if(parts.length === 0){ toast('请至少添加一个 Part 和对应的框','warn'); return; }
+
+  console.log('🚀 开始提交视频生成任务');
+  console.log('📁 视频文件:', window._selectedFile.name, window._selectedFile.size);
+  console.log('🌐 语言设置:', { source: src, target: tgt });
+  console.log('📋 Part 配置:', parts);
 
   const fd = new FormData();
   fd.append('video', window._selectedFile);
   fd.append('source_lang', src);
   fd.append('target_lang', tgt);
   fd.append('resolution', document.getElementById('resolution').value);
-  fd.append('part1_repeat', document.getElementById('p1-repeat').value);
-  fd.append('part2_repeat', document.getElementById('p2-repeat').value);
-  fd.append('part3_repeat', document.getElementById('p3-repeat').value);
-  fd.append('part2_slow_speed', document.getElementById('slow-speed').value);
   fd.append('num_words', document.getElementById('num-words').value);
   fd.append('num_expressions', document.getElementById('num-exprs').value);
   fd.append('layout', JSON.stringify(layout));
   fd.append('style', JSON.stringify(collectStyle()));
+
+  // 新的 Part 配置（包含repeat和slow属性）
+  fd.append('parts_json', JSON.stringify(parts));
+  console.log('📄 发送的 parts_json:', JSON.stringify(parts));
+
+  // 为了向后兼容，如果有旧的元素，也发送旧格式
+  const p1RepeatEl = document.getElementById('p1-repeat');
+  const p2RepeatEl = document.getElementById('p2-repeat');
+  const p3RepeatEl = document.getElementById('p3-repeat');
+  const slowSpeedEl = document.getElementById('slow-speed');
+
+  if(p1RepeatEl) fd.append('part1_repeat', p1RepeatEl.value);
+  if(p2RepeatEl) fd.append('part2_repeat', p2RepeatEl.value);
+  if(p3RepeatEl) fd.append('part3_repeat', p3RepeatEl.value);
+  if(slowSpeedEl) fd.append('part2_slow_speed', slowSpeedEl.value);
 
   document.getElementById('submit-btn').disabled = true;
   document.getElementById('progress-section').style.display='block';
@@ -1104,13 +1698,18 @@ async function submitJob(){
   resetStepBar();
 
   try{
+    console.log('📡 发送任务请求...');
     const r = await fetch('/api/jobs', {method:'POST', headers:{'Authorization':'Bearer '+token}, body:fd});
+    console.log('📡 响应状态:', r.status);
     const d = await r.json();
+    console.log('📡 响应数据:', d);
     if(!r.ok) throw new Error(d.detail||'提交失败');
     currentJobId = d.job_id;
+    console.log('✅ 任务提交成功，Job ID:', currentJobId);
     toast('任务已提交，开始处理','ok');
     connectWS(currentJobId);
   }catch(e){
+    console.error('❌ 提交错误:', e);
     toast(e.message,'err');
     document.getElementById('submit-btn').disabled=false;
   }
@@ -1523,14 +2122,11 @@ async function saveCurrentConfig(){
     source_lang: document.getElementById('src-lang').value,
     target_lang: document.getElementById('tgt-lang').value,
     resolution: document.getElementById('resolution').value,
-    slow_speed: document.getElementById('slow-speed').value,
-    p1_repeat: document.getElementById('p1-repeat').value,
-    p2_repeat: document.getElementById('p2-repeat').value,
-    p3_repeat: document.getElementById('p3-repeat').value,
     num_words: document.getElementById('num-words').value,
     num_exprs: document.getElementById('num-exprs').value,
     style: collectStyle(),
     layout: layout,
+    parts: parts,
   };
 
   const fd = new FormData();

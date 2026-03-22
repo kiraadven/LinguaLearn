@@ -24,3 +24,4 @@ output/
 .cursor/
 MoneyPrinter*
 .claude/
+data/

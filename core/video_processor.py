@@ -200,6 +200,12 @@ class VideoProcessor:
         eb_x = int(orig_width * eb_x_pct)
         eb_y = int(orig_height * eb_y_pct)
 
+        print(f"[VideoProcessor] 📐 句子布局: sub({sub_x},{sub_y},{sub_w}x{sub_h}) wb({wb_x},{wb_y},{wb_w}x{wb_h}) eb({eb_x},{eb_y},{eb_w}x{eb_h})")
+        print(f"[VideoProcessor] 🎬 Part配置: P1(x{config.PART1_REPEAT_COUNT} sub={config.PART1_SHOW_SUBTITLE}) P2(x{config.PART2_REPEAT_COUNT} slow={config.SPEED_SLOW} sub={config.PART2_SHOW_SUBTITLE}) P3(x{config.PART3_REPEAT_COUNT} sub={config.PART3_SHOW_SUBTITLE})")
+        eb_h = int(orig_height * eb_h_pct)
+        eb_x = int(orig_width * eb_x_pct)
+        eb_y = int(orig_height * eb_y_pct)
+
         subtitle_arr = self.create_subtitle_frame(
             sentence_data['original_text'],
             sentence_data.get('chinese_translation', ''),

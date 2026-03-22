@@ -75,7 +75,9 @@
             font-size: {{font_size_en}}px;
             font-weight: 700;
             color: {{en_color}};
-            white-space: nowrap;
+            white-space: normal;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
             overflow: hidden;
             text-overflow: ellipsis;
             line-height: {{line_height_src}};
@@ -86,7 +88,10 @@
             font-weight: 400;
             color: {{cn_color}};
             line-height: {{line_height_tgt}};
-            white-space: nowrap;
+            white-space: normal;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            {{cjk_break}}
             overflow: hidden;
             text-overflow: ellipsis;
             opacity: 0.85;

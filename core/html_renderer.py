@@ -332,6 +332,11 @@ class HTMLRenderer:
         divider_w = 40
 
         template = self._read_template('subtitle_template.html')
+
+        # 检测是否是 CJK 语言，用于自动换行（只对目标语言）
+        target_lang = style.get('target_lang', 'zh')
+        cjk_break = "word-break: break-all;" if target_lang in config.CJK_LANGUAGES else ""
+
         html = (template
             .replace('{{width}}',              str(width))
             .replace('{{height}}',             str(height))
@@ -360,6 +365,7 @@ class HTMLRenderer:
             .replace('{{accent_color}}',       accent)
             .replace('{{accent_bar_w}}',       str(max(3, int(width * 0.004))))
             .replace('{{accent_opacity}}',     '0.7')
+            .replace('{{cjk_break}}',          cjk_break)
         )
         return self._render_html_to_png(html, output_path, width, height)
 
@@ -428,6 +434,11 @@ class HTMLRenderer:
         label_text = style.get('wordbox_label', 'Key Words')
 
         template = self._read_template('wordbox_template.html')
+
+        # 检测是否是 CJK 语言，用于自动换行
+        source_lang = style.get('source_lang', 'en')
+        cjk_break = "word-break: break-all;" if source_lang in config.CJK_LANGUAGES else ""
+
         html = (template
             .replace('{{width}}',          str(width))
             .replace('{{h}}',              str(height))
@@ -455,6 +466,7 @@ class HTMLRenderer:
             .replace('{{item_radius}}',    str(item_radius))
             .replace('{{accent_w}}',       str(accent_w))
             .replace('{{padding}}',        str(padding))
+            .replace('{{cjk_break}}',      cjk_break)
             .replace('{{words_html}}',     words_html)
         )
         return self._render_html_to_png(html, output_path, width, height)
@@ -518,6 +530,11 @@ class HTMLRenderer:
             )
 
         template = self._read_template('expressionbox_template.html')
+
+        # 检测是否是 CJK 语言，用于自动换行
+        source_lang = style.get('source_lang', 'en')
+        cjk_break = "word-break: break-all;" if source_lang in config.CJK_LANGUAGES else ""
+
         html = (template
             .replace('{{width}}',          str(width))
             .replace('{{h}}',              str(height))
@@ -545,6 +562,7 @@ class HTMLRenderer:
             .replace('{{arrow_gap}}',      str(arrow_gap))
             .replace('{{cn_indent}}',      str(cn_indent))
             .replace('{{padding}}',        str(padding))
+            .replace('{{cjk_break}}',      cjk_break)
             .replace('{{expressions_html}}', expressions_html)
         )
         return self._render_html_to_png(html, output_path, width, height)

@@ -195,6 +195,47 @@ class WordAnalyzer:
                 'useful_expressions': []
             }
 
+    def generate_video_name(self, sentences_data: List[Dict]) -> str:
+        """根据句子内容生成视频名称（DeepSeek chat，JSON格式输出）"""
+        samples = []
+        for s in sentences_data[:5]:
+            txt = s.get("original_text") or s.get("text", "")
+            if txt:
+                samples.append(txt)
+        summary = " ".join(samples)[:500]
+
+        src_name = self._get_lang_name(self.source_lang)
+        tgt_name = self._get_lang_name(self.target_lang, self.target_lang)
+
+        prompt = f"""根据以下{src_name}视频片段内容，生成一个简短的{tgt_name}视频标题（5-15个字，不含标点，能概括主题）。
+
+内容片段：{summary}
+
+请直接返回JSON格式：
+{{"name": "视频标题"}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": "你是视频标题生成助手，请直接返回JSON格式。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5,
+                max_tokens=80
+            )
+            content = response.choices[0].message.content.strip()
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+            result = json.loads(content)
+            name = result.get("name", "").strip()
+            return name if name else "学习视频"
+        except Exception as e:
+            print(f"[generate_video_name] 出错: {e}")
+            return "学习视频"
+
     def batch_analyze(self, sentences: List[str], max_workers: int = 10) -> List[Dict]:
         """
         批量分析多个句子（并行API调用）

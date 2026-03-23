@@ -75,10 +75,22 @@ def require_user(current_user: Optional[dict] = Depends(get_current_user)) -> di
         raise HTTPException(401, "请先登录")
     return current_user
 
+def _normalize_job(j: dict) -> dict:
+    """Convert DB row format (result_json string) to API format (result dict)."""
+    if 'result_json' in j:
+        result_str = j.pop('result_json', None)
+        j['result'] = json.loads(result_str) if result_str else None
+    return j
+
+
 def get_job_or_404(job_id: str) -> dict:
-    if job_id not in jobs:
-        raise HTTPException(404, "任务不存在")
-    return jobs[job_id]
+    if job_id in jobs:
+        return jobs[job_id]
+    # Fall back to DB (e.g. after server restart)
+    db_job = database.get_job(job_id)
+    if db_job:
+        return _normalize_job(db_job)
+    raise HTTPException(404, "任务不存在")
 
 
 # ===== Email sender =====
@@ -220,6 +232,8 @@ async def process_video_job(
     num_words: int, num_expressions: int,
     layout: Optional[dict], style: Optional[dict],
     parts_list: Optional[list],
+    style_id: str,
+    animation: Optional[str],
     loop: asyncio.AbstractEventLoop,
 ):
     def run_in_thread():
@@ -233,33 +247,78 @@ async def process_video_job(
         old_stdout = sys.stdout
         sys.stdout = capture
         try:
-            # Apply config
-            config.SOURCE_LANGUAGE    = source_lang
-            config.TARGET_LANGUAGE    = target_lang
-            config.VIDEO_RESOLUTION   = resolution
-            
-            # Use new parts_list if provided
+            # Apply config globals
+            config.SOURCE_LANGUAGE  = source_lang
+            config.TARGET_LANGUAGE  = target_lang
+            config.VIDEO_RESOLUTION = resolution
+
+            # ── 构建 parts_config（新格式）──
             if parts_list and len(parts_list) > 0:
                 print(f"📋 使用新的 Part 配置: {len(parts_list)} 个 Part")
-                # 优先使用新配置
-                if len(parts_list) >= 1:
-                    config.PART1_REPEAT_COUNT = parts_list[0].get('repeat', part1_repeat)
-                if len(parts_list) >= 2:
-                    config.PART2_REPEAT_COUNT = parts_list[1].get('repeat', part2_repeat)
-                    config.SPEED_SLOW         = 0.75 if parts_list[1].get('slow', False) else 1.0
-                if len(parts_list) >= 3:
-                    config.PART3_REPEAT_COUNT = parts_list[2].get('repeat', part3_repeat)
-                # 打印配置
-                print(f"🔧 Part1 重复: {config.PART1_REPEAT_COUNT}x")
-                print(f"🔧 Part2 重复: {config.PART2_REPEAT_COUNT}x, 慢速: {config.SPEED_SLOW}x")
-                print(f"🔧 Part3 重复: {config.PART3_REPEAT_COUNT}x")
+                new_parts_config = []
+                for p in parts_list:
+                    boxes_list = [b.get("type", "") for b in p.get("boxes", [])]
+                    new_parts_config.append({
+                        "repeat": p.get("repeat", 1),
+                        "slow":   p.get("slow", False),
+                        "speed":  float(p.get("speed", 1.0)),
+                        "show_subtitle": "subtitle" in boxes_list,
+                        "show_wordbox":  "wordbox" in boxes_list,
+                        "show_exprbox":  "expressionbox" in boxes_list,
+                    })
+                for j, pc in enumerate(new_parts_config):
+                    print(f"  Part{j+1}: repeat={pc['repeat']} slow={pc['slow']} "
+                          f"sub={pc['show_subtitle']} wb={pc['show_wordbox']} eb={pc['show_exprbox']}")
             else:
-                # 使用旧配置
+                print("📋 使用旧的 Part 配置（config 常量）")
+                new_parts_config = None  # VideoProcessor 内部 _legacy_parts_config() 处理
+
+                # 旧式：设置 config 常量（向后兼容）
                 config.PART1_REPEAT_COUNT = part1_repeat
                 config.PART2_REPEAT_COUNT = part2_repeat
                 config.PART3_REPEAT_COUNT = part3_repeat
                 config.SPEED_SLOW         = part2_slow_speed
-                print("📋 使用旧的 Part 配置")
+
+            # ── 构建嵌套 layout（新格式）──
+            nested_layout: dict = {}
+            seen_layout: set = set()
+            _key_map = {"subtitle": "subtitle", "wordbox": "wordbox", "expressionbox": "exprbox"}
+            if parts_list:
+                for p in parts_list:
+                    for box in p.get("boxes", []):
+                        btype = box.get("type", "")
+                        lkey  = _key_map.get(btype)
+                        if lkey and lkey not in seen_layout:
+                            nested_layout[lkey] = {
+                                "x_pct": box.get("x", 0) / 100.0,
+                                "y_pct": box.get("y", 0) / 100.0,
+                                "w_pct": box.get("w", 20) / 100.0,
+                                "h_pct": box.get("h", 20) / 100.0,
+                            }
+                            seen_layout.add(lkey)
+            if not nested_layout and layout:
+                # 从旧式 flat layout_dict 转换
+                if "subtitle_width_pct" in layout:
+                    nested_layout["subtitle"] = {
+                        "x_pct": layout.get("subtitle_x_pct", 0.05),
+                        "y_pct": layout.get("subtitle_y_pct", 0.76),
+                        "w_pct": layout.get("subtitle_width_pct", 0.90),
+                        "h_pct": layout.get("subtitle_height_pct", 0.14),
+                    }
+                if "wordbox_width_pct" in layout:
+                    nested_layout["wordbox"] = {
+                        "x_pct": layout.get("wordbox_x_pct", 0.75),
+                        "y_pct": layout.get("wordbox_y_pct", 0.005),
+                        "w_pct": layout.get("wordbox_width_pct", 0.245),
+                        "h_pct": layout.get("wordbox_height_pct", 0.65),
+                    }
+                if "exprbox_width_pct" in layout:
+                    nested_layout["exprbox"] = {
+                        "x_pct": layout.get("exprbox_x_pct", 0.005),
+                        "y_pct": layout.get("exprbox_y_pct", 0.005),
+                        "w_pct": layout.get("exprbox_width_pct", 0.245),
+                        "h_pct": layout.get("exprbox_height_pct", 0.55),
+                    }
 
             update_job(job_id, status="running", step=1, step_name="正在提取音频...")
 
@@ -363,25 +422,21 @@ async def process_video_job(
             segments_info = [{"start": ts.get("start", 0), "end": ts.get("end", 0)} for ts in timestamps]
             video_output  = str(job_out / f"{output_name}.mp4")
             print(f"🎯 输出路径: {video_output}")
+            print(f"🎨 样式模版: {style_id}")
+            if nested_layout:
+                print(f"📐 布局: {list(nested_layout.keys())}")
 
-            # Merge layout + style into combined style dict
-            combined_style = {}
-            if style:
-                combined_style.update(style)
-                print("🎨 应用样式配置")
-            if layout:
-                combined_style.update(layout)
-                print("📐 应用布局配置")
-
-            print(f"\n📐 最终布局参数:")
-            for k, v in combined_style.items():
-                if any(x in k for x in ['_pct', '_x_', '_y_', 'width', 'height']):
-                    print(f"   {k} = {v}")
-            print(f"🚀 开始处理完整视频...")
+            print("🚀 开始处理完整视频...")
             video_paths = processor.process_full_video(
-                video_path, sentences_data, video_output, segments_info,
+                video_path=video_path,
+                sentences_data=sentences_data,
+                output_path=video_output,
+                segments_info=segments_info,
                 progress_callback=progress_callback,
-                style=combined_style or None,
+                style_id=style_id,
+                layout=nested_layout or None,
+                parts_config=new_parts_config,
+                animation=animation,
                 cancelled_fn=check_cancelled,
             )
             print("🎬 视频处理完成")
@@ -389,10 +444,31 @@ async def process_video_job(
             if video_paths.get('cancelled'):
                 return
 
+            # 保存含时间戳的 segments.json，供视频预览页使用
+            try:
+                segs_with_text = [
+                    {"start": seg["start"], "end": seg["end"], "text": sd.get("original_text", "")}
+                    for seg, sd in zip(segments_info, sentences_data)
+                ]
+                (job_out / "segments.json").write_text(
+                    json.dumps(segs_with_text, ensure_ascii=False, indent=2), encoding='utf-8'
+                )
+                print(f"✅ segments.json 已保存: {len(segs_with_text)} 条")
+            except Exception as e:
+                print(f"⚠️ segments.json 保存失败: {e}")
+
             full_video = job_out / f"{output_name}_full.mp4"
             final_full = job_out / "学习版.mp4"
             if full_video.exists():
                 shutil.move(str(full_video), str(final_full))
+
+            # 尝试自动生成视频名称（若尚未命名）
+            auto_name = None
+            try:
+                if sentences_data:
+                    auto_name = analyzer.generate_video_name(sentences_data)
+            except Exception as _ne:
+                print(f"⚠️ 自动命名失败: {_ne}")
 
             update_job(job_id, status="done", step=5, step_name="完成！",
                        result={
@@ -402,6 +478,10 @@ async def process_video_job(
                            "source_lang": source_lang,
                            "target_lang": target_lang,
                        })
+            if auto_name and jobs.get(job_id, {}).get("name") is None:
+                database.update_job_status(job_id, name=auto_name)
+                if job_id in jobs:
+                    jobs[job_id]["name"] = auto_name
             asyncio.run_coroutine_threadsafe(
                 _push(job_id, "done", {"sentences": len(sentences_data)}), loop)
 
@@ -776,6 +856,22 @@ async def get_languages():
     ]}
 
 
+@app.get("/api/styles")
+async def get_styles():
+    """返回所有 ASS 样式模版的预览信息（供前端样式画廊使用）"""
+    from core.ass_styles import STYLE_TEMPLATES
+    return {
+        sid: {
+            "name":           t["name"],
+            "desc":           t["desc"],
+            "preview_colors": t["preview_colors"],
+            "animation":      t.get("animation", "fade"),
+            "css":            t.get("css", {}),
+        }
+        for sid, t in STYLE_TEMPLATES.items()
+    }
+
+
 @app.post("/api/jobs")
 async def create_job(
     video:              UploadFile = File(...),
@@ -791,6 +887,8 @@ async def create_job(
     layout:             str   = Form("{}"),   # position percentages（旧格式，保留兼容）
     style:              str   = Form("{}"),   # visual style options
     parts_json:         str   = Form("[]"),   # 新的 Part 配置
+    style_id:           str   = Form("aurora_dark"),  # ASS 样式模版 ID
+    animation:          str   = Form("fade"),          # 入场动画类型
     current_user: dict = Depends(require_user),
 ):
     valid_langs = set(config.LANGUAGE_NATIVE_NAMES.keys())
@@ -895,6 +993,7 @@ async def create_job(
         "cancelled":      False,
         "video_clips_pct": 0,
         "video_write_pct": 0,
+        "name":           None,
     }
 
     # 保存到数据库
@@ -919,6 +1018,8 @@ async def create_job(
             num_words=num_words, num_expressions=num_expressions,
             layout=layout_dict or None, style=style_dict or None,
             parts_list=parts_list or None,
+            style_id=style_id or "aurora_dark",
+            animation=animation or "fade",
             loop=asyncio.get_event_loop(),
         ))
 
@@ -934,10 +1035,29 @@ async def get_job_status(job_id: str):
 async def cancel_job(job_id: str, current_user: dict = Depends(require_user)):
     job = get_job_or_404(job_id)
     if job["status"] in ("done", "error", "cancelled"):
-        raise HTTPException(400, "任务已结束，无法取消")
+        # 删除已完成任务：清理文件 + 删除 DB 记录
+        import shutil as _shutil
+        job_out = OUTPUT_DIR / job_id
+        if job_out.exists():
+            _shutil.rmtree(str(job_out), ignore_errors=True)
+        if job_id in jobs:
+            del jobs[job_id]
+        database.delete_job(job_id, current_user["email"])
+        return {"status": "deleted"}
     update_job(job_id, status="cancelled", cancelled=True, step_name="已取消")
     await _push(job_id, "cancelled", {})
     return {"status": "cancelled"}
+
+
+@app.patch("/api/jobs/{job_id}")
+async def rename_job(job_id: str, name: str = Form(...), current_user: dict = Depends(require_user)):
+    """重命名任务"""
+    get_job_or_404(job_id)
+    name = name.strip()[:100]
+    database.update_job_status(job_id, name=name)
+    if job_id in jobs:
+        jobs[job_id]["name"] = name
+    return {"status": "ok", "name": name}
 
 
 @app.websocket("/api/ws/{job_id}")
@@ -1026,7 +1146,7 @@ async def list_jobs(current_user: Optional[dict] = Depends(get_current_user)):
                     "video_write_pct": jobs[db_job["id"]]["video_write_pct"],
                     "error": jobs[db_job["id"]].get("error"),
                 })
-        return {"jobs": db_jobs}
+        return {"jobs": [_normalize_job(j) for j in db_jobs]}
     else:
         # 未登录只显示内存中的公开 jobs（最多50个）
         job_list = sorted(jobs.values(), key=lambda x: x.get("created_at", ""), reverse=True)
@@ -1062,6 +1182,54 @@ async def load_config(current_user: dict = Depends(require_user)):
         return {"config": config}
     else:
         return {"config": None}
+
+
+# ===== 命名配置预设接口 =====
+
+@app.post("/api/config/presets")
+async def create_config_preset(
+    name: str = Form(...),
+    config_json: str = Form(...),
+    current_user: dict = Depends(require_user),
+):
+    """保存命名配置预设"""
+    try:
+        json.loads(config_json)
+    except Exception:
+        raise HTTPException(400, "配置 JSON 格式不正确")
+    name = name.strip() or f"配置 {datetime.now().strftime('%m-%d %H:%M')}"
+    preset_id = database.save_config_preset(current_user["email"], name, config_json)
+    if preset_id < 0:
+        raise HTTPException(500, "保存预设失败")
+    return {"id": preset_id, "name": name, "created_at": datetime.now().isoformat()}
+
+
+@app.get("/api/config/presets")
+async def list_config_presets(current_user: dict = Depends(require_user)):
+    """列出用户所有命名配置预设"""
+    presets = database.get_config_presets(current_user["email"])
+    return {"presets": presets}
+
+
+@app.delete("/api/config/presets/{preset_id}")
+async def delete_config_preset(preset_id: int, current_user: dict = Depends(require_user)):
+    """删除命名配置预设"""
+    ok = database.delete_config_preset(preset_id, current_user["email"])
+    if not ok:
+        raise HTTPException(404, "预设不存在")
+    return {"status": "ok"}
+
+
+# ===== Segments 接口 =====
+
+@app.get("/api/jobs/{job_id}/segments")
+async def get_job_segments(job_id: str):
+    """获取视频的句子时间戳（供视频预览页同步文稿使用）"""
+    get_job_or_404(job_id)
+    path = OUTPUT_DIR / job_id / "segments.json"
+    if not path.exists():
+        return []
+    return json.loads(path.read_text(encoding='utf-8'))
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

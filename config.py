@@ -69,19 +69,10 @@ WATERMARK_GRAY = 200
 WATERMARK_OPACITY = 0.15
 WATERMARK_ANGLE = -30
 
-# ===== 颜色配置 =====
-WORD_BOX_BG_COLOR = "#fef9c3"
-WORD_BOX_WORD_COLOR = "#0284c7"
-WORD_BOX_PHONETIC_COLOR = "#6b7280"
-WORD_BOX_TRANS_COLOR = "#111827"
-
-EXPR_BOX_BG_COLOR = "#e0f2fe"
-EXPR_BOX_ENGLISH_COLOR = "#0369a1"
-EXPR_BOX_CHINESE_COLOR = "#111827"
-
-SUBTITLE_BOX_BG_COLOR = "#ffffff"
-SUBTITLE_BOX_ENGLISH_COLOR = "#111827"
-SUBTITLE_BOX_CHINESE_COLOR = "#374151"
+# ===== ASS 样式配置（颜色由 ass_styles.py 管理）=====
+ASS_DEFAULT_STYLE = "aurora_dark"   # 默认样式模版 ID
+ASS_FONT_CJK      = "Source Han Sans CN"   # CJK 字体
+ASS_FONT_LATIN    = "Arial"                # Latin 回退字体
 
 # ===== 句子分割配置 =====
 MAX_SENTENCE_WORDS = 30

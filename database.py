@@ -72,6 +72,19 @@ def init_db():
         )
     ''')
 
+    # 命名配置预设表（每个用户可保存多个命名配置）
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS user_config_presets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            name TEXT NOT NULL,
+            config_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (email) REFERENCES users(email)
+        )
+    ''')
+
     # Jobs 表（保存视频处理历史）
     c.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
@@ -87,11 +100,17 @@ def init_db():
             error TEXT,
             video_clips_pct INTEGER DEFAULT 0,
             video_write_pct INTEGER DEFAULT 0,
+            name TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (email) REFERENCES users(email)
         )
     ''')
+    # 为旧表添加 name 列（若已存在则忽略）
+    try:
+        c.execute("ALTER TABLE jobs ADD COLUMN name TEXT")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -318,6 +337,51 @@ def get_user_config(email: str) -> str:
     conn.close()
     return row["config_json"] if row else None
 
+# ===== 命名配置预设操作 =====
+
+def save_config_preset(email: str, name: str, config_json: str) -> int:
+    """保存命名配置预设，返回新预设的 id"""
+    conn = get_db()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    try:
+        c.execute('''
+            INSERT INTO user_config_presets (email, name, config_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (email, name, config_json, now, now))
+        conn.commit()
+        return c.lastrowid
+    except Exception as e:
+        print(f"[DB Error] save_config_preset: {e}")
+        return -1
+    finally:
+        conn.close()
+
+def get_config_presets(email: str) -> list:
+    """获取用户所有命名配置预设"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''SELECT id, email, name, config_json, created_at, updated_at
+                 FROM user_config_presets WHERE email = ?
+                 ORDER BY created_at DESC''', (email,))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def delete_config_preset(preset_id: int, email: str) -> bool:
+    """删除命名配置预设（只能删除自己的）"""
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM user_config_presets WHERE id = ? AND email = ?", (preset_id, email))
+        conn.commit()
+        return c.rowcount > 0
+    except Exception as e:
+        print(f"[DB Error] delete_config_preset: {e}")
+        return False
+    finally:
+        conn.close()
+
 # ===== Jobs 操作 =====
 
 def save_job(job_id: str, email: str, status: str, step: int, step_name: str,
@@ -350,7 +414,7 @@ def update_job_status(job_id: str, **fields) -> bool:
     now = datetime.now().isoformat()
 
     # 白名单，只允许更新特定字段
-    allowed = {'status', 'step', 'step_name', 'error', 'result_json', 'video_clips_pct', 'video_write_pct'}
+    allowed = {'status', 'step', 'step_name', 'error', 'result_json', 'video_clips_pct', 'video_write_pct', 'name'}
     fields = {k: v for k, v in fields.items() if k in allowed}
     fields['updated_at'] = now
 
@@ -377,7 +441,7 @@ def get_job(job_id: str) -> dict:
     c = conn.cursor()
     c.execute('''SELECT id, email, status, step, step_name, source_lang, target_lang,
                  video_filename, result_json, error, video_clips_pct, video_write_pct,
-                 created_at, updated_at FROM jobs WHERE id = ?''', (job_id,))
+                 name, created_at, updated_at FROM jobs WHERE id = ?''', (job_id,))
     row = c.fetchone()
     conn.close()
     if row:
@@ -390,11 +454,25 @@ def get_user_jobs(email: str, limit: int = 50) -> list:
     c = conn.cursor()
     c.execute('''SELECT id, email, status, step, step_name, source_lang, target_lang,
                  video_filename, result_json, error, video_clips_pct, video_write_pct,
-                 created_at, updated_at FROM jobs WHERE email = ?
+                 name, created_at, updated_at FROM jobs WHERE email = ?
                  ORDER BY created_at DESC LIMIT ?''', (email, limit))
     rows = c.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+def delete_job(job_id: str, email: str) -> bool:
+    """删除 Job 记录（只能删除自己的）"""
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM jobs WHERE id = ? AND email = ?", (job_id, email))
+        conn.commit()
+        return c.rowcount > 0
+    except Exception as e:
+        print(f"[DB Error] delete_job: {e}")
+        return False
+    finally:
+        conn.close()
 
 # 初始化数据库
 init_db()

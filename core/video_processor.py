@@ -1,374 +1,400 @@
+"""
+视频处理器 — 纯 FFmpeg subprocess 流水线
+彻底移除 MoviePy，使用 FFmpeg 进行：
+  - 片段提取（-c copy，毫秒级）
+  - 变速保音调（setpts + atempo）
+  - ASS 字幕烧录（-vf ass=）
+  - 片段拼接（concat filter）
+  - 水印叠加（drawtext）
+"""
+
 import os
 import subprocess
 import tempfile
+import threading
 import time
+import uuid
+from pathlib import Path
 from typing import List, Dict, Optional, Callable
-from moviepy.editor import (
-    VideoFileClip, AudioFileClip, AudioClip, CompositeVideoClip,
-    concatenate_videoclips, concatenate_audioclips, ImageClip, TextClip
-)
-from moviepy.video.fx.all import speedx
-from PIL import Image
-import numpy as np
 
 import config
-from html_renderer import HTMLRenderer
-
-try:
-    import proglog
-
-    class _VideoWriteLogger(proglog.ProgressBarLogger):
-        def __init__(self, progress_fn: Callable = None):
-            super().__init__(min_time_interval=1.0)
-            self._fn = progress_fn
-
-        def callback(self, **changes):
-            if not self._fn:
-                return
-            for bar in self.bars.values():
-                total = bar.get('total') or 0
-                idx = bar.get('index') or 0
-                if total > 0:
-                    pct = min(100, int(idx / total * 100))
-                    self._fn('write', {'pct': pct})
-                    break
-
-except ImportError:
-    _VideoWriteLogger = None
+from ass_generator import ASSGenerator
+from ass_styles import DEFAULT_STYLE_ID
 
 
 class VideoProcessor:
+
     def __init__(self):
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
         os.makedirs(config.TEMP_DIR, exist_ok=True)
-        self.html_renderer = HTMLRenderer()
-        self._subtitle_cache = {}
-        self._wordbox_cache = {}
-        self._exprbox_cache = {}
 
-    def _create_watermark(self, video_width: int, video_height: int, duration: float = None) -> Optional[ImageClip]:
-        if not config.WATERMARK_ENABLED:
-            return None
-        watermark_text = "Made By GetEverybodyLearning"
-        font_size = int(min(video_width, video_height) * 0.05)
-        for font in ('Arial-Bold', 'Helvetica-Bold', None):
-            try:
-                kwargs = dict(
-                    fontsize=font_size,
-                    color=f'gray({config.WATERMARK_GRAY})',
-                    stroke_color=f'gray({config.WATERMARK_GRAY})',
-                    stroke_width=font_size * 0.08,
-                )
-                if font:
-                    kwargs['font'] = font
-                watermark = TextClip(watermark_text, **kwargs)
-                break
-            except Exception:
-                continue
-        else:
-            return None
+    # ──────────────────────────────────────────────────────────────
+    # Public API
+    # ──────────────────────────────────────────────────────────────
 
-        watermark = watermark.set_opacity(config.WATERMARK_OPACITY)
-        ww, wh = watermark.size
-        watermark = watermark.set_position(((video_width - ww) // 2, (video_height - wh) // 2))
-        watermark = watermark.rotate(config.WATERMARK_ANGLE)
-        if duration is not None:
-            watermark = watermark.set_duration(duration)
-        return watermark
-
-    def _slow_audio_with_pitch_preservation(self, audio_clip, speed_factor: float, slow_duration: float):
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-            tmp_in = f.name
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-            tmp_out = f.name
-        try:
-            audio_clip.write_audiofile(tmp_in, verbose=False, logger=None)
-            subprocess.run([
-                'ffmpeg', '-y', '-i', tmp_in,
-                '-filter:a', f'atempo={speed_factor}',
-                '-t', str(slow_duration),
-                tmp_out
-            ], capture_output=True, check=True)
-            result = AudioFileClip(tmp_out)
-            if result.duration < slow_duration:
-                silence = AudioClip(lambda t: 0, duration=slow_duration - result.duration, fps=result.fps)
-                result = concatenate_audioclips([result, silence])
-            return result
-        except Exception as e:
-            print(f"Warning: Audio processing failed: {e}")
-        return AudioClip(lambda t: 0, duration=slow_duration, fps=44100)
-
-    def create_subtitle_frame(self, english_text: str, chinese_text: str,
-                              width: int, height: int, style: dict = None) -> np.ndarray:
-        cache_key = (english_text, chinese_text, width, height, str(sorted((style or {}).items())))
-        if cache_key in self._subtitle_cache:
-            return self._subtitle_cache[cache_key]
-        temp_path = os.path.join(config.TEMP_DIR, f'subtitle_{int(time.time() * 1000000)}.png')
-        success = self.html_renderer.render_subtitle(english_text, chinese_text, width, height, temp_path, style=style)
-        if not success or not os.path.exists(temp_path):
-            raise RuntimeError(f"Subtitle render failed: {english_text[:30]}")
-        result = np.array(Image.open(temp_path))
-        self._subtitle_cache[cache_key] = result
-        try:
-            os.unlink(temp_path)
-        except Exception:
-            pass
-        return result
-
-    def create_word_box_frame(self, words: List[Dict],
-                              width: int, height: int, style: dict = None) -> np.ndarray:
-        cache_key = (tuple(w.get('word', '') for w in words), width, height, str(sorted((style or {}).items())))
-        if cache_key in self._wordbox_cache:
-            return self._wordbox_cache[cache_key]
-        temp_path = os.path.join(config.TEMP_DIR, f'wordbox_{int(time.time() * 1000000)}.png')
-        success = self.html_renderer.render_wordbox(words, width, height, temp_path, style=style)
-        if not success or not os.path.exists(temp_path):
-            raise RuntimeError("Wordbox render failed")
-        result = np.array(Image.open(temp_path))
-        self._wordbox_cache[cache_key] = result
-        try:
-            os.unlink(temp_path)
-        except Exception:
-            pass
-        return result
-
-    def create_expression_box_frame(self, expressions: List[Dict],
-                                    width: int, height: int, style: dict = None) -> np.ndarray:
-        cache_key = (tuple(e.get('english', '') for e in expressions), width, height, str(sorted((style or {}).items())))
-        if cache_key in self._exprbox_cache:
-            return self._exprbox_cache[cache_key]
-        temp_path = os.path.join(config.TEMP_DIR, f'expressionbox_{int(time.time() * 1000000)}.png')
-        success = self.html_renderer.render_expressionbox(expressions, width, height, temp_path, style=style)
-        if not success or not os.path.exists(temp_path):
-            raise RuntimeError("Expressionbox render failed")
-        result = np.array(Image.open(temp_path))
-        self._exprbox_cache[cache_key] = result
-        try:
-            os.unlink(temp_path)
-        except Exception:
-            pass
-        return result
-
-    def _make_image_clip(self, arr: np.ndarray, duration: float, pos) -> ImageClip:
-        if arr.shape[2] == 4:
-            clip = ImageClip(arr, duration=duration)
-        else:
-            clip = ImageClip(arr[:, :, :3], duration=duration)
-        return clip.set_position(pos)
-
-    def process_sentence_video(self, video_clip: VideoFileClip,
-                               sentence_data: Dict,
-                               start_time: float,
-                               end_time: float,
-                               next_sentence_start: Optional[float] = None,
-                               style: dict = None) -> VideoFileClip:
-        style = style or {}
-        segment_duration = end_time - start_time
-        gap_end_time = next_sentence_start if next_sentence_start is not None else end_time
-        gap_duration = gap_end_time - start_time
-
-        orig_width, orig_height = video_clip.size
-
-        # Layout from style (percentages of video dimensions)
-        sub_w_pct = style.get('subtitle_width_pct', 0.95)
-        sub_h_pct = style.get('subtitle_height_pct', 0.22)
-        sub_x_pct = style.get('subtitle_x_pct', (1 - sub_w_pct) / 2)
-        sub_y_pct = style.get('subtitle_y_pct', 1 - sub_h_pct)
-
-        wb_w_pct = style.get('wordbox_width_pct', 0.245)
-        wb_h_pct = style.get('wordbox_height_pct', 0.65)
-        wb_x_pct = style.get('wordbox_x_pct', 1 - wb_w_pct - 0.005)
-        wb_y_pct = style.get('wordbox_y_pct', 0.005)
-
-        eb_w_pct = style.get('exprbox_width_pct', 0.245)
-        eb_h_pct = style.get('exprbox_height_pct', 0.55)
-        eb_x_pct = style.get('exprbox_x_pct', 0.005)
-        eb_y_pct = style.get('exprbox_y_pct', 0.005)
-
-        sub_w = int(orig_width * sub_w_pct)
-        sub_h = int(orig_height * sub_h_pct)
-        sub_x = int(orig_width * sub_x_pct)
-        sub_y = int(orig_height * sub_y_pct)
-
-        wb_w = int(orig_width * wb_w_pct)
-        wb_h = int(orig_height * wb_h_pct)
-        wb_x = int(orig_width * wb_x_pct)
-        wb_y = int(orig_height * wb_y_pct)
-
-        eb_w = int(orig_width * eb_w_pct)
-        eb_h = int(orig_height * eb_h_pct)
-        eb_x = int(orig_width * eb_x_pct)
-        eb_y = int(orig_height * eb_y_pct)
-
-        print(f"[VideoProcessor] 📐 句子布局: sub({sub_x},{sub_y},{sub_w}x{sub_h}) wb({wb_x},{wb_y},{wb_w}x{wb_h}) eb({eb_x},{eb_y},{eb_w}x{eb_h})")
-        print(f"[VideoProcessor] 🎬 Part配置: P1(x{config.PART1_REPEAT_COUNT} sub={config.PART1_SHOW_SUBTITLE}) P2(x{config.PART2_REPEAT_COUNT} slow={config.SPEED_SLOW} sub={config.PART2_SHOW_SUBTITLE}) P3(x{config.PART3_REPEAT_COUNT} sub={config.PART3_SHOW_SUBTITLE})")
-        eb_h = int(orig_height * eb_h_pct)
-        eb_x = int(orig_width * eb_x_pct)
-        eb_y = int(orig_height * eb_y_pct)
-
-        subtitle_arr = self.create_subtitle_frame(
-            sentence_data['original_text'],
-            sentence_data.get('chinese_translation', ''),
-            sub_w, sub_h, style=style
-        )
-
-        word_box_arr = None
-        if sentence_data.get('key_words'):
-            word_box_arr = self.create_word_box_frame(
-                sentence_data['key_words'], wb_w, wb_h, style=style
-            )
-
-        expr_box_arr = None
-        if sentence_data.get('useful_expressions'):
-            expr_box_arr = self.create_expression_box_frame(
-                sentence_data['useful_expressions'], eb_w, eb_h, style=style
-            )
-
-        def build_composite(base_clip, duration, show_sub, show_word, show_expr):
-            clips = [base_clip]
-            if show_sub:
-                clips.append(self._make_image_clip(subtitle_arr, duration, (sub_x, sub_y)))
-            if show_word and word_box_arr is not None:
-                clips.append(self._make_image_clip(word_box_arr, duration, (wb_x, wb_y)))
-            if show_expr and expr_box_arr is not None:
-                clips.append(self._make_image_clip(expr_box_arr, duration, (eb_x, eb_y)))
-            if len(clips) > 1:
-                return CompositeVideoClip(clips).set_duration(duration)
-            return base_clip
-
-        # Part 1: original speed
-        part1_base = video_clip.subclip(start_time, gap_end_time)
-        part1 = build_composite(
-            part1_base, gap_duration,
-            config.PART1_SHOW_SUBTITLE,
-            config.PART1_SHOW_WORD_BOX,
-            config.PART1_SHOW_EXPRESSION_BOX,
-        )
-
-        # Part 2: slow speed
-        segment = video_clip.subclip(start_time, end_time)
-        slow_video = segment.without_audio().fx(speedx, config.SPEED_SLOW)
-        slow_duration = round(slow_video.duration, 2)
-        slow_video = slow_video.subclip(0, slow_duration)
-        slowed_audio = self._slow_audio_with_pitch_preservation(segment.audio, config.SPEED_SLOW, slow_duration)
-        part2 = build_composite(
-            slow_video, slow_duration,
-            config.PART2_SHOW_SUBTITLE,
-            config.PART2_SHOW_WORD_BOX,
-            config.PART2_SHOW_EXPRESSION_BOX,
-        )
-        if slowed_audio:
-            part2 = part2.set_audio(slowed_audio)
-
-        # Part 3: normal speed with overlays
-        part3_base = video_clip.subclip(start_time, gap_end_time)
-        part3 = build_composite(
-            part3_base, gap_duration,
-            config.PART3_SHOW_SUBTITLE,
-            config.PART3_SHOW_WORD_BOX,
-            config.PART3_SHOW_EXPRESSION_BOX,
-        )
-
-        final_parts = (
-            [part1] * config.PART1_REPEAT_COUNT +
-            [part2] * config.PART2_REPEAT_COUNT +
-            [part3] * config.PART3_REPEAT_COUNT
-        )
-        return concatenate_videoclips(final_parts, method="compose")
-
-    def process_full_video(self, video_path: str,
-                           sentences_data: List[Dict],
-                           output_path: str,
-                           segments_info: Optional[List[Dict]] = None,
-                           progress_callback: Optional[Callable] = None,
-                           style: dict = None,
-                           cancelled_fn: Optional[Callable] = None) -> dict:
+    def process_full_video(
+        self,
+        video_path: str,
+        sentences_data: List[Dict],
+        output_path: str,
+        segments_info: Optional[List[Dict]] = None,
+        progress_callback: Optional[Callable] = None,
+        style_id: str = DEFAULT_STYLE_ID,
+        layout: Optional[Dict] = None,
+        parts_config: Optional[List[Dict]] = None,
+        animation: Optional[str] = None,
+        cancelled_fn: Optional[Callable] = None,
+        # 旧式兼容参数（style dict 已废弃，忽略）
+        style: Optional[Dict] = None,
+    ) -> dict:
         """
-        Process the full video and write the output.
+        处理完整视频，输出学习版 MP4。
+
+        parts_config 格式：
+          [
+            {"repeat":1, "slow":False, "speed":1.0,
+             "show_subtitle":False, "show_wordbox":False, "show_exprbox":False},
+            {"repeat":2, "slow":True,  "speed":0.75,
+             "show_subtitle":True,  "show_wordbox":True,  "show_exprbox":True},
+          ]
+
+        layout 格式（嵌套百分比 0-1）：
+          {
+            "subtitle": {"x_pct":0.05, "y_pct":0.76, "w_pct":0.90, "h_pct":0.14},
+            "wordbox":  {"x_pct":0.75, "y_pct":0.005,"w_pct":0.245,"h_pct":0.65},
+            "exprbox":  {"x_pct":0.005,"y_pct":0.005,"w_pct":0.245,"h_pct":0.55},
+          }
 
         progress_callback(phase, data):
             phase='clips': data={'current': i, 'total': n, 'pct': 0-100}
             phase='write':  data={'pct': 0-100}
-        cancelled_fn(): returns True if job should be cancelled.
         """
-        base_path = os.path.splitext(output_path)[0]
+        # ── 初始化 ──
+        base_path        = os.path.splitext(output_path)[0]
         full_output_path = f"{base_path}_full.mp4"
 
-        print("正在加载视频...")
-        video = VideoFileClip(video_path)
+        resolution = config.VIDEO_RESOLUTION or "1080p"
+        frame_w    = 1920 if resolution == "1080p" else 1280
+        frame_h    = 1080 if resolution == "1080p" else 720
 
-        print("\n" + "=" * 60)
-        print("生成学习版视频...")
-        print("=" * 60)
+        ass_gen    = ASSGenerator(style_id, resolution)
+        segs       = segments_info or []
 
-        full_clips = []
-        total = len(sentences_data)
-        segs = segments_info or []
+        # 若未提供 parts_config，从旧式 config 常量构建（向后兼容）
+        if not parts_config:
+            parts_config = self._legacy_parts_config()
 
-        for i, sentence_data in enumerate(sentences_data):
+        # 计算总 clip 数（用于进度）
+        total_clips = len(sentences_data) * sum(p.get("repeat", 1) for p in parts_config)
+        done_clips  = 0
+
+        # 临时目录
+        job_tmp = Path(config.TEMP_DIR) / f"vp_{uuid.uuid4().hex[:8]}"
+        job_tmp.mkdir(parents=True, exist_ok=True)
+        all_clip_paths = []  # 最终拼接用的有序 clip 路径列表
+
+        print(f"[VideoProcessor] 🎬 开始处理 {len(sentences_data)} 句话，"
+              f"{len(parts_config)} 个 Part，共约 {total_clips} 个片段")
+
+        try:
+            for i, sent in enumerate(sentences_data):
+                if cancelled_fn and cancelled_fn():
+                    print("⚠️ 任务已取消")
+                    return {"cancelled": True}
+
+                seg      = segs[i] if i < len(segs) else {}
+                start    = seg.get("start", 0.0)
+                end      = seg.get("end",   start + 5.0)
+                next_start = segs[i + 1].get("start", end) if i + 1 < len(segs) else end
+
+                # 预生成本句各 Part 的 ASS（按 show 组合缓存）
+                ass_cache: Dict[tuple, str] = {}
+
+                for part in parts_config:
+                    if cancelled_fn and cancelled_fn():
+                        return {"cancelled": True}
+
+                    speed     = float(part.get("speed", 1.0))
+                    # slow 字段兼容旧格式；新格式直接用 speed < 1.0 判断
+                    is_slow   = (speed != 1.0) or part.get("slow", False)
+                    if part.get("slow", False) and speed == 1.0:
+                        speed = float(getattr(config, "SPEED_SLOW", 0.75))
+                    repeat    = max(1, int(part.get("repeat", 1)))
+                    show_sub  = part.get("show_subtitle", False)
+                    show_wb   = part.get("show_wordbox", False)
+                    show_eb   = part.get("show_exprbox", False)
+
+                    # Part 使用的时间段
+                    seg_end  = end if is_slow else next_start
+                    raw_dur  = seg_end - start
+
+                    # ── 1. 提取原始片段（-c copy 快速模式）──
+                    raw_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_raw.mp4")
+                    self._extract_segment(video_path, start, seg_end, raw_path)
+
+                    # ── 2. 变速（如需）──
+                    if is_slow:
+                        slow_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_slow.mp4")
+                        self._apply_slowdown(raw_path, speed, slow_path)
+                        base_clip = slow_path
+                        clip_dur  = raw_dur / speed
+                    else:
+                        base_clip = raw_path
+                        clip_dur  = raw_dur
+
+                    # ── 3. 生成 ASS（按 show 组合缓存）──
+                    show_key = (show_sub, show_wb, show_eb)
+                    need_ass = any(show_key)
+
+                    if need_ass and show_key not in ass_cache:
+                        ass_content = ass_gen.generate(
+                            duration         = clip_dur,
+                            original_text    = sent.get("original_text", ""),
+                            translated_text  = sent.get("chinese_translation",
+                                               sent.get("translated_text", "")),
+                            key_words        = sent.get("key_words", []),
+                            expressions      = sent.get("useful_expressions", []),
+                            layout           = layout,
+                            show_subtitle    = show_sub,
+                            show_wordbox     = show_wb,
+                            show_exprbox     = show_eb,
+                            animation        = animation,
+                        )
+                        ass_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}.ass")
+                        ass_gen.write_to_file(ass_content, ass_path)
+                        ass_cache[show_key] = ass_path
+
+                    # ── 4. 烧录字幕（如需）──
+                    if need_ass:
+                        burned_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_burned.mp4")
+                        self._burn_ass(base_clip, ass_cache[show_key], burned_path)
+                        final_clip = burned_path
+                    else:
+                        # 无字幕直接使用 copy clip；确保关键帧对齐以兼容 concat filter
+                        final_clip = base_clip
+
+                    # ── 5. 按 repeat 次数加入拼接列表 ──
+                    for _ in range(repeat):
+                        all_clip_paths.append(final_clip)
+
+                    done_clips += repeat
+                    if progress_callback:
+                        pct = int(done_clips / total_clips * 100)
+                        progress_callback("clips", {
+                            "current": i + 1, "total": len(sentences_data), "pct": pct
+                        })
+
+                print(f"  ✓ 句子 {i+1}/{len(sentences_data)}")
+
             if cancelled_fn and cancelled_fn():
-                print("⚠️ 任务已取消")
-                video.close()
                 return {"cancelled": True}
 
-            seg_info = segs[i] if i < len(segs) else {}
-            start_time = seg_info.get('start', 0)
-            end_time = seg_info.get('end', video.duration)
-            next_start = segs[i + 1].get('start') if i + 1 < len(segs) else None
-
-            processed_clip = self.process_sentence_video(
-                video, sentence_data, start_time, end_time, next_start, style=style
-            )
-            full_clips.append(processed_clip)
-
-            pct = int((i + 1) / total * 100)
-            print(f"  片段 {i+1}/{total} ({pct}%)")
+            # ── 6. 拼接所有片段 + 水印 ──
+            print(f"[VideoProcessor] 🔗 拼接 {len(all_clip_paths)} 个片段...")
             if progress_callback:
-                progress_callback('clips', {'current': i + 1, 'total': total, 'pct': pct})
+                progress_callback("write", {"pct": 0})
 
-        if cancelled_fn and cancelled_fn():
-            video.close()
-            return {"cancelled": True}
-
-        print("正在合并视频片段...")
-        full_video = concatenate_videoclips(full_clips, method="compose")
-        full_video = full_video.set_fps(config.FPS)
-        print(f"总时长: {full_video.duration:.1f}s")
-
-        if _VideoWriteLogger is not None and progress_callback:
-            logger = _VideoWriteLogger(
-                progress_fn=lambda phase, data: progress_callback(phase, data)
+            self._concat_with_watermark(
+                all_clip_paths, full_output_path, frame_w, frame_h,
+                progress_callback
             )
-        else:
-            logger = 'bar'
 
-        print(f"正在导出视频到 {full_output_path}...")
+            if progress_callback:
+                progress_callback("write", {"pct": 100})
+
+            print("[VideoProcessor] ✅ 视频处理完成")
+            return {"full": full_output_path}
+
+        finally:
+            # 清理临时文件
+            self._cleanup(job_tmp)
+
+    # ──────────────────────────────────────────────────────────────
+    # FFmpeg 命令
+    # ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_segment(src: str, start: float, end: float, out: str) -> None:
+        """提取片段（-c copy，毫秒级，无重编码）"""
+        duration = max(0.1, end - start)
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-ss", f"{start:.3f}",
+            "-t",  f"{duration:.3f}",
+            "-i",  src,
+            "-c",  "copy",
+            "-avoid_negative_ts", "make_zero",
+            out,
+        ], check=True, capture_output=True)
+
+    @staticmethod
+    def _apply_slowdown(src: str, speed: float, out: str) -> None:
+        """变速保音调（setpts + atempo 链式）"""
+        atempo = VideoProcessor._build_atempo_chain(speed)
+        pts    = f"{1.0/speed:.6f}*PTS"
+        subprocess.run([
+            "ffmpeg", "-y", "-i", src,
+            "-filter_complex",
+            f"[0:v]setpts={pts}[v];[0:a]{atempo}[a]",
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "superfast", "-crf", "23",
+            "-c:a", "aac", "-ar", "44100",
+            out,
+        ], check=True, capture_output=True)
+
+    @staticmethod
+    def _burn_ass(src: str, ass_path: str, out: str) -> None:
+        """将 ASS 字幕烧录到视频"""
+        # 转换为绝对路径，避免相对路径问题
+        abs_path = os.path.abspath(ass_path)
+        # FFmpeg filter 字符串转义：反斜杠 → \\，冒号 → \:
+        # 注意：subprocess 不走 shell，所以不需要 shell 级别的引号
+        safe_ass = abs_path.replace("\\", "/").replace(":", "\\:")
+        result = subprocess.run([
+            "ffmpeg", "-y", "-i", src,
+            "-vf", f"ass={safe_ass}",
+            "-c:v", "libx264", "-preset", "superfast", "-crf", "23",
+            "-c:a", "copy",
+            out,
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"[FFmpeg ASS] stderr: {result.stderr[-2000:]}")
+            raise subprocess.CalledProcessError(result.returncode, result.args)
+
+    @staticmethod
+    def _build_atempo_chain(speed: float) -> str:
+        """构建 atempo 过滤链（atempo 范围 0.5–2.0，链式处理极端速度）"""
+        filters = []
+        s = speed
+        # 低速链式（< 0.5 每次乘以 0.5）
+        while s < 0.5:
+            filters.append("atempo=0.5")
+            s /= 0.5
+        # 高速链式（> 2.0 每次乘以 2.0）
+        while s > 2.0:
+            filters.append("atempo=2.0")
+            s /= 2.0
+        filters.append(f"atempo={s:.6f}")
+        return ",".join(filters)
+
+    def _concat_with_watermark(
+        self,
+        clip_paths: List[str],
+        out: str,
+        frame_w: int,
+        frame_h: int,
+        progress_callback: Optional[Callable],
+    ) -> None:
+        """使用 concat filter 拼接所有片段并叠加水印，一次 pass 完成"""
+        n = len(clip_paths)
+        inputs = []
+        for p in clip_paths:
+            inputs += ["-i", p]
+
+        # 构建 filter_complex
+        in_refs   = "".join(f"[{i}:v][{i}:a]" for i in range(n))
+        concat_f  = f"{in_refs}concat=n={n}:v=1:a=1[vc][aout]"
+
+        # 水印（居中 -30° 半透灰字）
+        wm_text   = "Made By LinguaLearn"
+        wm_size   = max(16, int(min(frame_w, frame_h) * 0.04))
+        wm_filter = (
+            f"[vc]drawtext="
+            f"text='{wm_text}':"
+            f"fontsize={wm_size}:"
+            f"fontcolor=gray@0.15:"
+            f"x=(w-text_w)/2:"
+            f"y=(h-text_h)/2"
+            f"[vout]"
+        )
+        filter_complex = f"{concat_f};{wm_filter}"
+
+        # 文件大小进度线程
+        _stop = threading.Event()
         if progress_callback:
-            progress_callback('write', {'pct': 0})
+            def _size_progress():
+                bitrate_kbps = 2500 if config.VIDEO_RESOLUTION == "720p" else 4000
+                # 粗估总时长（每个 clip 约 3 秒）
+                est_dur = n * 3.0
+                expected = max(1, est_dur * bitrate_kbps * 1000 / 8)
+                last = 0
+                while not _stop.is_set():
+                    try:
+                        if os.path.exists(out):
+                            sz  = os.path.getsize(out)
+                            pct = min(95, int(sz / expected * 100))
+                            if pct > last:
+                                last = pct
+                                progress_callback("write", {"pct": pct})
+                    except Exception:
+                        pass
+                    _stop.wait(timeout=2.0)
+            t = threading.Thread(target=_size_progress, daemon=True)
+            t.start()
 
-        # 优化编码参数以加快速度
-        write_params = {
-            'fps': config.FPS,
-            'codec': 'libx264',
-            'audio_codec': 'aac',
-            'audio_fps': config.AUDIO_FPS,
-            'preset': 'superfast',  # 超快速预设（比 fast 快 3-4 倍）
-            'bitrate': '4000k',      # 降低比特率（1080p 仍有不错画质）
-            'verbose': False,        # 关闭冗长输出
-            'logger': logger,
-        }
+        try:
+            subprocess.run([
+                "ffmpeg", "-y", *inputs,
+                "-filter_complex", filter_complex,
+                "-map", "[vout]", "-map", "[aout]",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                "-c:a", "aac", "-ar", "44100",
+                out,
+            ], check=True)
+        finally:
+            _stop.set()
+            if progress_callback:
+                t.join(timeout=3)
 
-        # 根据分辨率调整参数
-        if config.VIDEO_RESOLUTION == '720p':
-            write_params['bitrate'] = '2500k'
+    # ──────────────────────────────────────────────────────────────
+    # 向后兼容
+    # ──────────────────────────────────────────────────────────────
 
-        full_video.write_videofile(full_output_path, **write_params)
+    @staticmethod
+    def _legacy_parts_config() -> List[Dict]:
+        """从旧式 config 常量构建 parts_config（向后兼容）"""
+        parts = []
+        if getattr(config, "PART1_REPEAT_COUNT", 0) > 0:
+            parts.append({
+                "repeat": config.PART1_REPEAT_COUNT,
+                "slow": False, "speed": 1.0,
+                "show_subtitle": getattr(config, "PART1_SHOW_SUBTITLE", False),
+                "show_wordbox":  getattr(config, "PART1_SHOW_WORD_BOX", False),
+                "show_exprbox":  getattr(config, "PART1_SHOW_EXPRESSION_BOX", False),
+            })
+        if getattr(config, "PART2_REPEAT_COUNT", 0) > 0:
+            parts.append({
+                "repeat": config.PART2_REPEAT_COUNT,
+                "slow": True, "speed": getattr(config, "SPEED_SLOW", 0.75),
+                "show_subtitle": getattr(config, "PART2_SHOW_SUBTITLE", True),
+                "show_wordbox":  getattr(config, "PART2_SHOW_WORD_BOX", True),
+                "show_exprbox":  getattr(config, "PART2_SHOW_EXPRESSION_BOX", True),
+            })
+        if getattr(config, "PART3_REPEAT_COUNT", 0) > 0:
+            parts.append({
+                "repeat": config.PART3_REPEAT_COUNT,
+                "slow": False, "speed": 1.0,
+                "show_subtitle": getattr(config, "PART3_SHOW_SUBTITLE", True),
+                "show_wordbox":  getattr(config, "PART3_SHOW_WORD_BOX", True),
+                "show_exprbox":  getattr(config, "PART3_SHOW_EXPRESSION_BOX", True),
+            })
+        if not parts:
+            # 最终兜底：2 个 Part，1x 原速 + 2x 慢速带字幕
+            parts = [
+                {"repeat": 1, "slow": False, "speed": 1.0,
+                 "show_subtitle": False, "show_wordbox": False, "show_exprbox": False},
+                {"repeat": 2, "slow": True,  "speed": 0.75,
+                 "show_subtitle": True,  "show_wordbox": True,  "show_exprbox": True},
+            ]
+        return parts
 
-        video.close()
-        full_video.close()
+    @staticmethod
+    def _cleanup(tmp_dir: Path) -> None:
+        """删除临时目录"""
 
-        if progress_callback:
-            progress_callback('write', {'pct': 100})
 
-        print("\n视频处理完成！")
-        return {"full": full_output_path}
+        try:
+            import shutil
+            shutil.rmtree(str(tmp_dir), ignore_errors=True)
+        except Exception:
+            pass

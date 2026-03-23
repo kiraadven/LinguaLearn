@@ -1,0 +1,152 @@
+<template>
+  <div class="profile-page page-inner">
+    <div class="page-header">
+      <h1>个人中心</h1>
+      <p>管理账号信息和安全设置</p>
+    </div>
+
+    <div v-if="!isLoggedIn" class="empty-state">
+      <div class="empty-icon">🔒</div>
+      <p class="empty-title">请先登录</p>
+      <button class="btn-primary" @click="openAuth()">登录 / 注册</button>
+    </div>
+
+    <div v-else class="profile-grid">
+      <!-- Avatar card -->
+      <div class="profile-card card" style="padding:36px 24px;text-align:center">
+        <div class="avatar">{{ (user.name||user.email||'?')[0].toUpperCase() }}</div>
+        <div style="font-size:19px;font-weight:700;margin-bottom:4px">{{ user.name||'—' }}</div>
+        <div style="font-size:13px;color:var(--text3);margin-bottom:16px">{{ user.email }}</div>
+        <div class="verified-badge">✓ 已验证账号</div>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="stat-val">{{ jobCount }}</div>
+            <div class="stat-lbl">已生成视频</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val">{{ joinDate }}</div>
+            <div class="stat-lbl">注册时间</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div>
+        <div class="card" style="padding:28px;margin-bottom:16px">
+          <div class="section-title" style="font-size:15px;margin-bottom:20px">👤 个人信息</div>
+          <label class="label">昵称</label>
+          <input class="input" :value="user.name||''" placeholder="输入昵称" style="margin-bottom:12px" disabled>
+          <label class="label">邮箱</label>
+          <input class="input" :value="user.email" disabled style="margin-bottom:16px;opacity:.6">
+          <button class="btn-ghost" style="font-size:13px;padding:8px 18px" @click="toast('昵称修改功能规划中','info')">
+            保存昵称
+          </button>
+        </div>
+
+        <div class="card" style="padding:28px;margin-bottom:16px">
+          <div class="section-title" style="font-size:15px;margin-bottom:20px">🔒 修改密码</div>
+          <label class="label">当前密码</label>
+          <input class="input" v-model="oldPw" type="password" placeholder="当前密码" style="margin-bottom:12px">
+          <label class="label">新密码</label>
+          <input class="input" v-model="newPw" type="password" placeholder="新密码（至少6位）" style="margin-bottom:12px">
+          <label class="label">确认新密码</label>
+          <input class="input" v-model="newPw2" type="password" placeholder="确认新密码" style="margin-bottom:8px">
+          <div v-if="pwMsg" :style="{color:pwOk?'var(--ok)':'var(--err)',fontSize:'13px',marginBottom:'12px'}">
+            {{ pwMsg }}
+          </div>
+          <button class="btn-ghost" style="font-size:13px;padding:8px 18px" :disabled="pwLoading" @click="doChangePw">
+            {{ pwLoading ? '更新中...' : '更新密码' }}
+          </button>
+        </div>
+
+        <div class="card" style="padding:28px">
+          <button class="logout-btn" @click="doLogout">退出登录</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, inject, onMounted } from 'vue'
+import { useAuth } from '../composables/useAuth.js'
+import { apiFetch } from '../composables/useApi.js'
+
+const { user, isLoggedIn, changePassword, logout } = useAuth()
+const openAuth = inject('openAuth')
+const toast    = inject('toast')
+
+const jobCount = ref(0)
+const joinDate = ref('—')
+const oldPw = ref(''); const newPw = ref(''); const newPw2 = ref('')
+const pwMsg = ref(''); const pwOk = ref(false); const pwLoading = ref(false)
+
+onMounted(async () => {
+  if (!isLoggedIn.value) return
+  try {
+    const d = await apiFetch('/api/jobs')
+    jobCount.value = (d.jobs||[]).length
+  } catch {}
+  if (user.value?.created_at) {
+    const dt = new Date(user.value.created_at)
+    joinDate.value = `${dt.getFullYear()}/${dt.getMonth()+1}`
+  }
+})
+
+async function doChangePw() {
+  pwMsg.value = ''; pwOk.value = false
+  if (!oldPw.value || !newPw.value) { pwMsg.value = '请填写完整'; return }
+  if (newPw.value !== newPw2.value) { pwMsg.value = '两次密码不一致'; return }
+  if (newPw.value.length < 6) { pwMsg.value = '新密码至少6位'; return }
+  pwLoading.value = true
+  try {
+    await changePassword(oldPw.value, newPw.value)
+    pwMsg.value = '密码修改成功'; pwOk.value = true
+    oldPw.value = ''; newPw.value = ''; newPw2.value = ''
+  } catch(e) { pwMsg.value = e.message }
+  finally { pwLoading.value = false }
+}
+
+function doLogout() {
+  logout()
+  toast('已退出登录', 'info')
+  window.location.hash = '/'
+}
+</script>
+
+<style scoped>
+.profile-page { padding: 32px 24px 80px; max-width: 900px; margin: 0 auto; }
+.page-header { margin-bottom: 32px; }
+.page-header h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 6px; }
+.page-header p  { color: var(--text2); font-size: 14px; }
+.empty-state { text-align:center;padding:80px 24px;display:flex;flex-direction:column;align-items:center;gap:12px; }
+.empty-icon { font-size:64px; }
+.empty-title { font-size:18px;font-weight:700; }
+
+.profile-grid { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 640px) { .profile-grid { grid-template-columns: 1fr; } }
+
+.avatar {
+  width:76px;height:76px;border-radius:50%;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:flex;align-items:center;justify-content:center;
+  font-size:30px;font-weight:800;margin:0 auto 16px;color:#fff;
+  box-shadow:0 4px 20px rgba(167,139,250,0.3);
+}
+.verified-badge {
+  display:inline-flex;align-items:center;gap:4px;padding:4px 13px;
+  border-radius:12px;background:rgba(167,139,250,0.1);
+  border:1px solid rgba(167,139,250,0.25);font-size:12px;color:var(--accent);font-weight:600;
+}
+.stat-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px; }
+.stat { background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center; }
+.stat-val { font-size:22px;font-weight:800;color:var(--accent); }
+.stat-lbl { font-size:11px;color:var(--text3);margin-top:2px; }
+
+.logout-btn {
+  width:100%;padding:12px;border-radius:8px;
+  border:1.5px solid rgba(248,113,113,0.4);background:transparent;
+  color:var(--err);font-size:14px;font-weight:600;transition:all .2s;
+}
+.logout-btn:hover { background:rgba(248,113,113,0.1); }
+</style>

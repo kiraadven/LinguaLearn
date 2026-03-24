@@ -26,6 +26,7 @@ def init_db():
             phone TEXT UNIQUE,
             password_hash TEXT NOT NULL,
             name TEXT,
+            avatar_url TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
@@ -34,6 +35,12 @@ def init_db():
     # 添加 phone 列（若已存在则忽略）
     try:
         c.execute("ALTER TABLE users ADD COLUMN phone TEXT UNIQUE")
+    except Exception:
+        pass
+
+    # 添加 avatar_url 列（若已存在则忽略）
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
     except Exception:
         pass
 
@@ -147,7 +154,7 @@ def get_user(email: str) -> dict:
     """获取用户信息"""
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT email, password_hash, name, created_at FROM users WHERE email = ?", (email,))
+    c.execute("SELECT email, password_hash, name, avatar_url, created_at FROM users WHERE email = ?", (email,))
     row = c.fetchone()
     conn.close()
     if row:
@@ -155,6 +162,7 @@ def get_user(email: str) -> dict:
             "email": row["email"],
             "password_hash": row["password_hash"],
             "name": row["name"],
+            "avatar_url": row["avatar_url"],
             "created_at": row["created_at"]
         }
     return None
@@ -259,6 +267,17 @@ def get_verification_code(email: str) -> dict:
     if row:
         return {"code": row["code"], "expires_at": row["expires_at"]}
     return None
+
+def verify_code(email: str, code: str) -> bool:
+    """验证验证码是否正确且未过期"""
+    vc = get_verification_code(email)
+    if not vc:
+        return False
+    if vc["code"] != code:
+        return False
+    if datetime.fromisoformat(vc["expires_at"]) < datetime.now():
+        return False
+    return True
 
 def delete_verification_code(email: str) -> bool:
     """删除验证码"""
@@ -474,5 +493,41 @@ def delete_job(job_id: str, email: str) -> bool:
     finally:
         conn.close()
 
-# 初始化数据库
+def update_user_avatar(email: str, avatar_url: str) -> bool:
+    """更新用户头像 URL"""
+    conn = get_db()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("UPDATE users SET avatar_url = ?, updated_at = ? WHERE email = ?",
+              (avatar_url, now, email))
+    conn.commit()
+    result = c.rowcount > 0
+    conn.close()
+    return result
+
+def bind_email(old_email: str, new_email: str) -> bool:
+    """绑定邮箱 - 更新用户邮箱并同步 token 表"""
+    conn = get_db()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    try:
+        # 检查新邮箱是否已被使用
+        c.execute("SELECT 1 FROM users WHERE email = ?", (new_email,))
+        if c.fetchone():
+            return False  # 新邮箱已被使用
+
+        # 更新用户表
+        c.execute("UPDATE users SET email = ?, updated_at = ? WHERE email = ?",
+                  (new_email, now, old_email))
+
+        # 同步 token 表
+        c.execute("UPDATE tokens SET email = ? WHERE email = ?", (new_email, old_email))
+
+        conn.commit()
+        return c.rowcount > 0
+    except Exception as e:
+        print(f"[DB Error] bind_email: {e}")
+        return False
+    finally:
+        conn.close()
 init_db()

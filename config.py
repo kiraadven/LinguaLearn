@@ -23,27 +23,28 @@ TARGET_LANGUAGE = os.getenv('TARGET_LANGUAGE', 'zh')
 
 WHISPER_LANGUAGE_MAP = {
     'en': 'en', 'zh': 'zh', 'ja': 'ja',
-    'ko': 'ko', 'de': 'de', 'fr': 'fr', 'es': 'es',
+    'ko': 'ko', 'de': 'de', 'fr': 'fr', 'es': 'es', 'ru': 'ru',
 }
 
 LANGUAGE_NATIVE_NAMES = {
     'en': 'English', 'zh': '中文', 'ja': '日本語',
-    'ko': '한국어', 'de': 'Deutsch', 'fr': 'Français', 'es': 'Español',
+    'ko': '한국어', 'de': 'Deutsch', 'fr': 'Français', 'es': 'Español', 'ru': 'Русский',
 }
 
 LANGUAGE_FLAGS = {
     'en': '🇺🇸', 'zh': '🇨🇳', 'ja': '🇯🇵',
-    'ko': '🇰🇷', 'de': '🇩🇪', 'fr': '🇫🇷', 'es': '🇪🇸',
+    'ko': '🇰🇷', 'de': '🇩🇪', 'fr': '🇫🇷', 'es': '🇪🇸', 'ru': '🇷🇺',
 }
 
 LANGUAGE_DISPLAY_NAMES = {
-    'en': {'zh': '英语', 'en': 'English', 'ja': '英語', 'ko': '영어', 'de': 'Englisch', 'fr': 'Anglais', 'es': 'Inglés'},
-    'zh': {'zh': '中文', 'en': 'Chinese', 'ja': '中国語', 'ko': '중국어', 'de': 'Chinesisch', 'fr': 'Chinois', 'es': 'Chino'},
-    'ja': {'zh': '日语', 'en': 'Japanese', 'ja': '日本語', 'ko': '일본어', 'de': 'Japanisch', 'fr': 'Japonais', 'es': 'Japonés'},
-    'ko': {'zh': '韩语', 'en': 'Korean', 'ja': '韓国語', 'ko': '한국어', 'de': 'Koreanisch', 'fr': 'Coréen', 'es': 'Coreano'},
-    'de': {'zh': '德语', 'en': 'German', 'ja': 'ドイツ語', 'ko': '독일어', 'de': 'Deutsch', 'fr': 'Allemand', 'es': 'Alemán'},
-    'fr': {'zh': '法语', 'en': 'French', 'ja': 'フランス語', 'ko': '프랑스어', 'de': 'Französisch', 'fr': 'Français', 'es': 'Francés'},
-    'es': {'zh': '西班牙语', 'en': 'Spanish', 'ja': 'スペイン語', 'ko': '스페인어', 'de': 'Spanisch', 'fr': 'Espagnol', 'es': 'Español'},
+    'en': {'zh': '英语', 'en': 'English', 'ja': '英語', 'ko': '영어', 'de': 'Englisch', 'fr': 'Anglais', 'es': 'Inglés', 'ru': 'Английский'},
+    'zh': {'zh': '中文', 'en': 'Chinese', 'ja': '中国語', 'ko': '중국어', 'de': 'Chinesisch', 'fr': 'Chinois', 'es': 'Chino', 'ru': 'Китайский'},
+    'ja': {'zh': '日语', 'en': 'Japanese', 'ja': '日本語', 'ko': '일본어', 'de': 'Japanisch', 'fr': 'Japonais', 'es': 'Japonés', 'ru': 'Японский'},
+    'ko': {'zh': '韩语', 'en': 'Korean', 'ja': '韓国語', 'ko': '한국어', 'de': 'Koreanisch', 'fr': 'Coréen', 'es': 'Coreano', 'ru': 'Корейский'},
+    'de': {'zh': '德语', 'en': 'German', 'ja': 'ドイツ語', 'ko': '독일어', 'de': 'Deutsch', 'fr': 'Allemand', 'es': 'Alemán', 'ru': 'Немецкий'},
+    'fr': {'zh': '法语', 'en': 'French', 'ja': 'フランス語', 'ko': '프랑스어', 'de': 'Französisch', 'fr': 'Français', 'es': 'Francés', 'ru': 'Французский'},
+    'es': {'zh': '西班牙语', 'en': 'Spanish', 'ja': 'スペイン語', 'ko': '스페인어', 'de': 'Spanisch', 'fr': 'Espagnol', 'es': 'Español', 'ru': 'Испанский'},
+    'ru': {'zh': '俄语', 'en': 'Russian', 'ja': 'ロシア語', 'ko': '러시아어', 'de': 'Russisch', 'fr': 'Russe', 'es': 'Ruso', 'ru': 'Русский'},
 }
 
 PHONETIC_SYSTEM_NAMES = {
@@ -54,6 +55,7 @@ PHONETIC_SYSTEM_NAMES = {
     'de': {'zh': 'IPA国际音标', 'en': 'IPA', 'default': 'IPA'},
     'fr': {'zh': 'IPA国际音标', 'en': 'IPA', 'default': 'IPA'},
     'es': {'zh': 'IPA国际音标', 'en': 'IPA', 'default': 'IPA'},
+    'ru': {'zh': 'IPA国际音标', 'en': 'IPA', 'default': 'IPA'},
 }
 
 CJK_LANGUAGES = {'zh', 'ja', 'ko'}
@@ -102,15 +104,5 @@ UPLOAD_DIR = 'uploads'
 # ===== 视频分辨率配置 =====
 VIDEO_RESOLUTION = "1080p"
 
-# ===== 邮件 SMTP 配置（用于发送邮箱验证码）=====
-SMTP_HOST = os.getenv('SMTP_HOST', '')
-SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
-SMTP_USER = os.getenv('SMTP_USER', '')
-SMTP_PASS = os.getenv('SMTP_PASS', '')
-SMTP_FROM = os.getenv('SMTP_FROM', 'LinguaLearn <noreply@lingualearn.app>')
-
-# ===== 短信配置（阿里云）=====
-SMS_ACCESS_KEY_ID = os.getenv('SMS_ACCESS_KEY_ID', '')
-SMS_ACCESS_KEY_SECRET = os.getenv('SMS_ACCESS_KEY_SECRET', '')
-SMS_SIGN_NAME = os.getenv('SMS_SIGN_NAME', 'LinguaLearn')
-SMS_TEMPLATE_CODE = os.getenv('SMS_TEMPLATE_CODE', '')
+# ===== 邮件配置 =====
+RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')

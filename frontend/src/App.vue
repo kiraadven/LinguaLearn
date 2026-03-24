@@ -16,7 +16,8 @@
     <div style="display:flex;align-items:center;gap:10px">
       <template v-if="user">
         <div class="nav-avatar" @click="$router.push('/profile')" :title="user.name||user.email">
-          {{ (user.name||user.email||'?')[0].toUpperCase() }}
+          <img v-if="user.avatar_url" :src="user.avatar_url" :alt="user.name||user.email" style="width:100%;height:100%;border-radius:50%;object-fit:cover">
+          <span v-else>{{ (user.name||user.email||'?')[0].toUpperCase() }}</span>
         </div>
       </template>
       <template v-else>

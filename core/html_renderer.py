@@ -25,6 +25,7 @@ _SUBTITLE_BG_STYLES = {
     'dark':     {'bg': '#1e1e2e', 'accent': '#818cf8', 'divider': '#374151', 'tgt_opacity': 0.80},
     'blue':     {'bg': '#eff6ff', 'accent': '#3b82f6', 'divider': '#bfdbfe', 'tgt_opacity': 0.85},
     'gradient': {'bg': 'linear-gradient(135deg,#f0f4ff 0%,#fdf2ff 100%)', 'accent': '#8b5cf6', 'divider': '#ddd6fe', 'tgt_opacity': 0.85},
+    'none':     {'bg': 'transparent', 'accent': 'transparent', 'divider': 'transparent', 'tgt_opacity': 1.0},
 }
 
 # ===== Preview example data per source language =====
@@ -174,6 +175,26 @@ _PREVIEW_EXAMPLES = {
             {"english": "del cerebro humano",  "chinese": "of the human brain",    "difficulty": 2},
         ],
     },
+    'ru': {
+        'sentence': "Освоение языка — это замечательный феномен, который демонстрирует когнитивную адаптивность и нейропластичность человеческого мозга.",
+        'translations': {
+            'en': "Language acquisition is a remarkable phenomenon that demonstrates cognitive adaptability and neural plasticity of the human brain.",
+            'zh': "语言习得是一种非凡的现象，展示了人类大脑的认知适应性和神经可塑性。",
+        },
+        'words': [
+            {"word": "освоение",      "phonetic": "/əsˈvoːɪnɪjə/", "translation": "acquisition",   "difficulty": 3},
+            {"word": "замечательный", "phonetic": "/zəmɪˈtʃætəlnɪj/", "translation": "remarkable",   "difficulty": 3},
+            {"word": "феномен",       "phonetic": "/fɪˈnɔːmɪn/",    "translation": "phenomenon",    "difficulty": 4},
+            {"word": "демонстрирует", "phonetic": "/dɪˈmɒnstreɪts/", "translation": "demonstrates",  "difficulty": 3},
+            {"word": "адаптивность",  "phonetic": "/ədˈæptɪvnəs/",  "translation": "adaptability",  "difficulty": 4},
+            {"word": "нейропластичность", "phonetic": "/ˈnjʊroʊˈplæstɪsɪti/", "translation": "neural plasticity", "difficulty": 5},
+        ],
+        'expressions': [
+            {"english": "замечательный феномен", "chinese": "remarkable phenomenon",      "difficulty": 3},
+            {"english": "демонстрирует способность", "chinese": "demonstrates ability", "difficulty": 3},
+            {"english": "человеческого мозга",     "chinese": "of the human brain",     "difficulty": 2},
+        ],
+    },
 }
 
 
@@ -283,7 +304,12 @@ class HTMLRenderer:
         key = style.get('line_height', 'normal')
         return _LINE_HEIGHTS.get(key, 1.45)
 
-    def _scale(self, style: dict) -> float:
+    def _scale(self, style: dict, box_type: str = '') -> float:
+        """Return font size scale for a box. Checks box-specific key first (e.g. subtitle_font_size_scale)."""
+        if box_type:
+            v = style.get(f'{box_type}_font_size_scale')
+            if v is not None:
+                return float(v)
         return float(style.get('font_size_scale', 1.0))
 
     # ------------------------------------------------------------------ subtitle
@@ -293,7 +319,7 @@ class HTMLRenderer:
                         style: dict = None) -> bool:
         style = style or {}
         is_1080p = getattr(config, 'VIDEO_RESOLUTION', '1080p') == "1080p"
-        scale = self._scale(style)
+        scale = self._scale(style, 'subtitle')
         lh = self._line_height(style)
 
         if is_1080p:
@@ -315,15 +341,18 @@ class HTMLRenderer:
             font_src = max(14, min(38, int(base_src * char_scale * scale)))
             font_tgt = max(12, min(30, int(base_tgt * char_scale * scale)))
 
-        # Background style
+        # Background style — support 'none' (transparent)
         bg_style_key = style.get('subtitle_bg_style', 'light')
         bg_preset = _SUBTITLE_BG_STYLES.get(bg_style_key, _SUBTITLE_BG_STYLES['light'])
-        bg_color = style.get('subtitle_bg', bg_preset['bg'])
-        en_color = style.get('subtitle_en_color', config.SUBTITLE_BOX_ENGLISH_COLOR)
+        # Accept both subtitle_bg_color (frontend key) and subtitle_bg (legacy key)
+        bg_color = style.get('subtitle_bg_color') or style.get('subtitle_bg') or bg_preset['bg']
+        # Accept subtitle_text_color (frontend key) or subtitle_en_color (legacy key)
+        en_color = style.get('subtitle_text_color') or style.get('subtitle_en_color', config.SUBTITLE_BOX_ENGLISH_COLOR)
         cn_color = style.get('subtitle_cn_color', config.SUBTITLE_BOX_CHINESE_COLOR)
         accent = bg_preset['accent']
         divider_color = bg_preset['divider']
         tgt_opacity = bg_preset['tgt_opacity']
+        text_highlight_color = style.get('text_highlight_color', 'rgba(200,200,200,0.1)')
 
         padding = max(8, int(height * 0.06))
         padding_h = max(12, int(width * 0.03))
@@ -366,6 +395,7 @@ class HTMLRenderer:
             .replace('{{accent_bar_w}}',       str(max(3, int(width * 0.004))))
             .replace('{{accent_opacity}}',     '0.7')
             .replace('{{cjk_break}}',          cjk_break)
+            .replace('{{text_highlight_color}}', text_highlight_color)
         )
         return self._render_html_to_png(html, output_path, width, height)
 
@@ -376,7 +406,7 @@ class HTMLRenderer:
                        style: dict = None) -> bool:
         style = style or {}
         is_1080p = getattr(config, 'VIDEO_RESOLUTION', '1080p') == "1080p"
-        scale = self._scale(style)
+        scale = self._scale(style, 'wordbox')
         lh = self._line_height(style)
 
         if is_1080p:
@@ -403,6 +433,7 @@ class HTMLRenderer:
         pc       = style.get('wordbox_phonetic_color',config.WORD_BOX_PHONETIC_COLOR)
         tc       = style.get('wordbox_trans_color',   config.WORD_BOX_TRANS_COLOR)
         accent   = style.get('wordbox_accent_color',  wc)
+        text_highlight_color = style.get('text_highlight_color', 'rgba(200,200,200,0.1)')
 
         padding     = max(6, int(height * 0.025))
         label_size  = max(10, int(fw * 0.48))
@@ -467,6 +498,7 @@ class HTMLRenderer:
             .replace('{{accent_w}}',       str(accent_w))
             .replace('{{padding}}',        str(padding))
             .replace('{{cjk_break}}',      cjk_break)
+            .replace('{{text_highlight_color}}', text_highlight_color)
             .replace('{{words_html}}',     words_html)
         )
         return self._render_html_to_png(html, output_path, width, height)
@@ -478,7 +510,7 @@ class HTMLRenderer:
                               style: dict = None) -> bool:
         style = style or {}
         is_1080p = getattr(config, 'VIDEO_RESOLUTION', '1080p') == "1080p"
-        scale = self._scale(style)
+        scale = self._scale(style, 'exprbox')
         lh = self._line_height(style)
 
         if is_1080p:
@@ -500,6 +532,7 @@ class HTMLRenderer:
         enc    = style.get('exprbox_en_color',  config.EXPR_BOX_ENGLISH_COLOR)
         cnc    = style.get('exprbox_cn_color',  config.EXPR_BOX_CHINESE_COLOR)
         accent = style.get('exprbox_accent_color', enc)
+        text_highlight_color = style.get('text_highlight_color', 'rgba(200,200,200,0.1)')
 
         padding      = max(6, int(height * 0.025))
         label_size   = max(10, int(fen * 0.48))
@@ -563,6 +596,7 @@ class HTMLRenderer:
             .replace('{{cn_indent}}',      str(cn_indent))
             .replace('{{padding}}',        str(padding))
             .replace('{{cjk_break}}',      cjk_break)
+            .replace('{{text_highlight_color}}', text_highlight_color)
             .replace('{{expressions_html}}', expressions_html)
         )
         return self._render_html_to_png(html, output_path, width, height)

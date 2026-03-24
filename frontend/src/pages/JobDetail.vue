@@ -91,6 +91,7 @@
         <!-- Per-sentence cards -->
         <div v-for="(s, i) in sentences" :key="i" :id="`sent-${i}`" class="sent-card">
           <div class="sent-head" @click="jumpTo(segments[i]?.start || 0)">
+            <button class="play-btn" :title="`跳转到 ${fmtTime(segments[i]?.start || 0)}`" @click.stop="jumpTo(segments[i]?.start || 0)">▶</button>
             <span class="sent-idx">{{ i + 1 }}</span>
             <p class="sent-orig">{{ s.original_text }}</p>
             <span v-if="segments[i]" class="sent-ts" @click.stop="jumpTo(segments[i].start)">
@@ -415,6 +416,14 @@ function fmtTime(sec) {
   transition: all .15s; white-space: nowrap;
 }
 .sent-ts:hover { background: var(--accent); color: #fff; }
+.play-btn {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(99,102,241,.15); border: 1px solid rgba(99,102,241,.3);
+  color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: all .15s; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; margin: 0;
+}
+.play-btn:hover { background: var(--accent); color: #fff; }
 .sent-trans {
   font-size: 14px; color: var(--text2); margin: 0 0 14px;
   padding-left: 34px; line-height: 1.6; font-style: italic;

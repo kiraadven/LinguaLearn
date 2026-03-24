@@ -14,7 +14,14 @@
     <div v-else class="profile-grid">
       <!-- Avatar card -->
       <div class="profile-card card" style="padding:36px 24px;text-align:center">
-        <div class="avatar">{{ (user.name||user.email||'?')[0].toUpperCase() }}</div>
+        <div class="avatar-section">
+          <img v-if="user.avatar_url" :src="user.avatar_url" class="avatar-img" alt="头像">
+          <div v-else class="avatar">{{ (user.name||user.email||'?')[0].toUpperCase() }}</div>
+          <input ref="avatarInput" type="file" accept="image/*" style="display:none" @change="onAvatarSelect">
+          <button class="btn-small" @click="$refs.avatarInput.click()" style="margin-top:8px;font-size:12px;padding:6px 12px">
+            {{ avatarLoading ? '上传中...' : '更换头像' }}
+          </button>
+        </div>
         <div style="font-size:19px;font-weight:700;margin-bottom:4px">{{ user.name||'—' }}</div>
         <div style="font-size:13px;color:var(--text3);margin-bottom:16px">{{ user.email }}</div>
         <div class="verified-badge">✓ 已验证账号</div>
@@ -41,6 +48,28 @@
           <button class="btn-ghost" style="font-size:13px;padding:8px 18px" @click="toast('昵称修改功能规划中','info')">
             保存昵称
           </button>
+        </div>
+
+        <div class="card" style="padding:28px;margin-bottom:16px">
+          <div class="section-title" style="font-size:15px;margin-bottom:20px">📧 邮箱绑定</div>
+          <div v-if="emailBound" style="color:var(--ok);font-size:14px;margin-bottom:12px">✓ 邮箱已绑定</div>
+          <div v-else>
+            <label class="label">新邮箱</label>
+            <input class="input" v-model="newEmail" type="email" placeholder="输入新邮箱地址" style="margin-bottom:8px">
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <button class="btn-ghost" style="flex:1;font-size:13px;padding:8px" :disabled="emailCodeLoading || !newEmail" @click="doSendEmailCode">
+                {{ emailCodeLoading ? '发送中...' : emailCodeSent ? `重新发送 (${emailCodeCountdown}s)` : '发送验证码' }}
+              </button>
+            </div>
+            <label class="label">验证码</label>
+            <input class="input" v-model="emailCode" type="text" placeholder="输入验证码" style="margin-bottom:8px" :disabled="!emailCodeSent">
+            <div v-if="emailMsg" :style="{color:emailOk?'var(--ok)':'var(--err)',fontSize:'13px',marginBottom:'12px'}">
+              {{ emailMsg }}
+            </div>
+            <button class="btn-ghost" style="font-size:13px;padding:8px 18px" :disabled="emailLoading || !emailCodeSent" @click="doBindEmail">
+              {{ emailLoading ? '绑定中...' : '确认绑定' }}
+            </button>
+          </div>
         </div>
 
         <div class="card" style="padding:28px;margin-bottom:16px">
@@ -72,7 +101,7 @@ import { ref, inject, onMounted } from 'vue'
 import { useAuth } from '../composables/useAuth.js'
 import { apiFetch } from '../composables/useApi.js'
 
-const { user, isLoggedIn, changePassword, logout } = useAuth()
+const { user, isLoggedIn, changePassword, logout, sendEmailCode, bindEmail, uploadAvatar } = useAuth()
 const openAuth = inject('openAuth')
 const toast    = inject('toast')
 
@@ -80,6 +109,17 @@ const jobCount = ref(0)
 const joinDate = ref('—')
 const oldPw = ref(''); const newPw = ref(''); const newPw2 = ref('')
 const pwMsg = ref(''); const pwOk = ref(false); const pwLoading = ref(false)
+const newEmail = ref('')
+const emailCode = ref('')
+const emailMsg = ref('')
+const emailOk = ref(false)
+const emailLoading = ref(false)
+const emailCodeLoading = ref(false)
+const emailCodeSent = ref(false)
+const emailCodeCountdown = ref(0)
+const emailBound = ref(false)
+const avatarLoading = ref(false)
+const avatarInput = ref(null)
 
 onMounted(async () => {
   if (!isLoggedIn.value) return
@@ -91,7 +131,93 @@ onMounted(async () => {
     const dt = new Date(user.value.created_at)
     joinDate.value = `${dt.getFullYear()}/${dt.getMonth()+1}`
   }
+  emailBound.value = !!user.value?.email_bound
 })
+
+async function onAvatarSelect(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+
+  // 验证文件大小 (5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    toast('文件大小不能超过 5MB', 'err')
+    return
+  }
+
+  avatarLoading.value = true
+  try {
+    await uploadAvatar(file)
+    toast('头像已更新', 'ok')
+  } catch(e) {
+    toast(e.message || '头像上传失败', 'err')
+  } finally {
+    avatarLoading.value = false
+    if (avatarInput.value) avatarInput.value.value = ''
+  }
+}
+
+async function doSendEmailCode() {
+  if (!newEmail.value) {
+    emailMsg.value = '请输入邮箱地址'
+    return
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.value)) {
+    emailMsg.value = '邮箱格式错误'
+    return
+  }
+
+  emailCodeLoading.value = true
+  emailMsg.value = ''
+  try {
+    const fd = new FormData()
+    fd.append('email', newEmail.value)
+    const res = await apiFetch('/api/auth/send-email-code', { method: 'POST', body: fd })
+
+    // Auto-fill verification code in dev mode
+    if (res.code) {
+      emailCode.value = res.code
+    }
+
+    emailCodeSent.value = true
+    emailCodeCountdown.value = 60
+    const timer = setInterval(() => {
+      emailCodeCountdown.value--
+      if (emailCodeCountdown.value <= 0) {
+        clearInterval(timer)
+        emailCodeSent.value = false
+      }
+    }, 1000)
+    emailMsg.value = '验证码已发送'
+  } catch(e) {
+    emailMsg.value = e.message || '验证码发送失败'
+  } finally {
+    emailCodeLoading.value = false
+  }
+}
+
+async function doBindEmail() {
+  emailMsg.value = ''
+  emailOk.value = false
+  if (!emailCode.value) {
+    emailMsg.value = '请输入验证码'
+    return
+  }
+
+  emailLoading.value = true
+  try {
+    await bindEmail(newEmail.value, emailCode.value)
+    emailMsg.value = '邮箱已绑定'
+    emailOk.value = true
+    emailBound.value = true
+    newEmail.value = ''
+    emailCode.value = ''
+    emailCodeSent.value = false
+  } catch(e) {
+    emailMsg.value = e.message || '邮箱绑定失败'
+  } finally {
+    emailLoading.value = false
+  }
+}
 
 async function doChangePw() {
   pwMsg.value = ''; pwOk.value = false
@@ -126,11 +252,19 @@ function doLogout() {
 .profile-grid { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
 @media (max-width: 640px) { .profile-grid { grid-template-columns: 1fr; } }
 
+.avatar-section { margin-bottom: 16px; }
+.avatar-img {
+  width:76px;height:76px;border-radius:50%;
+  object-fit:cover;
+  margin:0 auto 8px;
+  border:2px solid var(--border);
+  display:block;
+}
 .avatar {
   width:76px;height:76px;border-radius:50%;
   background:linear-gradient(135deg,var(--accent),var(--accent2));
   display:flex;align-items:center;justify-content:center;
-  font-size:30px;font-weight:800;margin:0 auto 16px;color:#fff;
+  font-size:30px;font-weight:800;margin:0 auto 8px;color:#fff;
   box-shadow:0 4px 20px rgba(167,139,250,0.3);
 }
 .verified-badge {
@@ -142,6 +276,13 @@ function doLogout() {
 .stat { background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center; }
 .stat-val { font-size:22px;font-weight:800;color:var(--accent); }
 .stat-lbl { font-size:11px;color:var(--text3);margin-top:2px; }
+
+.btn-small {
+  background:var(--accent);color:#fff;border:none;border-radius:6px;
+  font-weight:600;cursor:pointer;transition:all .2s;
+}
+.btn-small:hover:not(:disabled) { background:var(--accent2); }
+.btn-small:disabled { opacity:0.5;cursor:not-allowed; }
 
 .logout-btn {
   width:100%;padding:12px;border-radius:8px;

@@ -11,7 +11,7 @@ export function useAuth() {
     if (!token.value) return
     try {
       const d = await apiFetch('/api/auth/me')
-      user.value = { email: d.email, name: d.name, created_at: d.created_at }
+      user.value = { email: d.email, name: d.name, avatar_url: d.avatar_url, created_at: d.created_at }
     } catch {
       token.value = ''
       user.value = null
@@ -24,7 +24,7 @@ export function useAuth() {
     const d = await apiPost('/api/auth/login', fd)
     token.value = d.token
     localStorage.setItem('ll_token', d.token)
-    user.value = { email: d.email, name: d.name }
+    user.value = { email: d.email, name: d.name, avatar_url: d.avatar_url }
     return d
   }
 
@@ -38,7 +38,7 @@ export function useAuth() {
     const d = await apiPost('/api/auth/register', fd)
     token.value = d.token
     localStorage.setItem('ll_token', d.token)
-    user.value = { email: d.email, name: d.name }
+    user.value = { email: d.email, name: d.name, avatar_url: d.avatar_url }
     return d
   }
 
@@ -53,5 +53,29 @@ export function useAuth() {
     return apiPost('/api/auth/change-password', fd)
   }
 
-  return { token, user, isLoggedIn, checkAuth, login, register, sendCode, logout, changePassword }
+  async function sendEmailCode(email) {
+    const fd = buildForm({ email })
+    return apiPost('/api/auth/send-email-code', fd)
+  }
+
+  async function bindEmail(email, code) {
+    const fd = buildForm({ email, code })
+    const d = await apiPost('/api/auth/bind-email', fd)
+    if (user.value) {
+      user.value.email = d.email
+    }
+    return d
+  }
+
+  async function uploadAvatar(file) {
+    const fd = new FormData()
+    fd.append('file', file)
+    const d = await apiPost('/api/users/avatar', fd)
+    if (user.value) {
+      user.value.avatar_url = d.avatar_url
+    }
+    return d
+  }
+
+  return { token, user, isLoggedIn, checkAuth, login, register, sendCode, logout, changePassword, sendEmailCode, bindEmail, uploadAvatar }
 }

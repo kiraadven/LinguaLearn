@@ -53,6 +53,13 @@
             padding: 0;
         }
 
+        .src-text-inner {
+            background-color: {{text_highlight_color}};
+            border-radius: 3px;
+            padding: 1px 5px;
+            display: inline-block;
+        }
+
         .divider {
             width: {{divider_w}}%;
             height: {{divider_h}}px;
@@ -82,7 +89,7 @@
 </head>
 <body>
     <div class="subtitle-container">
-        <div class="src-text">{{english_text}}</div>
+        <div class="src-text"><span class="src-text-inner">{{english_text}}</span></div>
         <div class="divider"></div>
         <div class="tgt-text">{{chinese_text}}</div>
     </div>

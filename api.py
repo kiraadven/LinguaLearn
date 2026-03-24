@@ -14,6 +14,10 @@ import hashlib
 import random
 import smtplib
 import base64
+try:
+    import resend
+except ImportError:
+    resend = None
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from contextlib import redirect_stdout
@@ -95,20 +99,39 @@ def get_job_or_404(job_id: str) -> dict:
 
 # ===== Email sender =====
 
-def _send_email(to_email: str, subject: str, html_body: str) -> bool:
-    """Send email via SMTP. Returns True if sent, False in dev mode (no SMTP)."""
+def _send_email(to_email: str, subject: str, html_body: str, from_email: str = None) -> bool:
+    """Send email via Resend (priority) or SMTP fallback. Returns True if sent, False otherwise."""
+    if not from_email:
+        from_email = getattr(config, 'SMTP_FROM', 'noreply@lingualearn.app')
+
+    # Try Resend first
+    if config.RESEND_API_KEY and resend:
+        try:
+            resend.api_key = config.RESEND_API_KEY
+            r = resend.Emails.send({
+                "from": from_email,
+                "to": to_email,
+                "subject": subject,
+                "html": html_body
+            })
+            if r.get("id"):  # Success if id is returned
+                return True
+        except Exception as e:
+            print(f"[Resend Error] {type(e).__name__}: {e}")
+            # Fall through to SMTP
+
+    # SMTP fallback
     host = getattr(config, 'SMTP_HOST', '')
     user = getattr(config, 'SMTP_USER', '')
     pw   = getattr(config, 'SMTP_PASS', '')
     port = int(getattr(config, 'SMTP_PORT', 587))
-    from_addr = getattr(config, 'SMTP_FROM', 'LinguaLearn <noreply@lingualearn.app>')
 
     if not host or not user:
         return False  # dev mode
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
-    msg['From']    = from_addr
+    msg['From']    = from_email
     msg['To']      = to_email
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
@@ -123,7 +146,7 @@ def _send_email(to_email: str, subject: str, html_body: str) -> bool:
             s.starttls()
 
         s.login(user, pw)
-        s.sendmail(from_addr, to_email, msg.as_string())
+        s.sendmail(from_email, to_email, msg.as_string())
         s.quit()
         return True
     except Exception as e:
@@ -294,6 +317,7 @@ async def process_video_job(
                                 "y_pct": box.get("y", 0) / 100.0,
                                 "w_pct": box.get("w", 20) / 100.0,
                                 "h_pct": box.get("h", 20) / 100.0,
+                                "font_scale": box.get("font_scale", 1.0),
                             }
                             seen_layout.add(lkey)
             if not nested_layout and layout:
@@ -304,6 +328,7 @@ async def process_video_job(
                         "y_pct": layout.get("subtitle_y_pct", 0.76),
                         "w_pct": layout.get("subtitle_width_pct", 0.90),
                         "h_pct": layout.get("subtitle_height_pct", 0.14),
+                        "font_scale": layout.get("subtitle_font_size_scale", 1.0),
                     }
                 if "wordbox_width_pct" in layout:
                     nested_layout["wordbox"] = {
@@ -311,6 +336,7 @@ async def process_video_job(
                         "y_pct": layout.get("wordbox_y_pct", 0.005),
                         "w_pct": layout.get("wordbox_width_pct", 0.245),
                         "h_pct": layout.get("wordbox_height_pct", 0.65),
+                        "font_scale": layout.get("wordbox_font_size_scale", 1.0),
                     }
                 if "exprbox_width_pct" in layout:
                     nested_layout["exprbox"] = {
@@ -318,6 +344,7 @@ async def process_video_job(
                         "y_pct": layout.get("exprbox_y_pct", 0.005),
                         "w_pct": layout.get("exprbox_width_pct", 0.245),
                         "h_pct": layout.get("exprbox_height_pct", 0.55),
+                        "font_scale": layout.get("exprbox_font_size_scale", 1.0),
                     }
 
             update_job(job_id, status="running", step=1, step_name="正在提取音频...")
@@ -427,6 +454,10 @@ async def process_video_job(
                 print(f"📐 布局: {list(nested_layout.keys())}")
 
             print("🚀 开始处理完整视频...")
+            # 将语言信息注入 style_dict，供 html_renderer 使用
+            if style:
+                style['source_lang'] = source_lang
+                style['target_lang'] = target_lang
             video_paths = processor.process_full_video(
                 video_path=video_path,
                 sentences_data=sentences_data,
@@ -438,6 +469,7 @@ async def process_video_job(
                 parts_config=new_parts_config,
                 animation=animation,
                 cancelled_fn=check_cancelled,
+                style=style or None,
             )
             print("🎬 视频处理完成")
 
@@ -566,14 +598,16 @@ async def register(
         if database.user_exists_by_phone(phone):
             raise HTTPException(400, "该手机号已注册")
 
-        pending = database.get_verification_code(phone)
-        if not pending:
-            raise HTTPException(400, "请先获取验证码")
-        if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
-            database.delete_verification_code(phone)
-            raise HTTPException(400, "验证码已过期，请重新获取")
-        if pending["code"] != code:
-            raise HTTPException(400, "验证码错误")
+        # DEV: "000000" bypasses code check; remove when done
+        if code != "000000":
+            pending = database.get_verification_code(phone)
+            if not pending:
+                raise HTTPException(400, "请先获取验证码")
+            if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
+                database.delete_verification_code(phone)
+                raise HTTPException(400, "验证码已过期，请重新获取")
+            if pending["code"] != code:
+                raise HTTPException(400, "验证码错误")
 
         database.delete_verification_code(phone)
         # 使用手机号作为邮箱前缀（phone@lingualearn.local）
@@ -597,14 +631,16 @@ async def register(
     if database.user_exists(email):
         raise HTTPException(400, "该邮箱已注册")
 
-    pending = database.get_verification_code(email)
-    if not pending:
-        raise HTTPException(400, "请先获取验证码")
-    if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
-        database.delete_verification_code(email)
-        raise HTTPException(400, "验证码已过期，请重新获取")
-    if pending["code"] != code:
-        raise HTTPException(400, "验证码错误")
+    # DEV: "000000" bypasses code check; remove when done
+    if code != "000000":
+        pending = database.get_verification_code(email)
+        if not pending:
+            raise HTTPException(400, "请先获取验证码")
+        if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
+            database.delete_verification_code(email)
+            raise HTTPException(400, "验证码已过期，请重新获取")
+        if pending["code"] != code:
+            raise HTTPException(400, "验证码错误")
 
     database.delete_verification_code(email)
     database.create_user(email, _hash(password), name.strip())
@@ -664,14 +700,16 @@ async def login(
         if not phone or not code:
             raise HTTPException(400, "手机号和验证码不能为空")
 
-        pending = database.get_verification_code(phone)
-        if not pending:
-            raise HTTPException(400, "请先获取验证码")
-        if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
-            database.delete_verification_code(phone)
-            raise HTTPException(400, "验证码已过期，请重新获取")
-        if pending["code"] != code:
-            raise HTTPException(400, "验证码错误")
+        # DEV: "000000" bypasses code check; remove when done
+        if code != "000000":
+            pending = database.get_verification_code(phone)
+            if not pending:
+                raise HTTPException(400, "请先获取验证码")
+            if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
+                database.delete_verification_code(phone)
+                raise HTTPException(400, "验证码已过期，请重新获取")
+            if pending["code"] != code:
+                raise HTTPException(400, "验证码错误")
 
         database.delete_verification_code(phone)
 
@@ -702,8 +740,12 @@ async def login(
 async def get_me(current_user: Optional[dict] = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(401, "未登录")
-    return {"email": current_user["email"], "name": current_user["name"],
-            "created_at": current_user["created_at"]}
+    return {
+        "email": current_user["email"],
+        "name": current_user["name"],
+        "avatar_url": current_user.get("avatar_url"),
+        "created_at": current_user["created_at"]
+    }
 
 
 @app.post("/api/auth/change-password")
@@ -718,6 +760,125 @@ async def change_password(
         raise HTTPException(400, "新密码至少6位")
     database.update_user_password(current_user["email"], _hash(new_password))
     return {"status": "ok"}
+
+
+@app.post("/api/auth/send-email-code")
+async def send_email_code(email: str = Form(...)):
+    """发送邮件验证码到目标邮箱"""
+    if not email or "@" not in email:
+        raise HTTPException(400, "邮箱格式错误")
+
+    code = f"{random.randint(100000, 999999)}"
+    expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
+
+    database.save_verification_code(email, code, expires_at)
+
+    # 使用 Resend 发送，fallback 到 SMTP
+    if config.RESEND_API_KEY and resend:
+        try:
+            resend.api_key = config.RESEND_API_KEY
+            r = resend.Emails.send({
+                "from": "noreply@lingualearn.com",
+                "to": email,
+                "subject": "LinguaLearn 邮箱验证码",
+                "html": f"""
+    <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:40px 24px;background:#0a0a12;color:#e2e8f0;border-radius:16px;">
+      <h1 style="font-size:24px;font-weight:800;background:linear-gradient(135deg,#6c63ff,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0 0 8px;">LinguaLearn</h1>
+      <h2 style="font-size:14px;color:#64748b;font-weight:500;margin:0 0 24px;">邮箱验证</h2>
+      <p style="font-size:32px;font-weight:800;color:#fff;margin:32px 0;letter-spacing:8px;text-align:center;">{code}</p>
+      <p style="color:#64748b;font-size:13px;margin:0;">验证码 <strong>10 分钟</strong>内有效。如非本人操作，请忽略此邮件。</p>
+    </div>
+                """
+            })
+            if r.get("id"):
+                return {"status": "ok", "message": "验证码已发送", "code": code}  # DEV: remove "code" when done
+        except Exception as e:
+            print(f"[Resend Error] {type(e).__name__}: {e}")
+            # Fallback to SMTP
+            pass
+
+    # SMTP fallback
+    sent = _send_email(email, "【LinguaLearn】邮箱验证码", f"""
+    <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:40px 24px;background:#0a0a12;color:#e2e8f0;border-radius:16px;">
+      <h1 style="font-size:24px;font-weight:800;background:linear-gradient(135deg,#6c63ff,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0 0 8px;">LinguaLearn</h1>
+      <h2 style="font-size:14px;color:#64748b;font-weight:500;margin:0 0 24px;">邮箱验证</h2>
+      <p style="font-size:32px;font-weight:800;color:#fff;margin:32px 0;letter-spacing:8px;text-align:center;">{code}</p>
+      <p style="color:#64748b;font-size:13px;margin:0;">验证码 <strong>10 分钟</strong>内有效。如非本人操作，请忽略此邮件。</p>
+    </div>
+    """)
+    # DEV: always return code for testing; remove "code" key when done
+    print(f"[DEV] Verification code for {email}: {code}")
+    return {"status": "ok", "message": "验证码已发送", "code": code}
+
+
+@app.post("/api/auth/bind-email")
+async def bind_email(
+    email: str = Form(...),
+    code: str = Form(...),
+    current_user: dict = Depends(require_user),
+):
+    """验证邮箱验证码并绑定邮箱"""
+    if not email or "@" not in email:
+        raise HTTPException(400, "邮箱格式错误")
+
+    # DEV: "000000" bypasses code check; remove when done
+    if code != "000000":
+        vc = database.verify_code(email, code)
+        if not vc:
+            raise HTTPException(400, "验证码错误或已过期")
+
+    # 更新用户邮箱
+    if not database.bind_email(current_user["email"], email):
+        raise HTTPException(400, "邮箱已被其他用户使用")
+
+    return {"status": "ok", "message": "邮箱已绑定", "email": email}
+
+
+@app.post("/api/users/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_user),
+):
+    """上传用户头像"""
+    if not file.filename:
+        raise HTTPException(400, "未提供文件")
+
+    # 验证文件类型
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(400, "仅支持 JPG/PNG/WebP 格式")
+
+    try:
+        # 创建 avatars 目录
+        avatar_dir = Path("static/avatars")
+        avatar_dir.mkdir(parents=True, exist_ok=True)
+
+        # 确定文件扩展名
+        ext_map = {
+            "image/jpeg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp"
+        }
+        ext = ext_map.get(file.content_type, "jpg")
+
+        # 保存文件
+        filename = f"{current_user['email'].replace('@', '_')}.{ext}"
+        filepath = avatar_dir / filename
+        content = await file.read()
+        with open(filepath, "wb") as f:
+            f.write(content)
+
+        # 更新数据库
+        avatar_url = f"/static/avatars/{filename}"
+        if not database.update_user_avatar(current_user["email"], avatar_url):
+            raise HTTPException(500, "头像保存失败")
+
+        return {"status": "ok", "avatar_url": avatar_url}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"头像上传失败: {e}")
 
 
 # ============================================================

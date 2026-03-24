@@ -204,20 +204,20 @@
                            style="width:100%;height:100%;object-fit:fill;border-radius:3px;display:block;pointer-events:none">
                       <div v-else class="cv-box-preview" :style="{background: BOX_MAP[bk]?.previewBg||'rgba(0,0,0,.6)', padding:'6px 8px', height:'100%', boxSizing:'border-box', overflow:'hidden'}">
                         <template v-if="bk==='subtitle'">
-                          <div :style="{color:style.subtitle_text_color,fontSize:'11px',fontWeight:700,lineHeight:1.3,fontFamily:'system-ui'}">This is the original subtitle text.</div>
-                          <div :style="{color:'#94a3b8',fontSize:'9px',marginTop:'3px'}">这是对应的目标语言翻译文本</div>
+                          <div :style="{color:style.subtitle_text_color, fontSize:(11*boxLayouts['subtitle'].font_scale).toFixed(1)+'px', fontWeight:700, lineHeight:1.3, fontFamily: FONTS.find(f=>f.val===style.font_family)?.css||'system-ui'}">{{ PREVIEW_DATA[srcLang]?.sentence || 'Text' }}</div>
+                          <div :style="{color:'#94a3b8', fontSize:(9*boxLayouts['subtitle'].font_scale).toFixed(1)+'px', marginTop:'3px'}">{{ PREVIEW_DATA[srcLang]?.translations?.[tgtLang] || 'Translation' }}</div>
                         </template>
                         <template v-else-if="bk==='wordbox'">
-                          <div v-for="n in 2" :key="n" style="margin-bottom:5px;line-height:1.3">
-                            <span :style="{color:style.wordbox_word_color,fontSize:'11px',fontWeight:700}">vocabulary</span>
-                            <span :style="{color:style.wordbox_phonetic_color,fontSize:'8px',marginLeft:'5px'}">/ ˌvɒk.əˈbjʊ.lər.i /</span>
-                            <div :style="{color:style.wordbox_trans_color,fontSize:'9px',marginTop:'1px'}">词汇 · n. 词汇量</div>
+                          <div v-for="w in (PREVIEW_DATA[srcLang]?.words||[]).slice(0, numWords)" :key="w.word" style="margin-bottom:5px;line-height:1.3">
+                            <span :style="{color:style.wordbox_word_color, fontSize:(11*boxLayouts['wordbox'].font_scale).toFixed(1)+'px', fontWeight:700, fontFamily: FONTS.find(f=>f.val===style.font_family)?.css||'system-ui'}">{{ w.word }}</span>
+                            <span :style="{color:style.wordbox_phonetic_color, fontSize:(8*boxLayouts['wordbox'].font_scale).toFixed(1)+'px', marginLeft:'5px'}">{{ w.phonetic }}</span>
+                            <div :style="{color:style.wordbox_trans_color, fontSize:(9*boxLayouts['wordbox'].font_scale).toFixed(1)+'px', marginTop:'1px'}">{{ w.translation }}</div>
                           </div>
                         </template>
                         <template v-else-if="bk==='expressionbox'">
-                          <div v-for="n in 2" :key="n" style="margin-bottom:5px;line-height:1.3">
-                            <div :style="{color:style.exprbox_en_color,fontSize:'10px',fontWeight:700}">key expression here</div>
-                            <div :style="{color:'#94a3b8',fontSize:'9px',marginTop:'1px'}">关键表达 · 释义</div>
+                          <div v-for="e in (PREVIEW_DATA[srcLang]?.expressions||[]).slice(0, numExprs)" :key="e.english" style="margin-bottom:5px;line-height:1.3">
+                            <div :style="{color:style.exprbox_en_color, fontSize:(10*boxLayouts['expressionbox'].font_scale).toFixed(1)+'px', fontWeight:700, fontFamily: FONTS.find(f=>f.val===style.font_family)?.css||'system-ui'}">{{ e.english }}</div>
+                            <div :style="{color:'#94a3b8', fontSize:(9*boxLayouts['expressionbox'].font_scale).toFixed(1)+'px', marginTop:'1px'}">{{ e.chinese }}</div>
                           </div>
                         </template>
                         <div v-else class="cv-box-label" :style="{color:BOX_MAP[bk]?.color||'#fff',height:'100%'}">
@@ -335,7 +335,7 @@
               <div v-for="f in FONTS" :key="f.val"
                    :class="['font-chip', {active: style.font_family===f.val}]"
                    :style="{fontFamily: f.css||'inherit'}"
-                   @click="style.font_family=f.val; schedulePreview(currentPart.boxes[0]||'subtitle')">
+                   @click="style.font_family=f.val; ['subtitle','wordbox','expressionbox'].forEach(k => schedulePreview(k))">
                 <div style="font-size:15px;margin-bottom:2px">{{ f.sample }}</div>
                 <div style="font-size:10px;color:var(--text3)">{{ f.label }}</div>
               </div>
@@ -450,12 +450,22 @@ const BOX_DEFS = [
 const BOX_MAP = Object.fromEntries(BOX_DEFS.map(b=>[b.key,b]))
 
 const FONTS = [
-  { val:'system',      label:'系统默认',  css:'system-ui',      sample:'Aa 文字' },
-  { val:'noto',        label:'Noto Sans', css:"'Noto Sans SC'", sample:'Aa 文字' },
-  { val:'source-han',  label:'思源黑体',  css:"'Source Han Sans'", sample:'Aa 文字' },
-  { val:'yahei',       label:'微软雅黑',  css:"'Microsoft YaHei'", sample:'Aa 文字' },
-  { val:'source-serif',label:'思源宋体',  css:"'Source Han Serif'", sample:'Aa 文字' },
-  { val:'roboto',      label:'Roboto',    css:"'Roboto'", sample:'Aa Text' },
+  { val:'system',       label:'系统默认',   css:'system-ui',           sample:'Aa 文字' },
+  { val:'noto-sans',    label:'Noto Sans',  css:"'Noto Sans SC'",       sample:'Aa 文字' },
+  { val:'source-han',   label:'思源黑体',   css:"'Source Han Sans CN'", sample:'Aa 文字' },
+  { val:'yahei',        label:'微软雅黑',   css:"'Microsoft YaHei'",    sample:'Aa 文字' },
+  { val:'noto-serif',   label:'Noto Serif SC', css:"'Noto Serif SC'",   sample:'Aa 文字' },
+  { val:'xiaowei',      label:'小薇体',    css:"'ZCOOL XiaoWei'",      sample:'Aa 文字' },
+  { val:'ma-shan',      label:'马善政楷书', css:"'Ma Shan Zheng'",      sample:'Aa 文字' },
+  { val:'long-cang',    label:'龙藏体',    css:"'Long Cang'",          sample:'Aa 文字' },
+  { val:'zhi-mang',     label:'志莽行书',  css:"'Zhi Mang Xing'",      sample:'Aa 文字' },
+  { val:'qingke',       label:'清客黄油体', css:"'ZCOOL QingKe HuangYou'", sample:'Aa 文字' },
+  { val:'noto-jp',      label:'Noto Sans JP', css:"'Noto Sans JP'",     sample:'あア文字' },
+  { val:'noto-kr',      label:'Noto Sans KR', css:"'Noto Sans KR'",     sample:'가나文字' },
+  { val:'dancing',      label:'Dancing Script', css:"'Dancing Script'",  sample:'Aa Text' },
+  { val:'playfair',     label:'Playfair Display', css:"'Playfair Display'", sample:'Aa Text' },
+  { val:'roboto',       label:'Roboto',    css:"'Roboto'",             sample:'Aa Text' },
+  { val:'source-serif', label:'思源宋体',   css:"'Source Han Serif CN'", sample:'Aa 文字' },
 ]
 
 const COLOR_PRESETS = [
@@ -490,6 +500,209 @@ const COLOR_PRESETS = [
            exprbox_bg:'#0a1a30',exprbox_en_color:'#40dfb8'}
   },
 ]
+
+const PREVIEW_DATA = {
+  en: {
+    sentence: "The acquisition of language is a remarkable phenomenon that reveals the incredible cognitive capabilities of the human mind.",
+    translations: {
+      zh: "语言习得是一种非凡的现象，揭示了人类心智令人难以置信的认知能力。",
+      ja: "言語習得は、人間の心の驚くべき認知能力を明らかにする注目すべき現象です。",
+      ko: "언어 습득은 인간 마음의 놀라운 인지 능력을 드러내는 주목할 만한 현象입니다。",
+      de: "Der Spracherwerb ist ein bemerkenswertes Phänomen, das die kognitiven Fähigkeiten des menschlichen Geistes offenbart.",
+      fr: "L'acquisition du langage révèle les incroyables capacités cognitives de l'esprit humain.",
+      es: "La adquisición del lenguaje revela las increíbles capacidades cognitivas de la mente humana.",
+      ru: "Освоение языка — это замечательный феномен, который демонстрирует когнитивную адаптивность человеческого мозга.",
+    },
+    words: [
+      { word: "acquisition", phonetic: "/ˌækwɪˈzɪʃən/", translation: "习得；获取", difficulty: 4 },
+      { word: "remarkable", phonetic: "/rɪˈmɑːrkəbl/", translation: "非凡的；显著的", difficulty: 3 },
+      { word: "phenomenon", phonetic: "/fɪˈnɒmɪnən/", translation: "现象；奇迹", difficulty: 4 },
+      { word: "cognitive", phonetic: "/ˈkɒɡnɪtɪv/", translation: "认知的", difficulty: 3 },
+      { word: "capability", phonetic: "/ˌkeɪpəˈbɪlɪti/", translation: "能力；才能", difficulty: 3 },
+      { word: "incredible", phonetic: "/ɪnˈkredɪbl/", translation: "难以置信的", difficulty: 2 },
+    ],
+    expressions: [
+      { english: "in the long run", chinese: "从长远来看", difficulty: 3 },
+      { english: "on the other hand", chinese: "另一方面", difficulty: 2 },
+      { english: "as a result of", chinese: "由于…的结果", difficulty: 2 },
+    ],
+  },
+  zh: {
+    sentence: "人类语言的习得是一种非凡的认知现象，展示了大脑令人难以置信的神经可塑性和学习能力。",
+    translations: {
+      en: "The acquisition of human language is an extraordinary cognitive phenomenon demonstrating the brain's incredible neuroplasticity.",
+      ja: "人間の言語習得は脳の神経可塑性と学習能力を示す認知現象です。",
+      ko: "인간 언어의 습득은 뇌의 신경 가소성과 학습 능력을 보여주는 인지 현상입니다.",
+      de: "Der menschliche Spracherwerb ist ein außergewöhnliches kognitives Phänomen, das die unglaubliche Neuroplastizität des Gehirns zeigt.",
+      fr: "L'acquisition du langage humain est un phénomène cognitif extraordinaire démontrant la neuroplasticité incroyable du cerveau.",
+      es: "La adquisición del lenguaje humano es un fenómeno cognitivo extraordinario que demuestra la neuroplasticidad increíble del cerebro.",
+      ru: "Освоение человеческого языка — это необычайный когнитивный феномен, демонстрирующий невероятную нейропластичность мозга.",
+    },
+    words: [
+      { word: "认知", phonetic: "rèn zhī", translation: "cognition", difficulty: 3 },
+      { word: "非凡", phonetic: "fēi fán", translation: "extraordinary", difficulty: 3 },
+      { word: "可塑性", phonetic: "kě sù xìng", translation: "plasticity", difficulty: 4 },
+      { word: "习得", phonetic: "xí dé", translation: "acquisition", difficulty: 3 },
+      { word: "展示", phonetic: "zhǎn shì", translation: "demonstrate", difficulty: 2 },
+      { word: "现象", phonetic: "xiàn xiàng", translation: "phenomenon", difficulty: 2 },
+    ],
+    expressions: [
+      { english: "令人难以置信", chinese: "incredibly hard to believe", difficulty: 3 },
+      { english: "展示了…能力", chinese: "demonstrates the ability", difficulty: 3 },
+      { english: "一种…现象", chinese: "a kind of phenomenon", difficulty: 2 },
+    ],
+  },
+  ja: {
+    sentence: "言語習得は人間の認知能力の驚くべき側面であり、脳の信じられないほどの適応力と可塑性を示しています。",
+    translations: {
+      en: "Language acquisition is a remarkable aspect of human cognitive ability, demonstrating the brain's plasticity.",
+      zh: "语言习得是人类认知能力的显著方面，展示了大脑的适应性和可塑性。",
+      ko: "언어 습득은 인간 인지 능력의 놀라운 측면으로, 뇌의 적응력과 가소성을 보여줍니다.",
+      de: "Der Spracherwerb ist ein bemerkenswerter Aspekt der menschlichen kognitiven Fähigkeit und zeigt die Plastizität des Gehirns.",
+      fr: "L'acquisition du langage est un aspect remarquable de la capacité cognitive humaine, démontrant la plasticité du cerveau.",
+      es: "La adquisición del lenguaje es un aspecto notable de la capacidad cognitiva humana, demostrando la plasticidad del cerebro.",
+      ru: "Освоение языка — это замечательный аспект человеческой когнитивной способности, демонстрирующий пластичность мозга.",
+    },
+    words: [
+      { word: "習得", phonetic: "しゅうとく", translation: "acquisition", difficulty: 3 },
+      { word: "認知", phonetic: "にんち", translation: "cognition", difficulty: 3 },
+      { word: "驚くべき", phonetic: "おどろくべき", translation: "remarkable", difficulty: 3 },
+      { word: "適応力", phonetic: "てきおうりょく", translation: "adaptability", difficulty: 4 },
+      { word: "可塑性", phonetic: "かそせい", translation: "plasticity", difficulty: 5 },
+      { word: "側面", phonetic: "そくめん", translation: "aspect", difficulty: 2 },
+    ],
+    expressions: [
+      { english: "〜を示している", chinese: "demonstrates ~", difficulty: 3 },
+      { english: "驚くべき〜", chinese: "remarkable ~", difficulty: 2 },
+      { english: "〜の側面", chinese: "aspect of ~", difficulty: 2 },
+    ],
+  },
+  ko: {
+    sentence: "언어 습득은 인간 인지 능력의 놀라운 측면으로, 뇌의 적응력과 가소성을 보여줍니다.",
+    translations: {
+      en: "Language acquisition is a remarkable aspect of human cognitive ability.",
+      zh: "语言习得是人类认知能力的显著方面。",
+      ja: "言語習得は人間の認知能力の驚くべき側面です。",
+      de: "Der Spracherwerb ist ein bemerkenswerter Aspekt der menschlichen kognitiven Fähigkeit.",
+      fr: "L'acquisition du langage est un aspect remarquable de la capacité cognitive humaine.",
+      es: "La adquisición del lenguaje es un aspecto notable de la capacidad cognitiva humana.",
+      ru: "Освоение языка — это замечательный аспект человеческой когнитивной способности.",
+    },
+    words: [
+      { word: "습득", phonetic: "seub-deug", translation: "acquisition", difficulty: 3 },
+      { word: "인지", phonetic: "in-ji", translation: "cognition", difficulty: 3 },
+      { word: "놀라운", phonetic: "nol-la-un", translation: "remarkable", difficulty: 2 },
+      { word: "적응력", phonetic: "jeog-eung-lyeog", translation: "adaptability", difficulty: 4 },
+      { word: "가소성", phonetic: "ga-so-seong", translation: "plasticity", difficulty: 5 },
+      { word: "측면", phonetic: "cheug-myeon", translation: "aspect", difficulty: 2 },
+    ],
+    expressions: [
+      { english: "보여줍니다", chinese: "demonstrates", difficulty: 2 },
+      { english: "놀라운 측면", chinese: "remarkable aspect", difficulty: 2 },
+      { english: "믿기 어려운", chinese: "hard to believe", difficulty: 3 },
+    ],
+  },
+  de: {
+    sentence: "Der Spracherwerb ist ein bemerkenswertes Phänomen, das die kognitive Anpassungsfähigkeit und neuronale Plastizität des menschlichen Gehirns demonstriert.",
+    translations: {
+      en: "Language acquisition is a remarkable phenomenon demonstrating the cognitive adaptability of the human brain.",
+      zh: "语言习得展示了人类大脑令人难以置信的认知适应性和神经可塑性。",
+      ja: "言語習得は、人間の脳の認知的適応能力と神経可塑性を示す注目すべき現象です。",
+      ko: "언어 습득은 인간 뇌의 인지적 적응성과 신경 가소성을 보여주는 주목할 만한 현상입니다.",
+      fr: "L'acquisition du langage est un phénomène remarquable démontrant l'adaptabilité cognitive du cerveau humain.",
+      es: "La adquisición del lenguaje es un fenómeno notable que demuestra la adaptabilidad cognitiva del cerebro humano.",
+      ru: "Освоение языка — это замечательный феномен, демонстрирующий когнитивную адаптивность и нейропластичность человеческого мозга.",
+    },
+    words: [
+      { word: "Spracherwerb", phonetic: "/ˈʃpraːxɛɐ̯ˌvɛrp/", translation: "language acquisition", difficulty: 3 },
+      { word: "bemerkenswert", phonetic: "/bəˈmɛrkənsvɛrt/", translation: "remarkable", difficulty: 3 },
+      { word: "Plastizität", phonetic: "/plastiˈtsɪtɛːt/", translation: "plasticity", difficulty: 5 },
+      { word: "demonstriert", phonetic: "/demoːnˈstriːrt/", translation: "demonstrates", difficulty: 3 },
+      { word: "kognitiv", phonetic: "/kɔɡniˈtiːf/", translation: "cognitive", difficulty: 4 },
+      { word: "unglaublich", phonetic: "/ʊnˈɡlaʊ̯plɪç/", translation: "incredible", difficulty: 2 },
+    ],
+    expressions: [
+      { english: "das...demonstriert", chinese: "which demonstrates", difficulty: 3 },
+      { english: "ein...Phänomen", chinese: "a phenomenon", difficulty: 2 },
+      { english: "des menschlichen", chinese: "of the human", difficulty: 2 },
+    ],
+  },
+  fr: {
+    sentence: "L'acquisition du langage est un phénomène remarquable qui démontre l'adaptabilité cognitive et la plasticité neuronale du cerveau humain.",
+    translations: {
+      en: "Language acquisition demonstrates the incredible cognitive adaptability and neural plasticity of the human brain.",
+      zh: "语言习得展示了人类大脑令人难以置信的认知适应性和神经可塑性。",
+      ja: "言語習得は、人間の脳の信じられないほどの認知的適応性と神経可塑性を示しています。",
+      ko: "언어 습득은 인간 뇌의 믿기 어려운 인지적 적응성과 신경 가소성을 보여줍니다.",
+      de: "Der Spracherwerb demonstriert die unglaubliche kognitive Anpassungsfähigkeit und neuronale Plastizität des menschlichen Gehirns.",
+      es: "La adquisición del lenguaje demuestra la adaptabilidad cognitiva increíble y la plasticidad neuronal del cerebro humano.",
+      ru: "Освоение языка демонстрирует невероятную когнитивную адаптивность и нейропластичность человеческого мозга.",
+    },
+    words: [
+      { word: "acquisition", phonetic: "/akizisjɔ̃/", translation: "acquisition", difficulty: 3 },
+      { word: "remarquable", phonetic: "/ʁəmaʁkabl/", translation: "remarkable", difficulty: 3 },
+      { word: "plasticité", phonetic: "/plastisite/", translation: "plasticity", difficulty: 5 },
+      { word: "adaptabilité", phonetic: "/adaptabilite/", translation: "adaptability", difficulty: 4 },
+      { word: "démontre", phonetic: "/demɔ̃tʁ/", translation: "demonstrates", difficulty: 3 },
+      { word: "incroyable", phonetic: "/ɛ̃kʁwajabl/", translation: "incredible", difficulty: 2 },
+    ],
+    expressions: [
+      { english: "qui démontre", chinese: "which demonstrates", difficulty: 2 },
+      { english: "un phénomène remarquable", chinese: "a remarkable phenomenon", difficulty: 3 },
+      { english: "du cerveau humain", chinese: "of the human brain", difficulty: 2 },
+    ],
+  },
+  es: {
+    sentence: "La adquisición del lenguaje es un fenómeno notable que demuestra la adaptabilidad cognitiva y la plasticidad neuronal del cerebro humano.",
+    translations: {
+      en: "Language acquisition demonstrates the incredible cognitive adaptability and neural plasticity of the human brain.",
+      zh: "语言习得展示了人类大脑令人难以置信的认知适应性和神经可塑性。",
+      ja: "言語習得は、人間の脳の信じられないほどの認知的適応性と神経可塑性を示しています。",
+      ko: "언어 습득은 인간 뇌의 믿기 어려운 인지적 적응성과 신경 가소성을 보여줍니다.",
+      de: "Der Spracherwerb demonstriert die unglaubliche kognitive Anpassungsfähigkeit und neuronale Plastizität des menschlichen Gehirns.",
+      fr: "L'acquisition du langage démontre l'adaptabilité cognitive incroyable et la plasticité neuronale du cerveau humain.",
+      ru: "Освоение языка демонстрирует невероятную когнитивную адаптивность и нейропластичность человеческого мозга.",
+    },
+    words: [
+      { word: "adquisición", phonetic: "/adkiˈsjon/", translation: "acquisition", difficulty: 3 },
+      { word: "notable", phonetic: "/noˈtaβle/", translation: "remarkable", difficulty: 3 },
+      { word: "plasticidad", phonetic: "/plastiθiˈðað/", translation: "plasticity", difficulty: 5 },
+      { word: "adaptabilidad", phonetic: "/adaptaβiliˈðað/", translation: "adaptability", difficulty: 4 },
+      { word: "demuestra", phonetic: "/deˈmwestra/", translation: "demonstrates", difficulty: 3 },
+      { word: "increíble", phonetic: "/iŋkɾeˈiβle/", translation: "incredible", difficulty: 2 },
+    ],
+    expressions: [
+      { english: "que demuestra", chinese: "which demonstrates", difficulty: 2 },
+      { english: "un fenómeno notable", chinese: "a remarkable phenomenon", difficulty: 3 },
+      { english: "del cerebro humano", chinese: "of the human brain", difficulty: 2 },
+    ],
+  },
+  ru: {
+    sentence: "Освоение языка — это замечательный феномен, который демонстрирует когнитивную адаптивность и нейропластичность человеческого мозга.",
+    translations: {
+      en: "Language acquisition is a remarkable phenomenon that demonstrates cognitive adaptability and neural plasticity of the human brain.",
+      zh: "语言习得是一种非凡的现象，展示了人类大脑的认知适应性和神经可塑性。",
+      ja: "言語習得は、人間の脳の認知的適応性と神経可塑性を示す注目すべき現象です。",
+      ko: "언어 습득은 인간 뇌의 인지적 적응성과 신경 가소성을 보여주는 주목할 만한 현象입니다.",
+      de: "Der Spracherwerb ist ein bemerkenswertes Phänomen, das die kognitive Anpassungsfähigkeit und neuronale Plastizität des menschlichen Gehirns zeigt.",
+      fr: "L'acquisition du langage est un phénomène remarquable qui démontre l'adaptabilité cognitive et la plasticité neuronale du cerveau humain.",
+      es: "La adquisición del lenguaje es un fenómeno notable que demuestra la adaptabilidad cognitiva y la plasticidad neuronal del cerebro humano.",
+    },
+    words: [
+      { word: "освоение", phonetic: "/əsˈvoːɪnɪjə/", translation: "acquisition", difficulty: 3 },
+      { word: "замечательный", phonetic: "/zəmɪˈtʃætəlnɪj/", translation: "remarkable", difficulty: 3 },
+      { word: "феномен", phonetic: "/fɪˈnɔːmɪn/", translation: "phenomenon", difficulty: 4 },
+      { word: "демонстрирует", phonetic: "/dɪˈmɒnstreɪts/", translation: "demonstrates", difficulty: 3 },
+      { word: "адаптивность", phonetic: "/ədˈæptɪvnəs/", translation: "adaptability", difficulty: 4 },
+      { word: "нейропластичность", phonetic: "/ˈnjʊroʊˈplæstɪsɪti/", translation: "neural plasticity", difficulty: 5 },
+    ],
+    expressions: [
+      { english: "замечательный феномен", chinese: "remarkable phenomenon", difficulty: 3 },
+      { english: "демонстрирует способность", chinese: "demonstrates ability", difficulty: 3 },
+      { english: "человеческого мозга", chinese: "of the human brain", difficulty: 2 },
+    ],
+  },
+}
 
 // ── State ──
 const fileInput   = ref(null)

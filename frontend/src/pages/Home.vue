@@ -2,7 +2,7 @@
   <div class="home">
     <!-- Hero -->
     <section class="hero">
-      <div class="hero-badge fade-up">✨ 支持 7 种语言双向互学</div>
+      <div class="hero-badge fade-up">✨ 支持 8 种语言双向互学</div>
       <h1 class="hero-title fade-up" style="animation-delay:.1s">
         <span class="grad-text">LinguaLearn</span><br>
         <span style="color:var(--text)">把外语视频变成学习利器</span>
@@ -67,7 +67,7 @@
     <!-- Languages -->
     <section class="section">
       <div class="section-label">支持语言</div>
-      <h2 class="section-title">7 种语言，任意互学</h2>
+      <h2 class="section-title">8 种语言，任意互学</h2>
       <div class="lang-grid">
         <div v-for="l in langs" :key="l.code" class="lang-card">
           <div class="lang-flag">{{ l.flag }}</div>
@@ -117,6 +117,7 @@ const langs = ref([
   {code:'de',native_name:'Deutsch',flag:'🇩🇪'},
   {code:'fr',native_name:'Français',flag:'🇫🇷'},
   {code:'es',native_name:'Español',flag:'🇪🇸'},
+  {code:'ru',native_name:'Русский',flag:'🇷🇺'},
 ])
 
 onMounted(async () => {

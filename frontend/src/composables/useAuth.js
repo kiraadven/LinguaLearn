@@ -72,7 +72,7 @@ export function useAuth() {
     fd.append('file', file)
     const d = await apiPost('/api/users/avatar', fd)
     if (user.value) {
-      user.value.avatar_url = d.avatar_url
+      user.value = { ...user.value, avatar_url: d.avatar_url }
     }
     return d
   }

@@ -18,7 +18,7 @@ mkdir -p uploads output temp static
 
 echo ""
 echo "🚀 启动服务（conda automation 环境）..."
-echo "📱 访问地址: http://localhost:8000"
+echo "📱 访问地址: http://localhost:8080"
 echo "💡 按 Ctrl+C 停止服务"
 echo ""
 

@@ -106,3 +106,14 @@ VIDEO_RESOLUTION = "1080p"
 
 # ===== 邮件配置 =====
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
+
+# ===== 视频叠加框默认颜色 =====
+SUBTITLE_BOX_ENGLISH_COLOR = '#ffffff'
+SUBTITLE_BOX_CHINESE_COLOR  = '#94a3b8'
+WORD_BOX_BG_COLOR           = '#1e1e2e'
+WORD_BOX_WORD_COLOR         = '#ffffff'
+WORD_BOX_PHONETIC_COLOR     = '#888888'
+WORD_BOX_TRANS_COLOR        = '#cccccc'
+EXPR_BOX_BG_COLOR           = '#1e1e2e'
+EXPR_BOX_ENGLISH_COLOR      = '#f43f5e'
+EXPR_BOX_CHINESE_COLOR      = '#94a3b8'

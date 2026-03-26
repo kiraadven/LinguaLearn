@@ -478,10 +478,74 @@ async def process_video_job(
 
             # 保存含时间戳的 segments.json，供视频预览页使用
             try:
-                segs_with_text = [
-                    {"start": seg["start"], "end": seg["end"], "text": sd.get("original_text", "")}
-                    for seg, sd in zip(segments_info, sentences_data)
-                ]
+                # 构建与 video_processor._legacy_parts_config() 完全一致的 parts 列表
+                if new_parts_config:
+                    _parts_cfg = new_parts_config
+                else:
+                    _parts_cfg = []
+                    if getattr(config, "PART1_REPEAT_COUNT", 0) > 0:
+                        _parts_cfg.append({
+                            "repeat": config.PART1_REPEAT_COUNT, "speed": 1.0, "slow": False,
+                            "show_subtitle": getattr(config, "PART1_SHOW_SUBTITLE", False),
+                            "show_wordbox":  getattr(config, "PART1_SHOW_WORD_BOX", False),
+                            "show_exprbox":  getattr(config, "PART1_SHOW_EXPRESSION_BOX", False),
+                        })
+                    if getattr(config, "PART2_REPEAT_COUNT", 0) > 0:
+                        _parts_cfg.append({
+                            "repeat": config.PART2_REPEAT_COUNT,
+                            "speed": getattr(config, "SPEED_SLOW", 0.75), "slow": True,
+                            "show_subtitle": getattr(config, "PART2_SHOW_SUBTITLE", True),
+                            "show_wordbox":  getattr(config, "PART2_SHOW_WORD_BOX", True),
+                            "show_exprbox":  getattr(config, "PART2_SHOW_EXPRESSION_BOX", True),
+                        })
+                    if getattr(config, "PART3_REPEAT_COUNT", 0) > 0:
+                        _parts_cfg.append({
+                            "repeat": config.PART3_REPEAT_COUNT, "speed": 1.0, "slow": False,
+                            "show_subtitle": getattr(config, "PART3_SHOW_SUBTITLE", True),
+                            "show_wordbox":  getattr(config, "PART3_SHOW_WORD_BOX", True),
+                            "show_exprbox":  getattr(config, "PART3_SHOW_EXPRESSION_BOX", True),
+                        })
+                    if not _parts_cfg:
+                        _parts_cfg = [
+                            {"repeat": 1, "speed": 1.0, "slow": False,
+                             "show_subtitle": False, "show_wordbox": False, "show_exprbox": False},
+                            {"repeat": 2, "speed": 0.75, "slow": True,
+                             "show_subtitle": True,  "show_wordbox": True,  "show_exprbox": True},
+                        ]
+
+                video_cursor = 0.0
+                segs_with_text = []
+                for i, (seg, sd) in enumerate(zip(segments_info, sentences_data)):
+                    s_start = seg["start"]; s_end = seg["end"]
+                    s_next = segments_info[i+1]["start"] if i+1 < len(segments_info) else s_end
+                    seg_video_start = video_cursor  # 此句在生成视频中的起始
+                    first_overlay_start = None      # 第一个有叠加内容（字幕/词框）的 part 起始
+                    for j, part in enumerate(_parts_cfg):
+                        spd = float(part.get("speed", 1.0))
+                        is_slow = (spd != 1.0) or part.get("slow", False)
+                        if part.get("slow", False) and spd == 1.0:
+                            spd = float(getattr(config, "SPEED_SLOW", 0.75))
+                        rpt = max(1, int(part.get("repeat", 1)))
+                        raw_dur = (s_end - s_start) if is_slow else (s_next - s_start)
+                        clip_dur = raw_dur / spd
+                        has_overlay = (
+                            part.get("show_subtitle", False) or
+                            part.get("show_wordbox", False) or
+                            part.get("show_exprbox", False)
+                        )
+                        if has_overlay and first_overlay_start is None:
+                            first_overlay_start = video_cursor
+                        video_cursor += clip_dur * rpt
+                    # 跳转目标：优先跳到第一个有字幕的 part，否则跳到句子起始
+                    jump_target = first_overlay_start if first_overlay_start is not None else seg_video_start
+                    segs_with_text.append({
+                        "start": seg["start"],
+                        "end": seg["end"],
+                        "video_start": round(jump_target, 3),       # 跳转用：第一个有叠加内容的 part
+                        "seg_start": round(seg_video_start, 3),     # 高亮用：句子在视频起始
+                        "seg_end": round(video_cursor, 3),           # 高亮用：句子在视频结束
+                        "text": sd.get("original_text", ""),
+                    })
                 (job_out / "segments.json").write_text(
                     json.dumps(segs_with_text, ensure_ascii=False, indent=2), encoding='utf-8'
                 )
@@ -650,7 +714,7 @@ async def register(
     database.save_token(token, email, expires_at)
 
     user = database.get_user(email)
-    return {"token": token, "name": user["name"], "email": email}
+    return {"token": token, "name": user["name"], "email": email, "avatar_url": user.get("avatar_url")}
 
 
 @app.post("/api/auth/login")
@@ -678,7 +742,7 @@ async def login(
         token = str(uuid.uuid4())
         expires_at = (datetime.now() + timedelta(days=30)).isoformat()
         database.save_token(token, email, expires_at)
-        return {"token": token, "name": user["name"], "email": email}
+        return {"token": token, "name": user["name"], "email": email, "avatar_url": user.get("avatar_url")}
 
     elif login_type == "phone_password":
         # 手机号+密码登陆
@@ -691,7 +755,7 @@ async def login(
         token = str(uuid.uuid4())
         expires_at = (datetime.now() + timedelta(days=30)).isoformat()
         database.save_token(token, user["email"], expires_at)
-        return {"token": token, "name": user["name"], "phone": phone}
+        return {"token": token, "name": user["name"], "phone": phone, "email": user["email"], "avatar_url": user.get("avatar_url")}
 
     elif login_type == "phone_code":
         # 手机号+验证码登陆（用户不存在则自动注册）
@@ -849,8 +913,8 @@ async def upload_avatar(
         raise HTTPException(400, "仅支持 JPG/PNG/WebP 格式")
 
     try:
-        # 创建 avatars 目录
-        avatar_dir = Path("static/avatars")
+        # 创建 avatars 目录（使用 uploads/ 而非 static/，避免前端构建时覆盖）
+        avatar_dir = Path("uploads/avatars")
         avatar_dir.mkdir(parents=True, exist_ok=True)
 
         # 确定文件扩展名
@@ -869,7 +933,7 @@ async def upload_avatar(
             f.write(content)
 
         # 更新数据库
-        avatar_url = f"/static/avatars/{filename}"
+        avatar_url = f"/avatars/{filename}"
         if not database.update_user_avatar(current_user["email"], avatar_url):
             raise HTTPException(500, "头像保存失败")
 
@@ -879,130 +943,6 @@ async def upload_avatar(
         raise
     except Exception as e:
         raise HTTPException(500, f"头像上传失败: {e}")
-
-
-# ============================================================
-# PREVIEW route
-# ============================================================
-
-@app.post("/api/render-box")
-async def render_box(
-    box_type:        str   = Form(...),     # subtitle / wordbox / expressionbox
-    width_pct:       float = Form(0.8),     # % of frame width
-    height_pct:      float = Form(0.2),     # % of frame height
-    source_lang:     str   = Form("en"),
-    target_lang:     str   = Form("zh"),
-    resolution:      str   = Form("1080p"),
-    num_words:       int   = Form(4),
-    num_expressions: int   = Form(2),
-    style:           str   = Form("{}"),
-    current_user: dict = Depends(get_current_user),
-):
-    """实时渲染单个框，返回 base64 PNG 用于预览"""
-    if box_type not in ('subtitle', 'wordbox', 'expressionbox'):
-        raise HTTPException(400, "不支持的框类型")
-
-    config.VIDEO_RESOLUTION = resolution
-    try:
-        style_dict = json.loads(style) if style else {}
-    except Exception:
-        style_dict = {}
-
-    try:
-        from core.html_renderer import HTMLRenderer
-        renderer = HTMLRenderer()
-
-        # 根据分辨率计算像素尺寸
-        is_1080p = resolution == "1080p"
-        frame_w = 1920 if is_1080p else 1280
-        frame_h = 1080 if is_1080p else 720
-
-        width_px = int(frame_w * width_pct)
-        height_px = int(frame_h * height_pct)
-
-        # 限制最小尺寸（避免渲染过小的框）
-        width_px = max(80, width_px)
-        height_px = max(60, height_px)
-
-        print(f"[render-box] type={box_type} width_pct={width_pct:.3f} height_pct={height_pct:.3f} => {width_px}x{height_px}px  res={resolution}")
-
-        preview_dir = str(TEMP_DIR / "render-box")
-        os.makedirs(preview_dir, exist_ok=True)
-
-        # 获取示例数据
-        from core.html_renderer import _PREVIEW_EXAMPLES
-        example = _PREVIEW_EXAMPLES.get(source_lang, _PREVIEW_EXAMPLES['en'])
-
-        result = {}
-
-        if box_type == 'subtitle':
-            sentence = example['sentence']
-            translation = example['translations'].get(target_lang) or list(example['translations'].values())[0]
-            filepath = os.path.join(preview_dir, f'render_sub_{int(time.time()*1000)}.png')
-            if renderer.render_subtitle(sentence, translation, width_px, height_px, filepath, style=style_dict):
-                with open(filepath, 'rb') as f:
-                    result['image'] = 'data:image/png;base64,' + base64.b64encode(f.read()).decode()
-                os.unlink(filepath)
-
-        elif box_type == 'wordbox':
-            words = example['words'][:max(1, min(num_words, 6))]
-            filepath = os.path.join(preview_dir, f'render_wb_{int(time.time()*1000)}.png')
-            if renderer.render_wordbox(words, width_px, height_px, filepath, style=style_dict):
-                with open(filepath, 'rb') as f:
-                    result['image'] = 'data:image/png;base64,' + base64.b64encode(f.read()).decode()
-                os.unlink(filepath)
-
-        elif box_type == 'expressionbox':
-            expressions = example['expressions'][:max(1, min(num_expressions, 3))]
-            filepath = os.path.join(preview_dir, f'render_expr_{int(time.time()*1000)}.png')
-            if renderer.render_expressionbox(expressions, width_px, height_px, filepath, style=style_dict):
-                with open(filepath, 'rb') as f:
-                    result['image'] = 'data:image/png;base64,' + base64.b64encode(f.read()).decode()
-                os.unlink(filepath)
-
-        return result
-
-    except Exception as e:
-        import traceback
-        raise HTTPException(500, f"框渲染失败: {e}\n{traceback.format_exc()}")
-
-
-@app.post("/api/preview")
-async def generate_preview(
-    source_lang:     str   = Form("en"),
-    target_lang:     str   = Form("zh"),
-    resolution:      str   = Form("1080p"),
-    num_words:       int   = Form(4),
-    num_expressions: int   = Form(2),
-    style:           str   = Form("{}"),
-):
-    valid_langs = set(config.LANGUAGE_NATIVE_NAMES.keys())
-    if source_lang not in valid_langs or target_lang not in valid_langs:
-        raise HTTPException(400, "不支持的语言代码")
-
-    config.VIDEO_RESOLUTION = resolution
-    try:
-        style_dict = json.loads(style) if style else {}
-    except Exception:
-        style_dict = {}
-
-    try:
-        from core.html_renderer import HTMLRenderer
-        renderer   = HTMLRenderer()
-        preview_dir = str(TEMP_DIR / "preview")
-        result = renderer.generate_preview_images(
-            num_words=max(1, min(6, num_words)),
-            num_expressions=max(1, min(3, num_expressions)),
-            source_lang=source_lang,
-            target_lang=target_lang,
-            resolution=resolution,
-            output_dir=preview_dir,
-            style=style_dict,
-        )
-        return result
-    except Exception as e:
-        import traceback
-        raise HTTPException(500, f"预览生成失败: {e}\n{traceback.format_exc()}")
 
 
 # ============================================================
@@ -1393,11 +1333,77 @@ async def get_job_segments(job_id: str):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
+@app.get("/api/dictionary/{word}")
+async def lookup_dictionary(word: str):
+    """查询英文单词释义（Free Dictionary API v2）"""
+    import urllib.request
+    import urllib.error
+
+    word = word.strip().lower()
+    if not word or not all(c.isalpha() or c in "-'" for c in word):
+        raise HTTPException(400, "无效单词")
+
+    url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+
+    def _fetch():
+        req = urllib.request.Request(url, headers={"User-Agent": "LinguaLearn/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read())
+
+    try:
+        data = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+        entry = data[0]
+
+        # 提取音标和音频
+        phonetic = entry.get("phonetic", "")
+        audio_url = ""
+        for ph in entry.get("phonetics", []):
+            if ph.get("text") and not phonetic:
+                phonetic = ph["text"]
+            if ph.get("audio") and not audio_url:
+                audio_url = ph["audio"]
+                if audio_url.startswith("//"):
+                    audio_url = "https:" + audio_url
+
+        # 提取释义（最多3个词性）
+        meanings = []
+        for m in entry.get("meanings", [])[:3]:
+            defs = m.get("definitions", [])
+            if defs:
+                d = defs[0]
+                syns = (m.get("synonyms", []) + d.get("synonyms", []))[:3]
+                meanings.append({
+                    "pos": m.get("partOfSpeech", ""),
+                    "definition": d.get("definition", ""),
+                    "example": d.get("example", ""),
+                    "synonyms": syns,
+                })
+
+        return {
+            "word": entry.get("word", word),
+            "phonetic": phonetic,
+            "audio": audio_url,
+            "meanings": meanings,
+        }
+
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise HTTPException(404, "单词不存在")
+        raise HTTPException(502, "词典服务错误")
+    except Exception as e:
+        raise HTTPException(500, f"查询失败: {e}")
+
+
+# 头像目录单独挂载，避免被前端构建覆盖
+Path("uploads/avatars").mkdir(parents=True, exist_ok=True)
+app.mount("/avatars", StaticFiles(directory="uploads/avatars"), name="avatars")
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 
 if __name__ == "__main__":
     import uvicorn
+    import os as _os
+    _port = int(_os.getenv("PORT", 8080))
     print("🚀 LinguaLearn 服务启动中...")
-    print("📱 打开浏览器访问: http://localhost:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
+    print(f"📱 打开浏览器访问: http://localhost:{_port}")
+    uvicorn.run(app, host="0.0.0.0", port=_port, reload=False)

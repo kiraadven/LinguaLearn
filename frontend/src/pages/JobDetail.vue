@@ -19,7 +19,7 @@
       <p v-if="job.error" style="color:var(--err);font-size:13px;margin-top:6px">{{ job.error }}</p>
     </div>
 
-    <div v-else-if="job" class="jd-body">
+    <div v-else class="jd-body">
 
       <!-- ── Main row ── -->
       <div :class="['jd-main', {wide: !transcriptOpen}]">
@@ -54,16 +54,15 @@
               <div v-if="segments.length" class="sync-dot">● 实时同步</div>
               <div v-else-if="segLoading" style="font-size:11px;color:var(--text3)">加载中...</div>
             </div>
-            <div class="tc-list" ref="tcListEl">
+            <div class="tc-list" @mouseover="onMdHover" @mouseleave="onMdLeave">
               <div v-if="!segments.length && !segLoading" class="tc-empty">暂无文稿数据</div>
               <div v-for="(s, i) in segments" :key="i"
                    :ref="el => segRefs[i] = el"
                    :class="['tc-item', {active: i === activeSeg}]"
-                   @click="jumpTo(s.start)">
-                <button class="tc-ts" @click.stop="jumpTo(s.start)">▶ {{ fmtTime(s.start) }}</button>
+                   @click="jumpTo(s.video_start ?? s.start)">
+                <button class="tc-ts" @click.stop="jumpTo(s.video_start ?? s.start)">▶ {{ fmtTime(s.video_start ?? s.start) }}</button>
                 <div class="tc-texts">
-                  <p class="tc-orig">{{ s.text }}</p>
-                  <p v-if="sentences[i]?.chinese_translation" class="tc-trans">{{ sentences[i].chinese_translation }}</p>
+                  <p class="tc-orig" v-html="s._html || s.text"></p>
                 </div>
               </div>
             </div>
@@ -75,73 +74,58 @@
       <div class="jd-notes">
         <div class="notes-hdr">
           <span class="notes-hdr-title">📚 学习笔记</span>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <a v-if="job.result?.markdown"
-               :href="`/api/jobs/${jobId}/download/${encodeURIComponent(job.result.markdown)}`"
-               download class="dl-chip">⬇ 下载笔记</a>
-          </div>
+          <a v-if="job.result?.markdown"
+             :href="`/api/jobs/${jobId}/download/${encodeURIComponent(job.result.markdown)}`"
+             download class="dl-chip">⬇ 下载笔记</a>
         </div>
-
-        <!-- Introduction -->
-        <div v-if="intro" class="intro-card">
-          <div class="intro-label">内容简介</div>
-          <p class="intro-text">{{ intro }}</p>
-        </div>
-
-        <!-- Per-sentence cards -->
-        <div v-for="(s, i) in sentences" :key="i" :id="`sent-${i}`" class="sent-card">
-          <div class="sent-head" @click="jumpTo(segments[i]?.start || 0)">
-            <button class="play-btn" :title="`跳转到 ${fmtTime(segments[i]?.start || 0)}`" @click.stop="jumpTo(segments[i]?.start || 0)">▶</button>
-            <span class="sent-idx">{{ i + 1 }}</span>
-            <p class="sent-orig">{{ s.original_text }}</p>
-            <span v-if="segments[i]" class="sent-ts" @click.stop="jumpTo(segments[i].start)">
-              ▶ {{ fmtTime(segments[i].start) }}
-            </span>
-          </div>
-          <p class="sent-trans">{{ s.chinese_translation }}</p>
-
-          <!-- Vocabulary table -->
-          <div v-if="s.key_words?.length" class="vocab-wrap">
-            <div class="vocab-label">📚 重难点词汇</div>
-            <table class="vocab-table">
-              <thead><tr><th>词汇</th><th>发音</th><th>释义</th><th>难度</th></tr></thead>
-              <tbody>
-                <tr v-for="w in s.key_words" :key="w.word">
-                  <td class="vocab-word">{{ w.word }}</td>
-                  <td class="vocab-phonetic">{{ w.phonetic }}</td>
-                  <td class="vocab-trans">{{ w.translation }}</td>
-                  <td class="vocab-diff">
-                    <span v-for="n in 5" :key="n" :style="{color: n<=w.difficulty?'#f59e0b':'#e2e8f0',fontSize:'10px'}">★</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Expressions -->
-          <div v-if="s.useful_expressions?.length" class="expr-wrap">
-            <div class="expr-label">💬 实用表达</div>
-            <div class="expr-list">
-              <div v-for="e in s.useful_expressions" :key="e.english" class="expr-item">
-                <span class="expr-en">{{ e.english }}</span>
-                <span class="expr-sep">—</span>
-                <span class="expr-cn">{{ e.chinese }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <div v-if="!markdownHtml" class="md-empty">暂无学习笔记</div>
+        <div v-else class="md-view" v-html="markdownHtml"
+             @mouseover="onMdHover" @mouseleave="onMdLeave"></div>
       </div>
     </div>
+
+    <!-- Dictionary tooltip (teleported to body to avoid z-index/overflow issues) -->
+    <Teleport to="body">
+      <Transition name="dt">
+        <div v-if="tooltip.visible"
+             class="dict-tooltip"
+             :style="tooltipStyle"
+             @mouseenter="cancelHide"
+             @mouseleave="scheduleHide">
+          <div v-if="tooltip.loading" class="dt-loading">
+            <span class="dt-spin">⟳</span> 查询中…
+          </div>
+          <div v-else-if="tooltip.notFound" class="dt-not-found">
+            未找到 "{{ tooltip.word }}"
+          </div>
+          <template v-else-if="tooltip.data">
+            <div class="dt-head">
+              <span class="dt-word">{{ tooltip.data.word }}</span>
+              <span v-if="tooltip.data.phonetic" class="dt-phonetic">{{ tooltip.data.phonetic }}</span>
+              <button v-if="tooltip.data.audio" class="dt-audio" @click="playAudio" title="播放发音">🔊</button>
+            </div>
+            <div v-for="(m, i) in tooltip.data.meanings" :key="i" class="dt-meaning">
+              <span v-if="m.pos" class="dt-pos">{{ m.pos }}</span>
+              <p class="dt-def">{{ m.definition }}</p>
+              <p v-if="m.example" class="dt-ex">"{{ m.example }}"</p>
+              <p v-if="m.synonyms?.length" class="dt-syns">
+                同义: <span v-for="s in m.synonyms" :key="s" class="dt-syn">{{ s }}</span>
+              </p>
+            </div>
+          </template>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { marked } from 'marked'
 import { apiFetch } from '../composables/useApi.js'
 
 const route  = useRoute()
-const router = useRouter()
 const jobId  = route.params.id
 
 const job        = ref(null)
@@ -149,13 +133,11 @@ const loading    = ref(true)
 const videoEl    = ref(null)
 const videoError = ref('')
 const segments   = ref([])
-const sentences  = ref([])
 const segLoading = ref(false)
 const activeSeg  = ref(-1)
 const segRefs    = ref([])
-const tcListEl   = ref(null)
 const transcriptOpen = ref(true)
-const intro      = ref('')
+const markdownHtml = ref('')
 
 const jobName = computed(() =>
   job.value?.name || job.value?.video_filename || jobId.slice(0,12)
@@ -180,7 +162,9 @@ async function loadSegments() {
   segLoading.value = true
   try {
     const d = await apiFetch(`/api/jobs/${jobId}/segments`)
-    segments.value = Array.isArray(d) ? d : []
+    const list = Array.isArray(d) ? d : []
+    // Wrap English words in each segment for hover dict support
+    segments.value = list.map(s => ({ ...s, _html: wrapEnglishWords(`<span>${s.text || ''}</span>`).replace(/^<span>|<\/span>$/g, '') }))
   } catch { segments.value = [] }
   finally { segLoading.value = false }
 }
@@ -189,65 +173,132 @@ async function loadMarkdown(mdFile) {
   try {
     const d = await apiFetch(`/api/jobs/${jobId}/preview/${encodeURIComponent(mdFile)}`)
     const text = d.content || ''
-    parseMd(text)
-  } catch {}
+    let html = marked.parse(text)
+    if (html instanceof Promise) html = await html
+    markdownHtml.value = wrapEnglishWords(html)
+  } catch (e) {
+    console.error('loadMarkdown error:', e)
+  }
 }
 
-// Parse the markdown format from markdown_exporter.py
-function parseMd(text) {
-  // Extract introduction (between ## 📖 and ## 📄)
-  const introMatch = text.match(/##\s*📖[^\n]*\n+([\s\S]*?)(?=##\s*📄|##\s*🔹|$)/)
-  if (introMatch) {
-    intro.value = introMatch[1].replace(/>\s*\*(.+)\*/g, '$1').replace(/[>\*\-\n]/g, ' ').trim()
+// ── English word wrapping ───────────────────────────────────────────────────
+function wrapEnglishWords(html) {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html')
+  const root = doc.body.firstChild
+  const SKIP = new Set(['CODE', 'PRE', 'SCRIPT', 'STYLE'])
+  const RE = /\b[a-zA-Z]+(?:['''-][a-zA-Z]+)*\b/g
+
+  function walk(node) {
+    if (node.nodeType === 3) { // TEXT_NODE
+      const text = node.textContent
+      if (!/[a-zA-Z]/.test(text)) return
+      const parts = []
+      let last = 0, m, changed = false
+      RE.lastIndex = 0
+      while ((m = RE.exec(text)) !== null) {
+        if (m.index > last) parts.push(document.createTextNode(text.slice(last, m.index)))
+        const s = document.createElement('span')
+        s.className = 'dict-word'
+        s.dataset.word = m[0].toLowerCase()
+        s.textContent = m[0]
+        parts.push(s)
+        last = RE.lastIndex
+        changed = true
+      }
+      if (!changed) return
+      if (last < text.length) parts.push(document.createTextNode(text.slice(last)))
+      const frag = document.createDocumentFragment()
+      parts.forEach(p => frag.appendChild(p))
+      node.parentNode.replaceChild(frag, node)
+    } else if (node.nodeType === 1) { // ELEMENT_NODE
+      if (SKIP.has(node.tagName) || node.classList?.contains('dict-word')) return
+      ;[...node.childNodes].forEach(walk)
+    }
   }
 
-  // Split by sentence sections ## 🔹 句子 N (or Sentence N etc.)
-  const sections = text.split(/\n##\s*🔹[^\n]*\n/)
-  if (sections.length < 2) return
-
-  const parsed = []
-  for (let i = 1; i < sections.length; i++) {
-    const sec = sections[i]
-    // Original text: > **text**
-    const origMatch = sec.match(/###[^\n]*📝[^\n]*\n+>\s*\*\*([^*]+)\*\*/)
-    const origText = origMatch ? origMatch[1].trim() : ''
-    // Translation: > *text*
-    const transMatch = sec.match(/###[^\n]*🌐[^\n]*\n+>\s*\*([^*]+)\*/)
-    const transText = transMatch ? transMatch[1].trim() : ''
-    // Keywords table rows: | n | **word** | phonetic | translation |
-    const keyWords = []
-    const tableSection = sec.match(/###[^\n]*📚[^\n]*([\s\S]*?)(?=###|$)/)
-    if (tableSection) {
-      const rows = tableSection[1].matchAll(/\|\s*\d+\s*\|\s*\*\*([^*]+)\*\*\s*\|\s*([^|]*)\|\s*([^|]*)\|/)
-      for (const r of rows) {
-        keyWords.push({ word: r[1].trim(), phonetic: r[2].trim(), translation: r[3].trim(), difficulty: 3 })
-      }
-    }
-    // Expressions: - **expr** — *cn*
-    const expressions = []
-    const exprSection = sec.match(/###[^\n]*💬[^\n]*([\s\S]*?)(?=###|$)/)
-    if (exprSection) {
-      const rows = exprSection[1].matchAll(/-\s*\*\*([^*]+)\*\*\s*[—-]\s*\*([^*]+)\*/)
-      for (const r of rows) {
-        expressions.push({ english: r[1].trim(), chinese: r[2].trim() })
-      }
-    }
-    parsed.push({
-      original_text: origText,
-      chinese_translation: transText,
-      key_words: keyWords,
-      useful_expressions: expressions,
-    })
-  }
-  sentences.value = parsed
+  walk(root)
+  return root.innerHTML
 }
 
+// ── Dictionary tooltip ──────────────────────────────────────────────────────
+const tooltip = ref({ visible: false, loading: false, notFound: false, word: '', data: null, x: 0, y: 0 })
+const dictCache = {}
+let showTimer = null
+let hideTimer = null
+
+const tooltipStyle = computed(() => {
+  const W = 290, MARGIN = 8
+  let x = Math.max(MARGIN, Math.min(tooltip.value.x, window.innerWidth - W - MARGIN))
+  return { left: `${x}px`, top: `${tooltip.value.y}px`, width: `${W}px` }
+})
+
+function onMdHover(e) {
+  const el = e.target.closest?.('.dict-word')
+  if (!el) return
+  clearTimeout(hideTimer)
+  clearTimeout(showTimer)
+  showTimer = setTimeout(() => triggerTooltip(el.dataset.word, el), 220)
+}
+
+function onMdLeave(e) {
+  clearTimeout(showTimer)
+  if (e.relatedTarget?.closest?.('.dict-tooltip')) return
+  scheduleHide()
+}
+
+function cancelHide() { clearTimeout(hideTimer) }
+function scheduleHide() { hideTimer = setTimeout(() => { tooltip.value.visible = false }, 180) }
+
+async function triggerTooltip(word, el) {
+  if (!word) return
+  const rect = el.getBoundingClientRect()
+  tooltip.value.word = word
+  tooltip.value.x = rect.left
+  tooltip.value.y = rect.top   // CSS transform moves it above
+  tooltip.value.notFound = false
+
+  if (dictCache[word] !== undefined) {
+    tooltip.value.data = dictCache[word] || null
+    tooltip.value.notFound = !dictCache[word]
+    tooltip.value.loading = false
+    tooltip.value.visible = true
+    return
+  }
+
+  tooltip.value.loading = true
+  tooltip.value.data = null
+  tooltip.value.visible = true
+
+  try {
+    const data = await apiFetch(`/api/dictionary/${encodeURIComponent(word)}`)
+    dictCache[word] = data
+    tooltip.value.data = data
+    tooltip.value.notFound = false
+  } catch {
+    dictCache[word] = null
+    tooltip.value.notFound = true
+    tooltip.value.data = null
+  } finally {
+    tooltip.value.loading = false
+  }
+}
+
+function playAudio() {
+  const url = tooltip.value.data?.audio
+  if (url) new Audio(url).play().catch(() => {})
+}
+
+// ── Video sync ──────────────────────────────────────────────────────────────
 function onTimeUpdate() {
   if (!videoEl.value || !segments.value.length) return
   const ct = videoEl.value.currentTime
   let idx = -1
   for (let i = 0; i < segments.value.length; i++) {
-    if (ct >= segments.value[i].start && ct < segments.value[i].end) { idx = i; break }
+    const s = segments.value[i]
+    const vStart = s.seg_start ?? s.start
+    const vEnd   = s.seg_end   ?? s.end
+    if (ct >= vStart && ct < vEnd) { idx = i; break }
   }
   if (idx !== activeSeg.value) {
     activeSeg.value = idx
@@ -302,6 +353,7 @@ function fmtTime(sec) {
 /* Body */
 .jd-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; gap: 16px; }
 .spin { font-size: 36px; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .jd-body { max-width: 1400px; margin: 0 auto; padding: 20px 20px 80px; }
 
 /* Main row */
@@ -339,6 +391,7 @@ function fmtTime(sec) {
 }
 .tc-title { font-size: 13px; font-weight: 700; color: var(--text); }
 .sync-dot { font-size: 11px; font-weight: 600; color: var(--ok); margin-left: auto; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 .tc-list { flex: 1; overflow-y: auto; }
 .tc-empty { text-align: center; padding: 32px; font-size: 13px; color: var(--text3); }
 
@@ -349,21 +402,16 @@ function fmtTime(sec) {
 }
 .tc-item:last-child { border-bottom: none; }
 .tc-item:hover { background: rgba(99,102,241,.04); }
-.tc-item.active {
-  background: rgba(99,102,241,.08); border-left-color: var(--accent);
-}
+.tc-item.active { background: rgba(99,102,241,.08); border-left-color: var(--accent); }
 .tc-ts {
   flex-shrink: 0; padding: 3px 8px; border-radius: 10px;
   background: var(--bg3); border: 1px solid var(--border);
   color: var(--text3); font-size: 11px; font-weight: 700;
   cursor: pointer; white-space: nowrap; transition: all .15s;
 }
-.tc-ts:hover, .tc-item.active .tc-ts {
-  background: var(--accent); color: #fff; border-color: var(--accent);
-}
+.tc-ts:hover, .tc-item.active .tc-ts { background: var(--accent); color: #fff; border-color: var(--accent); }
 .tc-texts { flex: 1; min-width: 0; }
-.tc-orig { font-size: 13px; color: var(--text); line-height: 1.5; margin: 0 0 3px; }
-.tc-trans { font-size: 11px; color: var(--text3); margin: 0; }
+.tc-orig { font-size: 13px; color: var(--text); line-height: 1.5; margin: 0; }
 .tc-item.active .tc-orig { color: var(--text); font-weight: 600; }
 
 /* Slide transition */
@@ -371,102 +419,200 @@ function fmtTime(sec) {
 .panel-enter-from { opacity: 0; transform: translateX(20px); }
 .panel-leave-to { opacity: 0; transform: translateX(20px); }
 
-/* Notes section */
-.jd-notes { padding-top: 8px; }
+/* ── Notes section (Feishu/Notion style doc) ── */
+.jd-notes {
+  padding-top: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 .notes-hdr {
+  width: 100%; max-width: 860px;
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
-  gap: 10px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 2px solid var(--border);
+  gap: 10px; margin-bottom: 16px;
 }
-.notes-hdr-title { font-size: 18px; font-weight: 800; color: var(--text); }
-
-.intro-card {
-  background: linear-gradient(135deg, rgba(99,102,241,.06), rgba(244,63,94,.04));
-  border: 1px solid rgba(99,102,241,.15); border-radius: 12px;
-  padding: 20px 24px; margin-bottom: 20px;
+.notes-hdr-title {
+  font-size: 15px; font-weight: 700; color: var(--text2);
+  letter-spacing: .3px; text-transform: uppercase; font-size: 12px;
 }
-.intro-label { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: var(--accent);
-  text-transform: uppercase; margin-bottom: 10px; }
-.intro-text { font-size: 14px; color: var(--text2); line-height: 1.75; margin: 0; }
-
-/* Sentence cards */
-.sent-card {
-  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-  padding: 20px; margin-bottom: 14px; box-shadow: var(--shadow);
-  transition: box-shadow .2s;
-}
-.sent-card:hover { box-shadow: var(--shadow2); }
-.sent-head {
-  display: flex; align-items: baseline; gap: 10px; cursor: pointer;
-  margin-bottom: 8px;
-}
-.sent-idx {
-  flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  color: #fff; font-size: 11px; font-weight: 800;
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.sent-orig {
-  flex: 1; font-size: 16px; font-weight: 700; color: var(--text);
-  line-height: 1.45; margin: 0;
-}
-.sent-ts {
-  flex-shrink: 0; padding: 3px 10px; border-radius: 10px;
-  background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.2);
-  color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer;
-  transition: all .15s; white-space: nowrap;
-}
-.sent-ts:hover { background: var(--accent); color: #fff; }
-.play-btn {
-  flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
-  background: rgba(99,102,241,.15); border: 1px solid rgba(99,102,241,.3);
-  color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer;
-  transition: all .15s; display: inline-flex; align-items: center; justify-content: center;
-  padding: 0; margin: 0;
-}
-.play-btn:hover { background: var(--accent); color: #fff; }
-.sent-trans {
-  font-size: 14px; color: var(--text2); margin: 0 0 14px;
-  padding-left: 34px; line-height: 1.6; font-style: italic;
-}
-
-/* Vocabulary table */
-.vocab-wrap { margin-bottom: 14px; }
-.vocab-label { font-size: 11px; font-weight: 700; color: var(--text3);
-  letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
-.vocab-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.vocab-table th {
-  text-align: left; padding: 7px 10px; background: var(--bg3);
-  border: 1px solid var(--border); font-size: 11px; font-weight: 700;
-  color: var(--text3); text-transform: uppercase; letter-spacing: .5px;
-}
-.vocab-table td { padding: 8px 10px; border: 1px solid var(--border); vertical-align: middle; }
-.vocab-word { font-weight: 700; color: var(--accent); font-size: 14px; }
-.vocab-phonetic { color: var(--text3); font-size: 12px; font-style: italic; }
-.vocab-trans { color: var(--text2); }
-.vocab-diff { white-space: nowrap; }
-.vocab-table tr:hover td { background: var(--bg3); }
-
-/* Expressions */
-.expr-wrap { }
-.expr-label { font-size: 11px; font-weight: 700; color: var(--text3);
-  letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
-.expr-list { display: flex; flex-direction: column; gap: 6px; }
-.expr-item {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 8px 12px; border-radius: 8px;
-  background: rgba(244,63,94,.04); border: 1px solid rgba(244,63,94,.12);
-}
-.expr-en { font-size: 13px; font-weight: 700; color: var(--accent2); }
-.expr-sep { color: var(--text3); }
-.expr-cn { font-size: 12px; color: var(--text2); }
+.md-empty { text-align: center; padding: 64px; color: var(--text3); font-size: 14px; }
 
 /* DL chip */
 .dl-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 7px 14px; border-radius: 8px;
+  padding: 6px 12px; border-radius: 8px;
   background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.2);
   color: var(--accent); font-size: 12px; font-weight: 600; transition: all .2s;
-  white-space: nowrap;
+  white-space: nowrap; text-decoration: none;
 }
 .dl-chip:hover { background: rgba(99,102,241,.15); }
+
+/* ── Markdown doc view (Feishu-inspired) ── */
+.md-view {
+  width: 100%; max-width: 860px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 48px 64px 56px;
+  box-shadow: 0 2px 16px rgba(0,0,0,.06);
+  line-height: 1.85;
+  color: var(--text);
+  font-size: 15px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+@media (max-width: 960px) { .md-view { padding: 32px 36px 40px; } }
+@media (max-width: 700px) { .md-view { padding: 24px 20px 32px; } }
+
+/* h1: document title style */
+.md-view :deep(h1) {
+  font-size: 28px; font-weight: 800; margin: 0 0 28px;
+  color: var(--text);
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+  letter-spacing: -.3px;
+}
+/* h2: section heading with left accent */
+.md-view :deep(h2) {
+  font-size: 19px; font-weight: 700; margin: 36px 0 14px;
+  color: var(--text);
+  display: flex; align-items: center; gap: 10px;
+}
+.md-view :deep(h2)::before {
+  content: '';
+  display: inline-block; width: 4px; height: 1em;
+  background: var(--accent); border-radius: 2px; flex-shrink: 0;
+}
+/* h3: subsection */
+.md-view :deep(h3) {
+  font-size: 16px; font-weight: 700; margin: 24px 0 10px;
+  color: var(--text);
+}
+.md-view :deep(h4) {
+  font-size: 14px; font-weight: 600; margin: 16px 0 8px; color: var(--text2);
+}
+.md-view :deep(p) {
+  margin: 0 0 14px; color: var(--text); line-height: 1.85;
+}
+/* Blockquote: Feishu style — accent left bar + subtle bg */
+.md-view :deep(blockquote) {
+  border-left: 3px solid var(--accent);
+  margin: 16px 0; padding: 12px 18px;
+  background: rgba(99,102,241,.05); border-radius: 0 8px 8px 0;
+}
+.md-view :deep(blockquote p) { margin: 0; color: var(--text2); font-style: italic; }
+/* Tables */
+.md-view :deep(table) {
+  width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;
+  border-radius: 8px; overflow: hidden; border: 1px solid var(--border);
+}
+.md-view :deep(thead tr) {
+  background: rgba(99,102,241,.07);
+}
+.md-view :deep(th) {
+  padding: 10px 14px; font-weight: 600;
+  text-align: left; font-size: 12.5px; color: var(--text2);
+  border-bottom: 1px solid var(--border);
+  letter-spacing: .4px; text-transform: uppercase;
+}
+.md-view :deep(td) {
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  vertical-align: middle; color: var(--text); font-size: 14px;
+}
+.md-view :deep(tr:last-child td) { border-bottom: none; }
+.md-view :deep(tr:hover td) { background: rgba(99,102,241,.03); }
+/* Lists */
+.md-view :deep(ul), .md-view :deep(ol) { padding-left: 24px; margin: 8px 0 14px; }
+.md-view :deep(li) { margin-bottom: 6px; line-height: 1.75; color: var(--text); }
+.md-view :deep(ul li)::marker { color: var(--accent); }
+/* Inline elements */
+.md-view :deep(strong) { font-weight: 700; color: var(--text); }
+.md-view :deep(em) { font-style: italic; color: var(--text2); }
+/* Inline code */
+.md-view :deep(code) {
+  background: rgba(99,102,241,.1); border: none;
+  border-radius: 5px; padding: 2px 7px; font-size: 13px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: var(--accent);
+}
+/* Code blocks */
+.md-view :deep(pre) {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px; margin: 16px 0;
+  overflow-x: auto;
+}
+.md-view :deep(pre code) {
+  background: none; border: none; padding: 0; font-size: 13px;
+  color: var(--text); line-height: 1.65;
+}
+/* HR */
+.md-view :deep(hr) {
+  border: none; height: 1px; margin: 32px 0;
+  background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
+}
+.md-view :deep(div[align="center"]) { text-align: center; }
+
+/* ── Hoverable English words (markdown + transcript) ── */
+.md-view :deep(.dict-word),
+.tc-orig :deep(.dict-word) {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--text3);
+  transition: color .12s, border-color .12s;
+}
+.md-view :deep(.dict-word:hover),
+.tc-orig :deep(.dict-word:hover) {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Dictionary tooltip card ── */
+.dict-tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.1);
+  pointer-events: auto;
+  transform: translateY(calc(-100% - 10px));
+}
+
+/* Tooltip enter/leave transition */
+.dt-enter-active { transition: opacity .14s ease, transform .14s ease; }
+.dt-leave-active { transition: opacity .1s ease; }
+.dt-enter-from   { opacity: 0; transform: translateY(calc(-100% - 4px)); }
+.dt-leave-to     { opacity: 0; }
+
+.dt-loading {
+  font-size: 13px; color: var(--text3); display: flex; align-items: center; gap: 6px;
+}
+.dt-spin { display: inline-block; animation: spin .9s linear infinite; }
+.dt-not-found { font-size: 12px; color: var(--text3); }
+
+.dt-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.dt-word    { font-size: 17px; font-weight: 700; color: var(--text); }
+.dt-phonetic { font-size: 12px; color: var(--text3); font-family: monospace; flex: 1; }
+.dt-audio {
+  background: none; border: none; cursor: pointer; font-size: 14px;
+  padding: 2px 5px; border-radius: 6px; color: var(--text3); transition: all .15s;
+}
+.dt-audio:hover { background: var(--bg3); color: var(--accent); }
+
+.dt-meaning { margin-bottom: 9px; }
+.dt-meaning:last-child { margin-bottom: 0; }
+
+.dt-pos {
+  display: inline-block; padding: 1px 7px; border-radius: 10px; margin-bottom: 4px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+  background: rgba(99,102,241,.1); color: var(--accent);
+}
+.dt-def { font-size: 13px; color: var(--text); margin: 0 0 3px; line-height: 1.5; }
+.dt-ex  { font-size: 12px; color: var(--text3); font-style: italic; margin: 0 0 3px; }
+.dt-syns { font-size: 11px; color: var(--text3); margin: 0; }
+.dt-syn {
+  display: inline-block; margin: 1px 3px 1px 0; padding: 1px 5px;
+  background: var(--bg3); border-radius: 4px; font-size: 11px;
+}
 </style>

@@ -265,16 +265,9 @@ class MarkdownExporter:
             return "（生成简介失败）"
 
     def export(self, sentences_data: List[Dict], output_filename: str = None) -> str:
-        """
-        导出Markdown格式的文字稿
+        """导出Markdown格式的文字稿（纯 Markdown，样式完全由前端 CSS 负责）"""
+        import random
 
-        Args:
-            sentences_data: 句子数据列表
-            output_filename: 输出文件名
-
-        Returns:
-            输出文件路径
-        """
         if output_filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename = f"transcript_{timestamp}.md"
@@ -284,166 +277,147 @@ class MarkdownExporter:
 
         total_sentences = len(sentences_data)
         total_words = sum(len(s.get('key_words', [])) for s in sentences_data)
+        total_exprs  = sum(len(s.get('useful_expressions', [])) for s in sentences_data)
+        date_str = datetime.now().strftime("%Y-%m-%d")
 
         print("正在生成内容简介...")
         introduction = self._generate_introduction(sentences_data)
 
+        # ── helpers ──────────────────────────────────────────────────────────
+        def diff_stars(n):
+            n = max(1, min(5, int(n) if n else 3))
+            return '★' * n + '☆' * (5 - n)
+
+        # ── collect all words / expressions (deduped) ─────────────────────
+        all_words: list = []
+        seen_words: set = set()
+        all_expressions: list = []
+        seen_exprs: set = set()
+        for sd in sentences_data:
+            for w in sd.get('key_words', []):
+                wl = w.get('word', '').lower()
+                if wl and wl not in seen_words:
+                    seen_words.add(wl); all_words.append(w)
+            for e in sd.get('useful_expressions', []):
+                el = e.get('english', '').lower()
+                if el and el not in seen_exprs:
+                    seen_exprs.add(el); all_expressions.append(e)
+
+        random.seed(42)
+        shuffled_words = all_words.copy(); random.shuffle(shuffled_words)
+        shuffled_exprs = all_expressions.copy(); random.shuffle(shuffled_exprs)
+
         with open(output_path, 'w', encoding='utf-8') as f:
-            # 头部信息
-            f.write("---\nlayout: default\n")
-            f.write(f"title: {ui['title']}\n---\n\n")
 
-            # 主标题
-            f.write(f"# 🌟 {ui['title']}\n\n")
+            # ── Header ───────────────────────────────────────────────────────
+            f.write(f'# {ui["title"]}\n\n')
+            f.write(f'{date_str} · {total_sentences} {ui["sentence"]} · {total_words} 词汇 · {total_exprs} 表达\n\n')
+            f.write('---\n\n')
 
-            # 简介
-            f.write("---\n\n")
-            f.write(f"## 📖 {ui['intro']}\n\n")
-            f.write(f"> *{introduction}*\n\n---\n\n")
+            # ── Introduction ─────────────────────────────────────────────────
+            f.write(f'## 📖 {ui["intro"]}\n\n')
+            f.write(f'> {introduction}\n\n')
+            f.write('---\n\n')
 
-            # 原文整合
-            f.write(f"## 📄 {ui['original']}\n\n")
-            for i, sentence_data in enumerate(sentences_data, 1):
-                original_text = sentence_data['original_text']
-                original_text = original_text.rstrip('.!?。！？')
-                f.write(f"*{original_text}.* ")
-            f.write("\n\n---\n\n")
+            # ── Sentences ────────────────────────────────────────────────────
+            for i, sd in enumerate(sentences_data, 1):
+                orig  = sd.get('original_text', '')
+                trans = sd.get('chinese_translation', '')
+                kws   = sd.get('key_words', [])
+                exprs = sd.get('useful_expressions', [])
 
-            # 每个句子的详细内容
-            for i, sentence_data in enumerate(sentences_data, 1):
-                f.write(f'<div class="sentence-card" id="句子-{i}">\n\n')
-                f.write(f"## 🔹 {ui['sentence']} {i}\n\n")
+                f.write(f'## 🔹 {ui["sentence"]} {i}\n\n')
 
-                original_text = sentence_data['original_text']
+                # Original + translation blockquote
+                f.write(f'> **{orig}**\n>\n> *{trans}*\n\n')
 
-                f.write(f"### {ui['source_text']}\n\n")
-                f.write(f"> **{original_text}**\n\n")
+                # Vocabulary table
+                if kws:
+                    f.write(f'### {ui["keywords"]}\n\n')
+                    f.write(f'| {ui["word_col1"]} | {ui["word_col2"]} | {ui["word_col3"]} | ★ |\n')
+                    f.write('|---|---|---|:---:|\n')
+                    for w in kws:
+                        word     = w.get('word', '')
+                        phonetic = w.get('phonetic', '') or ''
+                        trans_w  = w.get('translation', '')
+                        diff     = w.get('difficulty', 3)
+                        ph_str   = f'`{phonetic}`' if phonetic else ''
+                        f.write(f'| **{word}** | {ph_str} | {trans_w} | {diff_stars(diff)} |\n')
+                    f.write('\n')
 
-                f.write(f"### {ui['translation']}\n\n")
-                f.write(f"> *{sentence_data['chinese_translation']}*")
+                # Expressions
+                if exprs:
+                    f.write(f'### {ui["expressions"]}\n\n')
+                    for expr in exprs:
+                        eng = expr.get('english', '')
+                        chn = expr.get('chinese', '')
+                        if eng and chn:
+                            f.write(f'- **{eng}** — {chn}\n')
+                    f.write('\n')
 
-                # 重难点词汇
-                keywords = sentence_data.get('key_words', [])
-                if keywords:
-                    f.write(f"\n\n### {ui['keywords']}\n\n")
-                    f.write(f"| 序号 | {ui['word_col1']} | {ui['word_col2']} | {ui['word_col3']} |\n")
-                    f.write("|:---:|:---:|:---:|:---:|\n")
-                    for j, word_info in enumerate(keywords, 1):
-                        word = word_info.get('word', '')
-                        phonetic = word_info.get('phonetic', '')
-                        translation = word_info.get('translation', '')
-                        f.write(f"| {j} | **{word}** | {phonetic} | {translation} |\n")
-                    f.write("\n")
+            f.write('---\n\n')
 
-                # 有用表达
-                expressions = sentence_data.get('useful_expressions', [])
-                if expressions:
-                    f.write(f"### {ui['expressions']}\n\n")
-                    for expr in expressions:
-                        english = expr.get('english', '')
-                        chinese = expr.get('chinese', '')
-                        if english and chinese:
-                            f.write(f"- **{english}** — {chinese}\n")
-                    f.write("\n")
-
-                f.write("</div>\n\n---\n\n")
-
-            # 词汇汇总表
-            f.write(f"## {ui['word_table']}\n\n")
-            all_words = []
-            seen_words = set()
-            for sentence_data in sentences_data:
-                for word_info in sentence_data.get('key_words', []):
-                    word = word_info.get('word', '').lower()
-                    if word and word not in seen_words:
-                        seen_words.add(word)
-                        all_words.append(word_info)
-
-            import random
-            random.seed(42)
-            shuffled_words = all_words.copy()
-            random.shuffle(shuffled_words)
-
+            # ── Vocabulary Summary ────────────────────────────────────────────
+            f.write(f'## {ui["word_table"]}\n\n')
             if shuffled_words:
-                f.write(f"| {ui['word_col1']} | {ui['word_col2']} | {ui['word_col3']} |\n")
-                f.write("|:---:|:---:|:---:|\n")
-                for word_info in shuffled_words:
-                    word = word_info.get('word', '')
-                    phonetic = word_info.get('phonetic', '')
-                    translation = word_info.get('translation', '')
-                    f.write(f"| **{word}** | {phonetic} | {translation} |\n")
+                f.write(f'| {ui["word_col1"]} | {ui["word_col2"]} | {ui["word_col3"]} | ★ |\n')
+                f.write('|---|---|---|:---:|\n')
+                for w in shuffled_words:
+                    word     = w.get('word', '')
+                    phonetic = w.get('phonetic', '') or ''
+                    trans_w  = w.get('translation', '')
+                    diff     = w.get('difficulty', 3)
+                    ph_str   = f'`{phonetic}`' if phonetic else ''
+                    f.write(f'| **{word}** | {ph_str} | {trans_w} | {diff_stars(diff)} |\n')
+                f.write('\n')
+            f.write('---\n\n')
 
-            f.write("\n---\n\n")
-
-            # 词汇听写练习
-            f.write(f"## {ui['dictation']}\n\n")
-            f.write(f"{ui['dictation_intro']}\n\n")
-
+            # ── Dictation Practice ────────────────────────────────────────────
+            f.write(f'## {ui["dictation"]}\n\n')
+            f.write(f'{ui["dictation_intro"]}\n\n')
             if shuffled_words:
-                f.write("<table style='width:100%; table-layout:fixed; text-align:center;'>\n")
-                f.write(f"<tr><th style='width:33%'>{ui['word_hint_col1']}</th>"
-                        f"<th style='width:33%'>{ui['word_hint_col2']}</th>"
-                        f"<th style='width:33%'>{ui['word_hint_col3']}</th></tr>\n")
-                for i in range(0, len(shuffled_words), 3):
-                    row = shuffled_words[i:i+3]
+                f.write(f'| {ui["word_hint_col1"]} | {ui["word_hint_col2"]} | {ui["word_hint_col3"]} |\n')
+                f.write('|---|---|---|\n')
+                for idx in range(0, len(shuffled_words), 3):
+                    row = shuffled_words[idx:idx+3]
                     while len(row) < 3:
                         row.append({'translation': '', 'word': ''})
-                    f.write(f"<tr><td>{row[0]['translation']} __________ </td>"
-                            f"<td>{row[1]['translation']} __________ </td>"
-                            f"<td>{row[2]['translation']} __________ </td></tr>\n")
-                f.write("</table>\n")
+                    cells = [f'{item.get("translation", "")} `______`' for item in row]
+                    f.write('| ' + ' | '.join(cells) + ' |\n')
+                f.write('\n')
+            f.write('---\n\n')
 
-            f.write("\n---\n\n")
-
-            # 表达汇总表
-            f.write(f"## {ui['expr_table']}\n\n")
-            all_expressions = []
-            seen_expressions = set()
-            for sentence_data in sentences_data:
-                for expr in sentence_data.get('useful_expressions', []):
-                    english = expr.get('english', '').lower()
-                    if english and english not in seen_expressions:
-                        seen_expressions.add(english)
-                        all_expressions.append(expr)
-
+            # ── Expressions Summary ───────────────────────────────────────────
+            f.write(f'## {ui["expr_table"]}\n\n')
             if all_expressions:
-                f.write(f"| {ui['expr_col1']} | {ui['expr_col2']} |\n")
-                f.write("|:---|:---|\n")
+                f.write(f'| {ui["expr_col1"]} | {ui["expr_col2"]} |\n')
+                f.write('|---|---|\n')
                 for expr in all_expressions:
-                    english = expr.get('english', '')
-                    chinese = expr.get('chinese', '')
-                    f.write(f"| **{english}** | {chinese} |\n")
+                    eng = expr.get('english', '')
+                    chn = expr.get('chinese', '')
+                    if eng and chn:
+                        f.write(f'| **{eng}** | {chn} |\n')
+                f.write('\n')
+            f.write('---\n\n')
 
-            f.write("\n---\n\n")
-
-            # 表达默写练习
-            f.write(f"## {ui['expr_dictation']}\n\n")
-            f.write(f"{ui['expr_dictation_intro']}\n\n")
-
-            if all_expressions:
-                import random
-                random.seed(42)
-                shuffled_exprs = all_expressions.copy()
-                random.shuffle(shuffled_exprs)
-
-                f.write("<table style='width:100%; table-layout:fixed; text-align:center;'>\n")
-                f.write(f"<tr><th style='width:50%'>{ui['expr_hint_col1']}</th>"
-                        f"<th style='width:50%'>{ui['expr_hint_col2']}</th></tr>\n")
-                for i in range(0, len(shuffled_exprs), 2):
-                    row = shuffled_exprs[i:i+2]
+            # ── Expression Practice ───────────────────────────────────────────
+            f.write(f'## {ui["expr_dictation"]}\n\n')
+            f.write(f'{ui["expr_dictation_intro"]}\n\n')
+            if shuffled_exprs:
+                f.write(f'| {ui["expr_hint_col1"]} | {ui["expr_hint_col2"]} |\n')
+                f.write('|---|---|\n')
+                for idx in range(0, len(shuffled_exprs), 2):
+                    row = shuffled_exprs[idx:idx+2]
                     while len(row) < 2:
                         row.append({'chinese': '', 'english': ''})
-                    f.write(f"<tr><td>{row[0]['chinese']} ____________________ </td>"
-                            f"<td>{row[1]['chinese']} ____________________ </td></tr>\n")
-                f.write("</table>\n")
+                    cells = [f'{item.get("chinese", "")} `__________`' for item in row]
+                    f.write('| ' + ' | '.join(cells) + ' |\n')
+                f.write('\n')
+            f.write('---\n\n')
 
-            f.write("\n---\n\n")
-
-            # 页脚
-            f.write('<div align="center">\n\n')
-            f.write(f"*📚 {ui['footer']}*\n\n")
-            f.write(f"*{ui['footer2']}* 🚀\n\n")
-            f.write("</div>\n")
+            # ── Footer ────────────────────────────────────────────────────────
+            f.write(f'*{ui["footer"]}*\n\n')
+            f.write(f'*{ui["footer2"]}*\n')
 
         print(f"Markdown文字稿已导出到: {output_path}")
         return output_path

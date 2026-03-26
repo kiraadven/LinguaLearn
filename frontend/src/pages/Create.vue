@@ -199,13 +199,11 @@
                          :class="['cv-box', `cv-box-${bk}`, {selected: selectedBoxKey===bk}]"
                          :style="cvBoxStyle(bk)"
                          @mousedown.stop="startDrag($event, bk)">
-                      <!-- Preview image or CSS-based fallback -->
-                      <img v-if="previews[bk]" :src="previews[bk]"
-                           style="width:100%;height:100%;object-fit:fill;border-radius:3px;display:block;pointer-events:none">
-                      <div v-else class="cv-box-preview" :style="{background: BOX_MAP[bk]?.previewBg||'rgba(0,0,0,.6)', padding:'6px 8px', height:'100%', boxSizing:'border-box', overflow:'hidden'}">
+                      <!-- CSS-based preview -->
+                      <div class="cv-box-preview" :style="{background: bk==='subtitle'?style.subtitle_bg_color:bk==='wordbox'?style.wordbox_bg:bk==='expressionbox'?style.exprbox_bg:(BOX_MAP[bk]?.previewBg||'rgba(0,0,0,.6)'), padding:'6px 8px', height:'100%', boxSizing:'border-box', overflow:'hidden'}">
                         <template v-if="bk==='subtitle'">
                           <div :style="{color:style.subtitle_text_color, fontSize:(11*boxLayouts['subtitle'].font_scale).toFixed(1)+'px', fontWeight:700, lineHeight:1.3, fontFamily: FONTS.find(f=>f.val===style.font_family)?.css||'system-ui'}">{{ PREVIEW_DATA[srcLang]?.sentence || 'Text' }}</div>
-                          <div :style="{color:'#94a3b8', fontSize:(9*boxLayouts['subtitle'].font_scale).toFixed(1)+'px', marginTop:'3px'}">{{ PREVIEW_DATA[srcLang]?.translations?.[tgtLang] || 'Translation' }}</div>
+                          <div :style="{color:'#94a3b8', fontSize:(9*boxLayouts['subtitle'].font_scale).toFixed(1)+'px', marginTop:'3px', color:style.subtitle_cn_color}">{{ PREVIEW_DATA[srcLang]?.translations?.[tgtLang] || 'Translation' }}</div>
                         </template>
                         <template v-else-if="bk==='wordbox'">
                           <div v-for="w in (PREVIEW_DATA[srcLang]?.words||[]).slice(0, numWords)" :key="w.word" style="margin-bottom:5px;line-height:1.3">
@@ -217,7 +215,7 @@
                         <template v-else-if="bk==='expressionbox'">
                           <div v-for="e in (PREVIEW_DATA[srcLang]?.expressions||[]).slice(0, numExprs)" :key="e.english" style="margin-bottom:5px;line-height:1.3">
                             <div :style="{color:style.exprbox_en_color, fontSize:(10*boxLayouts['expressionbox'].font_scale).toFixed(1)+'px', fontWeight:700, fontFamily: FONTS.find(f=>f.val===style.font_family)?.css||'system-ui'}">{{ e.english }}</div>
-                            <div :style="{color:'#94a3b8', fontSize:(9*boxLayouts['expressionbox'].font_scale).toFixed(1)+'px', marginTop:'1px'}">{{ e.chinese }}</div>
+                            <div :style="{color:style.exprbox_cn_color, fontSize:(9*boxLayouts['expressionbox'].font_scale).toFixed(1)+'px', marginTop:'1px'}">{{ e.chinese }}</div>
                           </div>
                         </template>
                         <div v-else class="cv-box-label" :style="{color:BOX_MAP[bk]?.color||'#fff',height:'100%'}">
@@ -242,22 +240,23 @@
               </div>
               <div v-else class="props-form">
                 <div class="prop-row2">
-                  <div><label class="label">X %</label><input type="number" class="input input-sm" v-model.number="boxLayouts[selectedBoxKey].x" min="0" max="99" step="0.5" @input="schedulePreview(selectedBoxKey)"></div>
-                  <div><label class="label">Y %</label><input type="number" class="input input-sm" v-model.number="boxLayouts[selectedBoxKey].y" min="0" max="99" step="0.5" @input="schedulePreview(selectedBoxKey)"></div>
-                  <div><label class="label">宽 %</label><input type="number" class="input input-sm" v-model.number="boxLayouts[selectedBoxKey].w" min="5" max="100" step="0.5" @input="schedulePreview(selectedBoxKey)"></div>
-                  <div><label class="label">高 %</label><input type="number" class="input input-sm" v-model.number="boxLayouts[selectedBoxKey].h" min="3" max="100" step="0.5" @input="schedulePreview(selectedBoxKey)"></div>
+                  <div><label class="label">X %</label><input type="number" class="input input-sm" v-model.number="boxLayouts[selectedBoxKey].x" min="0" max="99" step="0.5"></div>
+                  <div><label class="label">Y %</label><input type="number" class="input input-sm" v-model.number="boxLayouts[selectedBoxKey].y" min="0" max="99" step="0.5"></div>
+                  <div><label class="label">宽 %</label><input type="number" class="input input-sm" v-model.number="boxLayouts[selectedBoxKey].w" min="5" max="100" step="0.5"></div>
+                  <div><label class="label">高 %</label><input type="number" class="input input-sm" v-model.number="boxLayouts[selectedBoxKey].h" min="3" max="100" step="0.5"></div>
                 </div>
                 <label class="label" style="margin-top:8px">字号倍率：{{ boxLayouts[selectedBoxKey].font_scale.toFixed(1) }}x</label>
-                <input type="range" class="slider" v-model.number="boxLayouts[selectedBoxKey].font_scale" min="0.5" max="2.5" step="0.1" style="margin-bottom:10px" @input="schedulePreview(selectedBoxKey)">
+                <input type="range" class="slider" v-model.number="boxLayouts[selectedBoxKey].font_scale" min="0.5" max="2.5" step="0.1" style="margin-bottom:10px">
 
                 <!-- Box-specific colors -->
                 <div style="font-size:11px;font-weight:700;color:var(--text3);margin:8px 0 6px;text-transform:uppercase;letter-spacing:.5px">颜色</div>
                 <template v-if="selectedBoxKey==='subtitle'">
-                  <ColorRow label="背景色" v-model="style.subtitle_bg_color" @change="schedulePreview('subtitle')"/>
-                  <ColorRow label="文字色" v-model="style.subtitle_text_color" @change="schedulePreview('subtitle')"/>
+                  <ColorRow label="背景色" v-model="style.subtitle_bg_color"/>
+                  <ColorRow label="原文色" v-model="style.subtitle_text_color"/>
+                  <ColorRow label="译文色" v-model="style.subtitle_cn_color"/>
                   <div style="margin-bottom:8px">
                     <label class="label">背景风格</label>
-                    <select class="input input-sm" v-model="style.subtitle_bg_style" @change="schedulePreview('subtitle')">
+                    <select class="input input-sm" v-model="style.subtitle_bg_style">
                       <option value="light">浅色</option>
                       <option value="dark">深色</option>
                       <option value="gradient">渐变</option>
@@ -266,14 +265,15 @@
                   </div>
                 </template>
                 <template v-else-if="selectedBoxKey==='wordbox'">
-                  <ColorRow label="背景色" v-model="style.wordbox_bg" @change="schedulePreview('wordbox')"/>
-                  <ColorRow label="单词色" v-model="style.wordbox_word_color" @change="schedulePreview('wordbox')"/>
-                  <ColorRow label="音标色" v-model="style.wordbox_phonetic_color" @change="schedulePreview('wordbox')"/>
-                  <ColorRow label="释义色" v-model="style.wordbox_trans_color" @change="schedulePreview('wordbox')"/>
+                  <ColorRow label="背景色" v-model="style.wordbox_bg"/>
+                  <ColorRow label="单词色" v-model="style.wordbox_word_color"/>
+                  <ColorRow label="音标色" v-model="style.wordbox_phonetic_color"/>
+                  <ColorRow label="释义色" v-model="style.wordbox_trans_color"/>
                 </template>
                 <template v-else-if="selectedBoxKey==='expressionbox'">
-                  <ColorRow label="背景色" v-model="style.exprbox_bg" @change="schedulePreview('expressionbox')"/>
-                  <ColorRow label="表达色" v-model="style.exprbox_en_color" @change="schedulePreview('expressionbox')"/>
+                  <ColorRow label="背景色" v-model="style.exprbox_bg"/>
+                  <ColorRow label="表达色" v-model="style.exprbox_en_color"/>
+                  <ColorRow label="释义色" v-model="style.exprbox_cn_color"/>
                 </template>
 
                 <button style="width:100%;margin-top:10px;padding:7px;border-radius:6px;background:transparent;border:1px solid rgba(248,113,113,.3);color:var(--err);font-size:12px;cursor:pointer;transition:all .15s"
@@ -335,14 +335,10 @@
               <div v-for="f in FONTS" :key="f.val"
                    :class="['font-chip', {active: style.font_family===f.val}]"
                    :style="{fontFamily: f.css||'inherit'}"
-                   @click="style.font_family=f.val; ['subtitle','wordbox','expressionbox'].forEach(k => schedulePreview(k))">
+                   @click="style.font_family=f.val">
                 <div style="font-size:15px;margin-bottom:2px">{{ f.sample }}</div>
                 <div style="font-size:10px;color:var(--text3)">{{ f.label }}</div>
               </div>
-            </div>
-            <!-- Font preview area -->
-            <div v-if="fontPreviewImg" style="margin-top:12px;text-align:center">
-              <img :src="fontPreviewImg" style="max-width:100%;border-radius:6px;border:1px solid var(--border)">
             </div>
           </div>
         </div>
@@ -471,33 +467,33 @@ const FONTS = [
 const COLOR_PRESETS = [
   {
     name:'暗夜极光', swatches:['#0f0f1e','#a78bfa','#f472b6','#38bdf8'],
-    style:{subtitle_bg_color:'#000000',subtitle_text_color:'#ffffff',subtitle_bg_style:'dark',
+    style:{subtitle_bg_color:'#000000',subtitle_text_color:'#ffffff',subtitle_cn_color:'#94a3b8',subtitle_bg_style:'dark',
            wordbox_bg:'#1a1a2e',wordbox_word_color:'#a78bfa',wordbox_phonetic_color:'#94a3b8',wordbox_trans_color:'#f1f5f9',
-           exprbox_bg:'#0f172a',exprbox_en_color:'#f472b6'}
+           exprbox_bg:'#0f172a',exprbox_en_color:'#f472b6',exprbox_cn_color:'#94a3b8'}
   },
   {
     name:'学院白板', swatches:['#f8f9fa','#6366f1','#374151','#db2777'],
-    style:{subtitle_bg_color:'#f8f9fa',subtitle_text_color:'#1f2937',subtitle_bg_style:'light',
+    style:{subtitle_bg_color:'#f8f9fa',subtitle_text_color:'#1f2937',subtitle_cn_color:'#6b7280',subtitle_bg_style:'light',
            wordbox_bg:'#f1f5f9',wordbox_word_color:'#6366f1',wordbox_phonetic_color:'#6b7280',wordbox_trans_color:'#1f2937',
-           exprbox_bg:'#fdf2f8',exprbox_en_color:'#db2777'}
+           exprbox_bg:'#fdf2f8',exprbox_en_color:'#db2777',exprbox_cn_color:'#6b7280'}
   },
   {
     name:'霓虹未来', swatches:['#000000','#00ffff','#ff0080','#ffff00'],
-    style:{subtitle_bg_color:'#000000',subtitle_text_color:'#00ffff',subtitle_bg_style:'dark',
+    style:{subtitle_bg_color:'#000000',subtitle_text_color:'#00ffff',subtitle_cn_color:'#888888',subtitle_bg_style:'dark',
            wordbox_bg:'#050510',wordbox_word_color:'#00ffff',wordbox_phonetic_color:'#888888',wordbox_trans_color:'#ffffff',
-           exprbox_bg:'#050510',exprbox_en_color:'#ff0080'}
+           exprbox_bg:'#050510',exprbox_en_color:'#ff0080',exprbox_cn_color:'#888888'}
   },
   {
     name:'暖光温柔', swatches:['#2d1b0e','#f4a460','#d2b48c','#ff9562'],
-    style:{subtitle_bg_color:'#2d1b0e',subtitle_text_color:'#fff9f0',subtitle_bg_style:'dark',
+    style:{subtitle_bg_color:'#2d1b0e',subtitle_text_color:'#fff9f0',subtitle_cn_color:'#d2b48c',subtitle_bg_style:'dark',
            wordbox_bg:'#3d2515',wordbox_word_color:'#f4a460',wordbox_phonetic_color:'#d2b48c',wordbox_trans_color:'#fff8dc',
-           exprbox_bg:'#4a3728',exprbox_en_color:'#ff9562'}
+           exprbox_bg:'#4a3728',exprbox_en_color:'#ff9562',exprbox_cn_color:'#d2b48c'}
   },
   {
     name:'海洋深邃', swatches:['#0a2040','#4db8ff','#80c4e9','#40dfb8'],
-    style:{subtitle_bg_color:'#0a2040',subtitle_text_color:'#e2f0fb',subtitle_bg_style:'dark',
+    style:{subtitle_bg_color:'#0a2040',subtitle_text_color:'#e2f0fb',subtitle_cn_color:'#80c4e9',subtitle_bg_style:'dark',
            wordbox_bg:'#0d2b4a',wordbox_word_color:'#4db8ff',wordbox_phonetic_color:'#80c4e9',wordbox_trans_color:'#e8f4fd',
-           exprbox_bg:'#0a1a30',exprbox_en_color:'#40dfb8'}
+           exprbox_bg:'#0a1a30',exprbox_en_color:'#40dfb8',exprbox_cn_color:'#80c4e9'}
   },
 ]
 
@@ -704,6 +700,14 @@ const PREVIEW_DATA = {
   },
 }
 
+// ── Helpers ──
+function _hexToRgba(hex, alpha = 1) {
+  const h = hex.replace('#', '')
+  if (h.length !== 6) return hex
+  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 // ── State ──
 const fileInput   = ref(null)
 const selectedFile= ref(null)
@@ -726,9 +730,9 @@ const boxLayouts = reactive({
 // Style (colors, fonts)
 const style = reactive({
   font_family:'system',
-  subtitle_bg_color:'#000000',subtitle_text_color:'#ffffff',subtitle_bg_style:'dark',
-  wordbox_bg:'#1a1a2e',wordbox_word_color:'#a78bfa',wordbox_phonetic_color:'#94a3b8',wordbox_trans_color:'#f1f5f9',
-  exprbox_bg:'#0f172a',exprbox_en_color:'#f472b6',
+  subtitle_bg_color:'rgba(0,0,0,0.72)',subtitle_text_color:'#ffffff',subtitle_cn_color:'#94a3b8',subtitle_bg_style:'dark',
+  wordbox_bg:'rgba(20,10,50,0.88)',wordbox_word_color:'#a78bfa',wordbox_phonetic_color:'#94a3b8',wordbox_trans_color:'#f1f5f9',
+  exprbox_bg:'rgba(10,5,30,0.88)',exprbox_en_color:'#f472b6',exprbox_cn_color:'#94a3b8',
 })
 const activeColorPreset = ref('暗夜极光')
 const selectedStyleId  = ref('aurora_dark')
@@ -778,7 +782,7 @@ function cvBoxStyle(bk) {
       ? `2px solid ${BOX_MAP[bk]?.color||'#fff'}`
       : `1.5px dashed ${BOX_MAP[bk]?.color||'#fff'}44`,
     boxShadow: selectedBoxKey.value===bk ? `0 0 0 3px ${BOX_MAP[bk]?.color||'#fff'}22` : 'none',
-    background: previews.value[bk] ? 'transparent' : `${BOX_MAP[bk]?.color||'#888'}12`,
+    background: `${BOX_MAP[bk]?.color||'#888'}12`,
     overflow:'hidden',
   }
 }
@@ -821,7 +825,6 @@ function onWinMove(e) {
     bl.w = Math.max(5,  Math.min(100-bl.x, pct.x - dragState.ox - bl.x))
     bl.h = Math.max(3,  Math.min(100-bl.y, pct.y - dragState.oy - bl.y))
   }
-  schedulePreview(dragState.bk)
 }
 
 function onWinUp() {
@@ -844,7 +847,6 @@ function onCanvasDrop(e) {
   const bl  = boxLayouts[bk]
   bl.x = Math.max(0, Math.min(100-bl.w, pct.x - bl.w/2))
   bl.y = Math.max(0, Math.min(100-bl.h, pct.y - bl.h/2))
-  schedulePreview(bk)
 }
 
 function removeBoxFromCanvas(bk) {
@@ -857,54 +859,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('mouseup',   onWinUp)
 })
 
-// ── Previews ──
-const previews      = ref({})
-const fontPreviewImg= ref('')
-const previewTimers = {}
-
-function schedulePreview(bk) {
-  if (!bk) return
-  clearTimeout(previewTimers[bk])
-  previewTimers[bk] = setTimeout(() => renderPreview(bk), 600)
-}
-
-async function renderPreview(bk) {
-  if (!isLoggedIn.value || !bk) return
-  const bl = boxLayouts[bk]
-  const fd = new FormData()
-  fd.append('box_type',      bk)
-  fd.append('width_pct',     (bl.w/100).toFixed(3))
-  fd.append('height_pct',    (bl.h/100).toFixed(3))
-  fd.append('source_lang',   srcLang.value)
-  fd.append('target_lang',   tgtLang.value)
-  fd.append('resolution',    resolution.value)
-  fd.append('num_words',     numWords.value)
-  fd.append('num_expressions', numExprs.value)
-  fd.append('style', JSON.stringify({
-    ...style,
-    [`${bk==='expressionbox'?'exprbox':bk}_font_size_scale`]: bl.font_scale,
-  }))
-  try {
-    const r = await fetch('/api/render-box', {
-      method:'POST',
-      headers:{ Authorization:'Bearer '+localStorage.getItem('ll_token') },
-      body: fd
-    })
-    const d = await r.json()
-    if (d.image) {
-      previews.value[bk] = d.image
-      if (bk === currentPart.value.boxes[0]) fontPreviewImg.value = d.image
-    }
-  } catch {}
-}
-
 // ── Color presets (legacy – kept for preset compatibility) ──
 function applyColorPreset(cp) {
   activeColorPreset.value = cp.name
   Object.assign(style, cp.style)
-  for (const bk of ['subtitle','wordbox','expressionbox']) {
-    schedulePreview(bk)
-  }
 }
 
 // ── Style theme (new ASS-based) ──
@@ -914,19 +872,26 @@ function applyStyleTheme(sid, s) {
   activeColorPreset.value = s.name
   // Sync CSS preview colors to match the selected ASS style
   if (s.css) {
+    const isLight = (s.preview_colors?.bg||'').startsWith('#f') || (s.preview_colors?.bg||'').startsWith('#e')
+    const bgHex = s.preview_colors?.bg || '#000000'
+    // Convert template bg to rgba with opacity for natural video overlay look
+    const subBg = isLight ? `rgba(240,244,255,0.90)` : `rgba(0,0,0,0.72)`
+    const boxBgHex = s.preview_colors?.box_bg || '#111111'
+    const boxBgRgba = _hexToRgba(boxBgHex, 0.88)
     Object.assign(style, {
-      subtitle_bg_color:     s.preview_colors?.bg    || '#000000',
+      subtitle_bg_color:     subBg,
       subtitle_text_color:   s.css.subtitle_src_color || '#ffffff',
-      subtitle_bg_style:     (s.preview_colors?.bg||'').startsWith('#f') ? 'light' : 'dark',
-      wordbox_bg:            s.preview_colors?.box_bg || '#111111',
+      subtitle_cn_color:     s.css.subtitle_tgt_color || '#94a3b8',
+      subtitle_bg_style:     isLight ? 'light' : 'dark',
+      wordbox_bg:            boxBgRgba,
       wordbox_word_color:    s.css.word_color         || '#ffffff',
       wordbox_phonetic_color:s.css.phonetic_color     || '#888888',
       wordbox_trans_color:   s.css.trans_color        || '#cccccc',
-      exprbox_bg:            s.preview_colors?.box_bg || '#111111',
+      exprbox_bg:            boxBgRgba,
       exprbox_en_color:      s.css.expr_color         || '#f43f5e',
+      exprbox_cn_color:      s.css.expr_cn_color      || '#94a3b8',
     })
   }
-  for (const bk of ['subtitle','wordbox','expressionbox']) schedulePreview(bk)
 }
 
 // ── Presets ──
@@ -980,7 +945,6 @@ function applyPreset() {
     if (cfg.style_id)     selectedStyleId.value = cfg.style_id
     if (cfg.animation)    selectedAnimation.value = cfg.animation
     toast(`已加载「${p.name}」`,'ok')
-    for (const bk of ['subtitle','wordbox','expressionbox']) schedulePreview(bk)
   } catch { toast('加载失败','err') }
 }
 

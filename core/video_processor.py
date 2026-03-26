@@ -387,7 +387,8 @@ class VideoProcessor:
             print(f"[FFmpeg overlay] stderr: {result.stderr[-2000:]}")
             raise subprocess.CalledProcessError(result.returncode, result.args)
 
-
+    @staticmethod
+    def _build_atempo_chain(speed: float) -> str:
         """构建 atempo 过滤链（atempo 范围 0.5–2.0，链式处理极端速度）"""
         filters = []
         s = speed
@@ -459,7 +460,7 @@ class VideoProcessor:
 
         try:
             subprocess.run([
-                _FFPMEG, "-y", *inputs,
+                _FFMPEG, "-y", *inputs,
                 "-filter_complex", filter_complex,
                 "-map", "[vout]", "-map", "[aout]",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "22",

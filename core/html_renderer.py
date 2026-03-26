@@ -1,8 +1,6 @@
 import os
 import base64
-import subprocess
 import tempfile
-import time
 from typing import Dict, List, Optional
 import config
 
@@ -199,56 +197,23 @@ _PREVIEW_EXAMPLES = {
 
 
 class HTMLRenderer:
-    """使用 Headless Chrome 渲染 HTML 模板为 PNG"""
+    """使用 Playwright (Chromium) 渲染 HTML 模板为 PNG"""
 
     def __init__(self, templates_dir: str = None):
         if templates_dir is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             templates_dir = os.path.join(current_dir, 'templates')
         self.templates_dir = templates_dir
-        self.chrome_path = self._find_chrome()
-        if not self.chrome_path:
-            raise RuntimeError("未找到 Chrome 浏览器，请安装 Google Chrome")
+        from playwright.sync_api import sync_playwright
+        self._pw = sync_playwright().start()
+        self._browser = self._pw.chromium.launch()
 
-    def _find_chrome(self) -> Optional[str]:
-        candidates = [
-            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-            '/Applications/Chromium.app/Contents/MacOS/Chromium',
-            '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-            '/usr/bin/google-chrome',
-            '/usr/bin/google-chrome-stable',
-            '/usr/bin/chromium',
-            '/usr/bin/chromium-browser',
-            '/snap/bin/chromium',
-            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-        ]
-        for p in candidates:
-            if os.path.exists(p):
-                return p
-
-        # macOS Spotlight search
+    def __del__(self):
         try:
-            r = subprocess.run(
-                ['mdfind', 'kMDItemCFBundleIdentifier == "com.google.Chrome"'],
-                capture_output=True, text=True, timeout=5
-            )
-            for line in r.stdout.strip().splitlines():
-                exe = os.path.join(line.strip(), 'Contents/MacOS/Google Chrome')
-                if os.path.exists(exe):
-                    return exe
+            self._browser.close()
+            self._pw.stop()
         except Exception:
             pass
-
-        # PATH lookup
-        for name in ('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'):
-            try:
-                r = subprocess.run(['which', name], capture_output=True, text=True, timeout=3)
-                if r.returncode == 0 and r.stdout.strip():
-                    return r.stdout.strip()
-            except Exception:
-                pass
-        return None
 
     def _read_template(self, template_name: str) -> str:
         path = os.path.join(self.templates_dir, template_name)
@@ -258,41 +223,15 @@ class HTMLRenderer:
             return f.read()
 
     def _render_html_to_png(self, html_content: str, output_path: str, width: int, height: int) -> bool:
-        for attempt in range(3):
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
-                f.write(html_content)
-                html_path = f.name
-            try:
-                cmd = [
-                    self.chrome_path,
-                    '--headless=new', '--disable-gpu', '--no-sandbox',
-                    '--disable-dev-shm-usage', '--disable-extensions',
-                    '--disable-background-networking', '--disable-default-apps',
-                    '--disable-sync', '--metrics-recording-only', '--mute-audio',
-                    '--no-first-run', '--safebrowsing-disable-auto-update',
-                    f'--window-size={width},{height}',
-                    f'--screenshot={output_path}',
-                    '--hide-scrollbars', '--virtual-time-budget=10000',
-                    html_path,
-                ]
-                result = subprocess.run(cmd, capture_output=True, timeout=60 + attempt * 30)
-                if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    return True
-                if attempt < 2:
-                    time.sleep(2)
-            except subprocess.TimeoutExpired:
-                if attempt < 2:
-                    time.sleep(3)
-            except Exception as e:
-                print(f"Chrome 渲染异常: {e}")
-                if attempt < 2:
-                    time.sleep(2)
-            finally:
-                try:
-                    os.unlink(html_path)
-                except Exception:
-                    pass
-        return False
+        try:
+            page = self._browser.new_page(viewport={'width': width, 'height': height})
+            page.set_content(html_content, wait_until='domcontentloaded')
+            page.screenshot(path=output_path, clip={'x': 0, 'y': 0, 'width': width, 'height': height}, omit_background=True)
+            page.close()
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
+        except Exception as e:
+            print(f"Playwright 渲染异常: {e}")
+            return False
 
     # ------------------------------------------------------------------ helpers
 

@@ -6,6 +6,11 @@
   - ASS 字幕烧录（-vf ass=）
   - 片段拼接（concat filter）
   - 水印叠加（drawtext）
+
+渲染模式：
+  1. timeline_json 模式（新）：使用 konva-node (Node.js sidecar) 渲染 PNG，与前端 vue-konva 同源
+  2. style dict 模式（旧）：使用 html_renderer.py (Chrome Headless) 渲染 PNG
+  3. ASS 降级模式（CLI 批处理）：style=None 时使用 ASS 字幕
 """
 
 import os
@@ -24,6 +29,7 @@ _FFMPEG = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg" if os.path.exists("/opt/hom
 from ass_generator import ASSGenerator
 from ass_styles import DEFAULT_STYLE_ID
 from html_renderer import HTMLRenderer
+from konva_renderer import KonvaRenderer
 
 # 默认布局（0-1 小数）
 _DEFAULT_LAYOUT = {
@@ -55,29 +61,18 @@ class VideoProcessor:
         parts_config: Optional[List[Dict]] = None,
         animation: Optional[str] = None,
         cancelled_fn: Optional[Callable] = None,
-        # 旧式兼容参数（style dict 已废弃，忽略）
+        # 旧式兼容参数
         style: Optional[Dict] = None,
+        # 新 Timeline JSON 模式（优先级最高）
+        timeline_json: Optional[Dict] = None,
     ) -> dict:
         """
         处理完整视频，输出学习版 MP4。
 
-        当 style 不为 None 时，使用 html_renderer.py（Chrome Headless PNG）合成 3 个框，
-        与布局编辑器预览完全一致。style 为 None 时降级到 ASS 字幕（CLI 批处理兼容）。
-
-        parts_config 格式：
-          [
-            {"repeat":1, "slow":False, "speed":1.0,
-             "show_subtitle":False, "show_wordbox":False, "show_exprbox":False},
-            {"repeat":2, "slow":True,  "speed":0.75,
-             "show_subtitle":True,  "show_wordbox":True,  "show_exprbox":True},
-          ]
-
-        layout 格式（嵌套百分比 0-1）：
-          {
-            "subtitle": {"x_pct":0.05, "y_pct":0.76, "w_pct":0.90, "h_pct":0.14, "font_scale":1.0},
-            "wordbox":  {"x_pct":0.75, "y_pct":0.005,"w_pct":0.245,"h_pct":0.65, "font_scale":1.0},
-            "exprbox":  {"x_pct":0.005,"y_pct":0.005,"w_pct":0.245,"h_pct":0.55, "font_scale":1.0},
-          }
+        渲染模式优先级：
+          1. timeline_json 不为 None → konva-node 渲染（同源）
+          2. style 不为 None → html_renderer PNG 渲染（Chrome Headless）
+          3. 都为 None → ASS 字幕降级（CLI 批处理）
 
         progress_callback(phase, data):
             phase='clips': data={'current': i, 'total': n, 'pct': 0-100}
@@ -91,20 +86,62 @@ class VideoProcessor:
         frame_w    = 1920 if resolution == "1080p" else 1280
         frame_h    = 1080 if resolution == "1080p" else 720
 
+        # Timeline JSON 模式可覆盖分辨率
+        if timeline_json:
+            tl_res = timeline_json.get("resolution", {})
+            if tl_res.get("width"):
+                frame_w = tl_res["width"]
+                frame_h = tl_res["height"]
+
         ass_gen    = ASSGenerator(style_id, resolution)
         segs       = segments_info or []
 
-        # 决定使用 PNG overlay 模式还是 ASS 降级模式
-        use_png_overlay = bool(style)
-        renderer = HTMLRenderer() if use_png_overlay else None
+        # 决定渲染模式
+        use_konva = bool(timeline_json)
+        use_png_overlay = bool(style) and not use_konva
+        renderer = None
+        konva_renderer = None
 
-        # 合并 layout 默认值
+        if use_konva:
+            konva_renderer = KonvaRenderer()
+        elif use_png_overlay:
+            renderer = HTMLRenderer()
+
+        # ── Timeline JSON 模式：转换 parts 为 parts_config 格式 ──
+        if use_konva and timeline_json:
+            tl_parts = timeline_json.get("parts", [])
+            tl_elements = timeline_json.get("elements", [])
+            # 构建 element type lookup
+            elem_type_map = {e["id"]: e["type"] for e in tl_elements}
+
+            if not parts_config:
+                parts_config = []
+                for tp in tl_parts:
+                    vis = tp.get("elementVisibility", {})
+                    show_sub = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "subtitle")
+                    show_wb  = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "wordbox")
+                    show_eb  = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "exprbox")
+                    speed = float(tp.get("speed", 1.0))
+                    parts_config.append({
+                        "repeat": tp.get("repeat", 1),
+                        "slow": speed != 1.0,
+                        "speed": speed,
+                        "show_subtitle": show_sub,
+                        "show_wordbox": show_wb,
+                        "show_exprbox": show_eb,
+                        # Store timeline part info for element visibility lookup
+                        "_tl_part_id": tp.get("id"),
+                        "_tl_visibility": vis,
+                    })
+
+        # 合并 layout 默认值（仅非 konva 模式使用）
         merged_layout = {}
-        for key, defaults in _DEFAULT_LAYOUT.items():
-            if layout and key in layout:
-                merged_layout[key] = {**defaults, **layout[key]}
-            else:
-                merged_layout[key] = dict(defaults)
+        if not use_konva:
+            for key, defaults in _DEFAULT_LAYOUT.items():
+                if layout and key in layout:
+                    merged_layout[key] = {**defaults, **layout[key]}
+                else:
+                    merged_layout[key] = dict(defaults)
 
         # 若未提供 parts_config，从旧式 config 常量构建（向后兼容）
         if not parts_config:
@@ -119,11 +156,24 @@ class VideoProcessor:
         job_tmp.mkdir(parents=True, exist_ok=True)
         all_clip_paths = []  # 最终拼接用的有序 clip 路径列表
 
+        mode_name = 'Konva (konva-node)' if use_konva else ('PNG overlay' if use_png_overlay else 'ASS字幕')
         print(f"[VideoProcessor] 🎬 开始处理 {len(sentences_data)} 句话，"
               f"{len(parts_config)} 个 Part，共约 {total_clips} 个片段，"
-              f"渲染模式={'PNG overlay' if use_png_overlay else 'ASS字幕'}")
+              f"渲染模式={mode_name}")
 
         try:
+            # ── Konva 模式：批量预渲染所有句子的 PNG（一次 Node.js 调用）──
+            konva_pngs: Dict[int, Dict[str, tuple]] = {}
+            if use_konva and konva_renderer:
+                print("[VideoProcessor] 🎨 正在用 konva-node 批量渲染 PNG...")
+                konva_pngs = konva_renderer.render_all_sentences(
+                    timeline=timeline_json,
+                    sentences_data=sentences_data,
+                    output_dir=str(job_tmp / "konva"),
+                    resolution={"width": frame_w, "height": frame_h},
+                )
+                print(f"[VideoProcessor] ✅ konva-node 渲染完成，共 {sum(len(v) for v in konva_pngs.values())} 个 PNG")
+
             for i, sent in enumerate(sentences_data):
                 if cancelled_fn and cancelled_fn():
                     print("⚠️ 任务已取消")
@@ -137,7 +187,12 @@ class VideoProcessor:
                 # ── 提前为本句生成 PNG（每句只生成一次，多个 Part 复用）──
                 sent_pngs: Dict[str, tuple] = {}  # key → (png_path, x_px, y_px)
 
-                if use_png_overlay:
+                if use_konva:
+                    # Konva 模式：从预渲染结果获取 PNG
+                    if i in konva_pngs:
+                        sent_pngs = konva_pngs[i]
+                elif use_png_overlay:
+                    # 旧 HTML 渲染模式
                     # 判断整个句子里哪些框至少在一个 Part 中显示
                     needs_sub = any(p.get("show_subtitle", False) for p in parts_config)
                     needs_wb  = any(p.get("show_wordbox",  False) for p in parts_config)
@@ -221,7 +276,24 @@ class VideoProcessor:
 
                     need_overlay = show_sub or show_wb or show_eb
 
-                    if use_png_overlay:
+                    if use_konva:
+                        # ── 3a. Konva PNG overlay 模式 ──
+                        # Use element-level visibility from timeline parts
+                        tl_vis = part.get("_tl_visibility", {})
+                        overlays = []
+                        for elem_id, png_info in sent_pngs.items():
+                            # Check element visibility in this specific part
+                            if tl_vis.get(elem_id, False):
+                                overlays.append(png_info)
+
+                        if overlays:
+                            burned_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_burned.mp4")
+                            self._render_with_overlays(base_clip, overlays, burned_path)
+                            final_clip = burned_path
+                        else:
+                            final_clip = base_clip
+
+                    elif use_png_overlay:
                         # ── 3a. PNG overlay 模式 ──
                         overlays = []
                         if show_sub and 'subtitle' in sent_pngs:

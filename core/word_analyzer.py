@@ -69,12 +69,14 @@ class WordAnalyzer:
 请返回以下信息：
 1. chinese_translation: 将原句翻译成{tgt_name}（字段名保持 chinese_translation，内容为{tgt_name}）
 2. key_words: 2-6个重难点词汇（数组），每个词汇包含：
-   - word: 词汇原文（{src_name}）
-   - phonetic: 发音标注（使用{phonetic_desc}）
+   - word: 词汇的【词典原型/基本形式】（{src_name}）——绝对禁止使用句中的时态/格/活用变化形式！
+     例：句中是"went"→ 填"go"；"studied"→"study"；"running"→"run"；"children"→"child"
+   - phonetic: 发音标注（使用{phonetic_desc}，标注原型词的发音）
    - translation: {tgt_name}释义
    - difficulty: 难度等级（1-5，5最难）
 3. useful_expressions: 1-3个最有价值的{src_name}表达方式（数组），每个包含：
-   - english: {src_name}表达原文（2-8个词的短语或句型，字段名保持 english）
+   - english: {src_name}表达原型（2-8个词的短语或句型，字段名保持 english）
+     ——必须用原型形式，如动词用原形：句中"is looking forward to"→ 填"look forward to"
    - chinese: {tgt_name}翻译（字段名保持 chinese）
    - difficulty: 难度等级（1-5，5最难）
 
@@ -83,12 +85,13 @@ class WordAnalyzer:
 - 专业术语
 - 不常见的动词、形容词、名词
 - 避免选择简单的介词、冠词等功能词
+- word字段【只填原型】，绝不填句中的变形词
 
 选择有用表达的标准：
 - 优先选择简短精炼的短语或句型（2-8个词）
 - 优先提取固定搭配、介词短语、动词短语等
 - 优先选择能体现{src_name}语言思维方式的表达
-- 必须使用词汇原型，不要使用句子中的时态变体形式
+- english字段【必须使用原型形式】，动词用原形，名词用单数，不得直接复制句中的变化形态
 
 请直接返回JSON格式，不要添加任何其他文字：
 {{
@@ -278,7 +281,10 @@ class WordAnalyzer:
                         if completed_count % 10 == 0:
                             print(f"完成进度: {completed_count}/{total}")
                 except Exception as e:
-                    index = future_to_index[future]
+                    try:
+                        index = future_to_index[future]
+                    except Exception:
+                        continue
                     print(f"分析句子 {index + 1} 时出错: {e}")
                     results[index] = {
                         'original_text': sentences[index],
@@ -287,4 +293,13 @@ class WordAnalyzer:
                         'useful_expressions': []
                     }
 
-        return results
+        # Safety: replace any remaining None entries
+        return [
+            r if r is not None else {
+                'original_text': sentences[i] if i < len(sentences) else '',
+                'chinese_translation': '（分析失败）',
+                'key_words': [],
+                'useful_expressions': []
+            }
+            for i, r in enumerate(results)
+        ]

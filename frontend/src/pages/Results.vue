@@ -34,12 +34,14 @@
       <div class="job-grid">
         <div v-for="j in filteredJobs" :key="j.id" class="job-card">
           <!-- Clickable area -->
-          <div class="job-card-body" @click="j.status==='done'?$router.push('/results/'+j.id):null"
-               :style="{cursor: j.status==='done'?'pointer':'default'}">
+          <div class="job-card-body" @click="onJobCardClick(j)"
+               :style="{cursor: (j.status==='done'||j.status==='running'||j.status==='queued')?'pointer':'default'}">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
               <div :class="['jc-dot', statusDotClass(j.status)]"></div>
               <div class="jc-name">{{ j.name || j.video_filename || j.id.slice(0,12) }}</div>
               <div v-if="j.status==='done'" class="jc-arrow">›</div>
+            <div v-else-if="j.status==='running'" class="jc-arrow" style="animation:spin .8s linear infinite">⟳</div>
+            <div v-else-if="j.status==='queued'" class="jc-arrow" style="opacity:.5">⏳</div>
             </div>
             <div class="jc-meta">
               <span :class="statusDotClass(j.status)">{{ statusLabel(j.status) }}</span>
@@ -155,6 +157,12 @@ function statusDotClass(s) {
 }
 function fmtDate(s) { return s ? new Date(s).toLocaleDateString('zh-CN') : '—' }
 
+function onJobCardClick(j) {
+  if (j.status === 'done' || j.status === 'running' || j.status === 'queued') {
+    router.push('/results/' + j.id)
+  }
+}
+
 watch(isLoggedIn, v => { if (v) loadJobs() }, { immediate: true })
 </script>
 
@@ -205,4 +213,5 @@ watch(isLoggedIn, v => { if (v) loadJobs() }, { immediate: true })
 .ok-btn:hover { background: rgba(16,185,129,.1); }
 .del-btn:hover { background: rgba(239,68,68,.08); color: var(--err); border-color: rgba(239,68,68,.2); }
 .dl-act { margin-left: auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

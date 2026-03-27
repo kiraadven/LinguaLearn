@@ -12,6 +12,7 @@
     <button class="nav-btn" :class="{active:$route.path==='/'}" @click="$router.push('/')">首页</button>
     <button class="nav-btn" :class="{active:$route.path==='/create'}" @click="goCreate">生成视频</button>
     <button class="nav-btn" :class="{active:$route.path==='/results'}" @click="$router.push('/results')">学习结果</button>
+    <button class="nav-btn" :class="{active:$route.path==='/quiz'}" @click="goQuiz">成果自测</button>
     <div class="nav-spacer"></div>
     <div style="display:flex;align-items:center;gap:10px">
       <template v-if="user">
@@ -160,6 +161,11 @@ async function doRegister() {
 function goCreate() {
   if (!isLoggedIn.value) { showAuth.value = true; return }
   router.push('/create')
+}
+
+function goQuiz() {
+  if (!isLoggedIn.value) { showAuth.value = true; return }
+  router.push('/quiz')
 }
 </script>
 

@@ -1,113 +1,80 @@
 """
-配置文件 - 多语言学习视频生成系统
-支持任意语言对之间的相互学习
+配置文件 - LinguaLearn 多语言学习视频生成系统
+
+此文件管理应用级配置，包括：
+- LLM API 密钥和地址
+- 语言和渲染相关的常量
+- 视频处理参数默认值
+- 目录和输出配置
+
+大部分参数通过环境变量 (.env) 加载，或使用合理的默认值。
+前端编辑器配置（主题、字体、布局）在前端状态中管理，
+不在此处定义。
 """
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ===== API配置 =====
+# ===== LLM API 配置 =====
+# 主要 LLM 用于词汇分析和翻译
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
 
+# 分句专用 API（可与上面相同，也可用更快的模型）
 SPLITTER_API_KEY = os.getenv('SPLITTER_API_KEY') or os.getenv('OPENAI_API_KEY')
 SPLITTER_BASE_URL = os.getenv('SPLITTER_BASE_URL') or os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
-SPLITTER_MODEL = os.getenv('SPLITTER_MODEL', 'gpt-4-ca')
+SPLITTER_MODEL = os.getenv('SPLITTER_MODEL', 'deepseek-chat')
 
+# ===== 语音识别配置 =====
+# Whisper 模型大小: tiny / base / small（推荐）/ medium / large
 WHISPER_MODEL_SIZE = os.getenv('WHISPER_MODEL_SIZE', 'small')
 
-# ===== 多语言配置 =====
-SOURCE_LANGUAGE = os.getenv('SOURCE_LANGUAGE', 'en')
-TARGET_LANGUAGE = os.getenv('TARGET_LANGUAGE', 'zh')
-
+# Whisper 支持的语言映射
 WHISPER_LANGUAGE_MAP = {
     'en': 'en', 'zh': 'zh', 'ja': 'ja',
     'ko': 'ko', 'de': 'de', 'fr': 'fr', 'es': 'es', 'ru': 'ru',
 }
 
-LANGUAGE_NATIVE_NAMES = {
-    'en': 'English', 'zh': '中文', 'ja': '日本語',
-    'ko': '한국어', 'de': 'Deutsch', 'fr': 'Français', 'es': 'Español', 'ru': 'Русский',
-}
-
-LANGUAGE_FLAGS = {
-    'en': '🇺🇸', 'zh': '🇨🇳', 'ja': '🇯🇵',
-    'ko': '🇰🇷', 'de': '🇩🇪', 'fr': '🇫🇷', 'es': '🇪🇸', 'ru': '🇷🇺',
-}
-
-LANGUAGE_DISPLAY_NAMES = {
-    'en': {'zh': '英语', 'en': 'English', 'ja': '英語', 'ko': '영어', 'de': 'Englisch', 'fr': 'Anglais', 'es': 'Inglés', 'ru': 'Английский'},
-    'zh': {'zh': '中文', 'en': 'Chinese', 'ja': '中国語', 'ko': '중국어', 'de': 'Chinesisch', 'fr': 'Chinois', 'es': 'Chino', 'ru': 'Китайский'},
-    'ja': {'zh': '日语', 'en': 'Japanese', 'ja': '日本語', 'ko': '일본어', 'de': 'Japanisch', 'fr': 'Japonais', 'es': 'Japonés', 'ru': 'Японский'},
-    'ko': {'zh': '韩语', 'en': 'Korean', 'ja': '韓国語', 'ko': '한국어', 'de': 'Koreanisch', 'fr': 'Coréen', 'es': 'Coreano', 'ru': 'Корейский'},
-    'de': {'zh': '德语', 'en': 'German', 'ja': 'ドイツ語', 'ko': '독일어', 'de': 'Deutsch', 'fr': 'Allemand', 'es': 'Alemán', 'ru': 'Немецкий'},
-    'fr': {'zh': '法语', 'en': 'French', 'ja': 'フランス語', 'ko': '프랑스어', 'de': 'Französisch', 'fr': 'Français', 'es': 'Francés', 'ru': 'Французский'},
-    'es': {'zh': '西班牙语', 'en': 'Spanish', 'ja': 'スペイン語', 'ko': '스페인어', 'de': 'Spanisch', 'fr': 'Espagnol', 'es': 'Español', 'ru': 'Испанский'},
-    'ru': {'zh': '俄语', 'en': 'Russian', 'ja': 'ロシア語', 'ko': '러시아어', 'de': 'Russisch', 'fr': 'Russe', 'es': 'Ruso', 'ru': 'Русский'},
-}
-
-PHONETIC_SYSTEM_NAMES = {
-    'en': {'zh': 'IPA国际音标（如 /ˈwɜːrd/）', 'en': 'IPA (e.g. /ˈwɜːrd/)', 'default': 'IPA'},
-    'zh': {'zh': '汉语拼音（如 pīn yīn）', 'en': 'Pinyin (e.g. pīn yīn)', 'default': 'Pinyin'},
-    'ja': {'zh': '假名读音（如 にほんご）', 'en': 'Kana reading (e.g. にほんご)', 'default': 'Kana'},
-    'ko': {'zh': '罗马字标音（如 han-guk-eo）', 'en': 'Romanization (e.g. han-guk-eo)', 'default': 'Romanization'},
-    'de': {'zh': 'IPA国际音标', 'en': 'IPA', 'default': 'IPA'},
-    'fr': {'zh': 'IPA国际音标', 'en': 'IPA', 'default': 'IPA'},
-    'es': {'zh': 'IPA国际音标', 'en': 'IPA', 'default': 'IPA'},
-    'ru': {'zh': 'IPA国际音标', 'en': 'IPA', 'default': 'IPA'},
-}
-
+# CJK 语言集合（用于文本断行和音标系统判断）
 CJK_LANGUAGES = {'zh', 'ja', 'ko'}
-
-# ===== 视频帧率 =====
-FPS = 30
-AUDIO_FPS = 44100
-SPEED_SLOW = 0.75
-
-# ===== 水印配置 =====
-WATERMARK_ENABLED = True
-WATERMARK_GRAY = 200
-WATERMARK_OPACITY = 0.15
-WATERMARK_ANGLE = -30
-
-# ===== ASS 样式配置（颜色由 ass_styles.py 管理）=====
-ASS_DEFAULT_STYLE = "aurora_dark"   # 默认样式模版 ID
-ASS_FONT_CJK      = "Source Han Sans CN"   # CJK 字体
-ASS_FONT_LATIN    = "Arial"                # Latin 回退字体
 
 # ===== 句子分割配置 =====
 MAX_SENTENCE_WORDS = 30
 MIN_SENTENCE_WORDS = 5
 
-# ===== 视频处理各部分配置 =====
+# ===== 视频处理配置 =====
+# Part1（原速，无字幕）
 PART1_REPEAT_COUNT = 1
 PART1_SHOW_SUBTITLE = False
 PART1_SHOW_WORD_BOX = False
 PART1_SHOW_EXPRESSION_BOX = False
 
+# Part2（慢速，有字幕）
 PART2_REPEAT_COUNT = 2
 PART2_SHOW_SUBTITLE = True
 PART2_SHOW_WORD_BOX = True
 PART2_SHOW_EXPRESSION_BOX = True
 
+# Part3（原速，有字幕）
 PART3_REPEAT_COUNT = 1
 PART3_SHOW_SUBTITLE = True
 PART3_SHOW_WORD_BOX = True
 PART3_SHOW_EXPRESSION_BOX = True
 
+# 慢速倍率（Part2 使用）
+SPEED_SLOW = 0.75
+
 # ===== 输出配置 =====
 OUTPUT_DIR = 'output'
 TEMP_DIR = 'temp'
-UPLOAD_DIR = 'uploads'
-
-# ===== 视频分辨率配置 =====
-VIDEO_RESOLUTION = "1080p"
+VIDEO_RESOLUTION = os.getenv('VIDEO_RESOLUTION', '1080p')  # 1080p 或 720p
 
 # ===== 邮件配置 =====
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
 
-# ===== 视频叠加框默认颜色 =====
+# ===== HTML 渲染默认颜色（Chrome Headless 降级模式）=====
+# 这些值用于 HTMLRenderer，当 style dict 未提供相应键时使用
 SUBTITLE_BOX_ENGLISH_COLOR = '#ffffff'
 SUBTITLE_BOX_CHINESE_COLOR  = '#94a3b8'
 WORD_BOX_BG_COLOR           = '#1e1e2e'

@@ -13,9 +13,37 @@
     <!-- Loading / error -->
     <div v-if="loading" class="jd-center"><div class="spin">⟳</div><p>加载中...</p></div>
     <div v-else-if="!job" class="jd-center"><p>任务不存在</p></div>
-    <div v-else-if="job.status !== 'done'" class="jd-center">
-      <p style="font-size:48px">{{ job.status==='error'?'❌':'⚙️' }}</p>
-      <p style="font-weight:700;margin-top:8px">{{ job.step_name || job.status }}</p>
+
+    <!-- ── Live progress view (running / queued) ── -->
+    <div v-else-if="job.status === 'running' || job.status === 'queued'" class="jd-progress-view">
+      <div class="prog-card">
+        <div class="prog-title">⚡ 处理进度</div>
+        <div class="step-bar">
+          <template v-for="i in 5" :key="i">
+            <div :class="['step-dot', i < liveStep ? 'done' : i === liveStep ? 'active' : '']">{{ i }}</div>
+            <div v-if="i < 5" :class="['step-ln', i < liveStep ? 'done' : '']"></div>
+          </template>
+        </div>
+        <div class="cur-step"><span class="pulse-dot"></span><span>{{ liveStepName }}</span></div>
+        <div v-if="liveStep >= 5" style="margin-top:14px">
+          <div class="pbar-row"><span>片段渲染</span><span>{{ liveClipsPct }}%</span></div>
+          <div class="pbar-track"><div class="pbar-fill" :style="{width: liveClipsPct+'%', background: 'linear-gradient(90deg,var(--accent),var(--accent2))'}"></div></div>
+          <div class="pbar-row" style="margin-top:8px"><span>视频写入</span><span>{{ liveWritePct }}%</span></div>
+          <div class="pbar-track"><div class="pbar-fill" :style="{width: liveWritePct+'%', background: 'linear-gradient(90deg,var(--accent3,#10b981),var(--accent4,#059669))'}"></div></div>
+        </div>
+        <div class="log-box" ref="liveLogBox">
+          <div v-for="(l, i) in liveLogs" :key="i" :class="['log-line', logClass(l)]">{{ l }}</div>
+        </div>
+        <div v-if="job.status === 'running'" style="margin-top:14px;text-align:center">
+          <button class="cancel-btn" @click="cancelJob">取消任务</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Error view ── -->
+    <div v-else-if="job.status === 'error'" class="jd-center">
+      <p style="font-size:48px">❌</p>
+      <p style="font-weight:700;margin-top:8px">处理失败</p>
       <p v-if="job.error" style="color:var(--err);font-size:13px;margin-top:6px">{{ job.error }}</p>
     </div>
 
@@ -80,7 +108,7 @@
         </div>
         <div v-if="!markdownHtml" class="md-empty">暂无学习笔记</div>
         <div v-else class="md-view" v-html="markdownHtml"
-             @mouseover="onMdHover" @mouseleave="onMdLeave"></div>
+             @mouseover="onMdHover" @mouseout="onMdOut" @mouseleave="onMdLeave"></div>
       </div>
     </div>
 
@@ -107,6 +135,7 @@
             <div v-for="(m, i) in tooltip.data.meanings" :key="i" class="dt-meaning">
               <span v-if="m.pos" class="dt-pos">{{ m.pos }}</span>
               <p class="dt-def">{{ m.definition }}</p>
+              <p v-if="tooltip.data.translated_meanings?.[i]" class="dt-def-trans">{{ tooltip.data.translated_meanings[i] }}</p>
               <p v-if="m.example" class="dt-ex">"{{ m.example }}"</p>
               <p v-if="m.synonyms?.length" class="dt-syns">
                 同义: <span v-for="s in m.synonyms" :key="s" class="dt-syn">{{ s }}</span>
@@ -120,7 +149,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import { apiFetch } from '../composables/useApi.js'
@@ -139,6 +168,85 @@ const segRefs    = ref([])
 const transcriptOpen = ref(true)
 const markdownHtml = ref('')
 
+// ── Live progress (for running/queued jobs) ──
+const liveStep    = ref(0)
+const liveStepName= ref('等待处理...')
+const liveClipsPct= ref(0)
+const liveWritePct= ref(0)
+const liveLogs    = ref([])
+const liveLogBox  = ref(null)
+let ws = null
+
+function logClass(l) {
+  if (l.includes('✅') || l.includes('成功')) return 'log-ok'
+  if (l.includes('❌') || l.includes('错误') || l.includes('失败')) return 'log-err'
+  if (l.includes('⚠️')) return 'log-warn'
+  return ''
+}
+
+function connectProgressWS() {
+  if (ws) { try { ws.close() } catch {} }
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  ws = new WebSocket(`${proto}://${location.host}/api/ws/${jobId}`)
+  ws.onmessage = async (e) => {
+    const msg = JSON.parse(e.data)
+    switch (msg.type) {
+      case 'log':
+        liveLogs.value.push(msg.data)
+        await nextTick()
+        if (liveLogBox.value) liveLogBox.value.scrollTop = liveLogBox.value.scrollHeight
+        break
+      case 'step':
+        liveStep.value = msg.data.step
+        liveStepName.value = msg.data.name
+        if (job.value) { job.value.step = msg.data.step; job.value.step_name = msg.data.name }
+        break
+      case 'video_clips': liveClipsPct.value = msg.data.pct || 0; break
+      case 'video_write': liveWritePct.value = msg.data.pct || 0; break
+      case 'done':
+        liveClipsPct.value = 100; liveWritePct.value = 100
+        // Reload job to get done state
+        try {
+          const d = await apiFetch(`/api/jobs/${jobId}`)
+          job.value = d
+          if (d.status === 'done' && d.result?.full_video) {
+            loadSegments()
+            if (d.result.markdown) loadMarkdown(d.result.markdown)
+          }
+        } catch {}
+        break
+      case 'error':
+        if (job.value) job.value.status = 'error'
+        break
+      case 'cancelled':
+        if (job.value) job.value.status = 'cancelled'
+        break
+      case 'status':
+        if (msg.data && job.value) {
+          job.value.step = msg.data.step
+          job.value.step_name = msg.data.step_name
+          liveStep.value = msg.data.step || 0
+          liveStepName.value = msg.data.step_name || '等待处理...'
+          liveClipsPct.value = msg.data.video_clips_pct || 0
+          liveWritePct.value = msg.data.video_write_pct || 0
+        }
+        break
+    }
+  }
+  ws.onerror = () => { /* silent */ }
+}
+
+async function cancelJob() {
+  if (!confirm('确定取消此任务？')) return
+  try {
+    await fetch(`/api/jobs/${jobId}`, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('ll_token') }
+    })
+    if (job.value) job.value.status = 'cancelled'
+  } catch {}
+}
+
 const jobName = computed(() =>
   job.value?.name || job.value?.video_filename || jobId.slice(0,12)
 )
@@ -150,12 +258,22 @@ onMounted(async () => {
     if (d.status === 'done' && d.result?.full_video) {
       loadSegments()
       if (d.result.markdown) loadMarkdown(d.result.markdown)
+    } else if (d.status === 'running' || d.status === 'queued') {
+      liveStep.value = d.step || 0
+      liveStepName.value = d.step_name || '等待处理...'
+      liveClipsPct.value = d.video_clips_pct || 0
+      liveWritePct.value = d.video_write_pct || 0
+      connectProgressWS()
     }
   } catch (e) {
     console.error(e)
   } finally {
     loading.value = false
   }
+})
+
+onUnmounted(() => {
+  if (ws) { try { ws.close() } catch {} }
 })
 
 async function loadSegments() {
@@ -227,18 +345,46 @@ const dictCache = {}
 let showTimer = null
 let hideTimer = null
 
+const TOOLTIP_W = 300
+
 const tooltipStyle = computed(() => {
-  const W = 290, MARGIN = 8
-  let x = Math.max(MARGIN, Math.min(tooltip.value.x, window.innerWidth - W - MARGIN))
-  return { left: `${x}px`, top: `${tooltip.value.y}px`, width: `${W}px` }
+  const MARGIN = 10
+  const GAP = 14
+  let x = tooltip.value.x + GAP
+  // If tooltip would go off right edge, show on left of word instead
+  if (x + TOOLTIP_W > window.innerWidth - MARGIN) {
+    x = tooltip.value.wordLeft - TOOLTIP_W - GAP
+  }
+  x = Math.max(MARGIN, x)
+  // Vertically: center on word
+  let y = tooltip.value.y - 10
+  y = Math.max(MARGIN, Math.min(y, window.innerHeight - 300))
+  return { left: `${x}px`, top: `${y}px`, width: `${TOOLTIP_W}px` }
 })
 
 function onMdHover(e) {
   const el = e.target.closest?.('.dict-word')
-  if (!el) return
-  clearTimeout(hideTimer)
-  clearTimeout(showTimer)
-  showTimer = setTimeout(() => triggerTooltip(el.dataset.word, el), 220)
+  if (el) {
+    clearTimeout(hideTimer)
+    clearTimeout(showTimer)
+    showTimer = setTimeout(() => triggerTooltip(el.dataset.word, el), 200)
+    return
+  }
+  // Mouse is over non-word area within container — schedule hide (unless over tooltip)
+  if (!e.target.closest?.('.dict-tooltip')) {
+    clearTimeout(showTimer)
+    if (tooltip.value.visible) scheduleHide()
+  }
+}
+
+function onMdOut(e) {
+  // Specifically leaving a .dict-word element
+  if (e.target.classList?.contains('dict-word')) {
+    if (!e.relatedTarget?.closest?.('.dict-word') && !e.relatedTarget?.closest?.('.dict-tooltip')) {
+      clearTimeout(showTimer)
+      scheduleHide()
+    }
+  }
 }
 
 function onMdLeave(e) {
@@ -248,14 +394,15 @@ function onMdLeave(e) {
 }
 
 function cancelHide() { clearTimeout(hideTimer) }
-function scheduleHide() { hideTimer = setTimeout(() => { tooltip.value.visible = false }, 180) }
+function scheduleHide() { hideTimer = setTimeout(() => { tooltip.value.visible = false }, 200) }
 
 async function triggerTooltip(word, el) {
   if (!word) return
   const rect = el.getBoundingClientRect()
   tooltip.value.word = word
-  tooltip.value.x = rect.left
-  tooltip.value.y = rect.top   // CSS transform moves it above
+  tooltip.value.x = rect.right           // show to the right of word
+  tooltip.value.wordLeft = rect.left     // backup for left-side fallback
+  tooltip.value.y = rect.top + rect.height / 2
   tooltip.value.notFound = false
 
   if (dictCache[word] !== undefined) {
@@ -271,7 +418,8 @@ async function triggerTooltip(word, el) {
   tooltip.value.visible = true
 
   try {
-    const data = await apiFetch(`/api/dictionary/${encodeURIComponent(word)}`)
+    const tgtLang = job.value?.result?.target_lang || 'zh'
+    const data = await apiFetch(`/api/dictionary/${encodeURIComponent(word)}?target_lang=${tgtLang}`)
     dictCache[word] = data
     tooltip.value.data = data
     tooltip.value.notFound = false
@@ -570,17 +718,30 @@ function fmtTime(sec) {
   z-index: 9999;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 12px 12px 0;
   padding: 14px 16px;
   box-shadow: 0 8px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.1);
   pointer-events: auto;
-  transform: translateY(calc(-100% - 10px));
+  transform: translateY(-50%);
+}
+/* Connecting line from tooltip back toward the word */
+.dict-tooltip::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.7;
 }
 
 /* Tooltip enter/leave transition */
 .dt-enter-active { transition: opacity .14s ease, transform .14s ease; }
 .dt-leave-active { transition: opacity .1s ease; }
-.dt-enter-from   { opacity: 0; transform: translateY(calc(-100% - 4px)); }
+.dt-enter-from   { opacity: 0; transform: translateY(-50%) translateX(-6px); }
 .dt-leave-to     { opacity: 0; }
 
 .dt-loading {
@@ -609,10 +770,76 @@ function fmtTime(sec) {
   background: rgba(99,102,241,.1); color: var(--accent);
 }
 .dt-def { font-size: 13px; color: var(--text); margin: 0 0 3px; line-height: 1.5; }
+.dt-def-trans { font-size: 12px; color: var(--accent); margin: 0 0 4px; line-height: 1.4; font-weight: 600; }
 .dt-ex  { font-size: 12px; color: var(--text3); font-style: italic; margin: 0 0 3px; }
 .dt-syns { font-size: 11px; color: var(--text3); margin: 0; }
 .dt-syn {
   display: inline-block; margin: 1px 3px 1px 0; padding: 1px 5px;
   background: var(--bg3); border-radius: 4px; font-size: 11px;
 }
+
+/* ── Live progress view ── */
+.jd-progress-view {
+  max-width: 700px; margin: 40px auto; padding: 0 20px;
+}
+.prog-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+  padding: 32px 36px; box-shadow: var(--shadow2);
+}
+.prog-title {
+  font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 24px;
+}
+.step-bar {
+  display: flex; align-items: center; margin-bottom: 20px;
+}
+.step-dot {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
+  background: var(--bg3); border: 2px solid var(--border); color: var(--text3);
+  transition: all .3s;
+}
+.step-dot.done { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step-dot.active {
+  background: rgba(99,102,241,.15); border-color: var(--accent); color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(99,102,241,.2); animation: pulse-step 1.5s infinite;
+}
+@keyframes pulse-step { 0%,100%{box-shadow:0 0 0 4px rgba(99,102,241,.2)} 50%{box-shadow:0 0 0 8px rgba(99,102,241,.05)} }
+.step-ln {
+  flex: 1; height: 2px; background: var(--border); transition: background .3s;
+}
+.step-ln.done { background: var(--accent); }
+.cur-step {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 16px;
+}
+.pulse-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.pbar-row {
+  display: flex; justify-content: space-between; font-size: 12px; color: var(--text2);
+  margin-bottom: 6px; font-weight: 600;
+}
+.pbar-track {
+  height: 6px; background: rgba(255,255,255,.06); border-radius: 3px; overflow: hidden;
+}
+.pbar-fill {
+  height: 100%; border-radius: 3px; transition: width .5s; box-shadow: 0 0 8px rgba(167,139,250,.4);
+}
+.log-box {
+  margin-top: 16px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; max-height: 280px; overflow-y: auto; font-family: monospace;
+  font-size: 12px; line-height: 1.7;
+}
+.log-line { color: var(--text2); }
+.log-line.log-ok { color: var(--ok); }
+.log-line.log-err { color: var(--err); }
+.log-line.log-warn { color: #f59e0b; }
+.cancel-btn {
+  padding: 8px 20px; border-radius: 8px; border: 1px solid rgba(248,113,113,.3);
+  background: transparent; color: var(--err); font-size: 13px; cursor: pointer; transition: all .15s;
+}
+.cancel-btn:hover { background: rgba(248,113,113,.1); }
 </style>

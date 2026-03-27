@@ -25,7 +25,7 @@ from typing import Optional, Dict
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -258,6 +258,7 @@ async def process_video_job(
     style_id: str,
     animation: Optional[str],
     loop: asyncio.AbstractEventLoop,
+    timeline_json: Optional[dict] = None,
 ):
     def run_in_thread():
         # 这行打印直接输出到真实终端（在 stdout 重定向之前）
@@ -470,6 +471,7 @@ async def process_video_job(
                 animation=animation,
                 cancelled_fn=check_cancelled,
                 style=style or None,
+                timeline_json=timeline_json,
             )
             print("🎬 视频处理完成")
 
@@ -478,10 +480,37 @@ async def process_video_job(
 
             # 保存含时间戳的 segments.json，供视频预览页使用
             try:
-                # 构建与 video_processor._legacy_parts_config() 完全一致的 parts 列表
-                if new_parts_config:
+                # 构建与 video_processor 实际使用的 parts 完全一致的列表
+                _parts_cfg = None
+
+                # 优先级1：timeline_json 模式（与 video_processor.py 110-135 行逻辑一致）
+                if timeline_json and not new_parts_config:
+                    tl_parts = timeline_json.get("parts", [])
+                    tl_elements = timeline_json.get("elements", [])
+                    elem_type_map = {e["id"]: e["type"] for e in tl_elements}
+                    _parts_cfg = []
+                    for tp in tl_parts:
+                        vis = tp.get("elementVisibility", {})
+                        show_sub = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "subtitle")
+                        show_wb  = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "wordbox")
+                        show_eb  = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "exprbox")
+                        speed = float(tp.get("speed", 1.0))
+                        _parts_cfg.append({
+                            "repeat": tp.get("repeat", 1),
+                            "slow": speed != 1.0,
+                            "speed": speed,
+                            "show_subtitle": show_sub,
+                            "show_wordbox": show_wb,
+                            "show_exprbox": show_eb,
+                        })
+                    print(f"📋 segments.json 使用 timeline_json parts: {len(_parts_cfg)} 个")
+
+                # 优先级2：new_parts_config（Form 表单模式）
+                if not _parts_cfg and new_parts_config:
                     _parts_cfg = new_parts_config
-                else:
+
+                # 优先级3：旧 config 常量（兼容旧模式）
+                if not _parts_cfg:
                     _parts_cfg = []
                     if getattr(config, "PART1_REPEAT_COUNT", 0) > 0:
                         _parts_cfg.append({
@@ -580,6 +609,15 @@ async def process_video_job(
                     jobs[job_id]["name"] = auto_name
             asyncio.run_coroutine_threadsafe(
                 _push(job_id, "done", {"sentences": len(sentences_data)}), loop)
+
+            # Delete uploaded source video now that output is ready
+            try:
+                src_video = Path(video_path)
+                if src_video.exists():
+                    src_video.unlink()
+                    print(f"🗑️ 已删除上传视频: {src_video.name}")
+            except Exception as _del_e:
+                print(f"⚠️ 删除上传视频失败: {_del_e}")
 
         except Exception as e:
             import traceback
@@ -990,6 +1028,7 @@ async def create_job(
     parts_json:         str   = Form("[]"),   # 新的 Part 配置
     style_id:           str   = Form("aurora_dark"),  # ASS 样式模版 ID
     animation:          str   = Form("fade"),          # 入场动画类型
+    timeline_json:      str   = Form(""),              # 新 Timeline JSON（优先级最高）
     current_user: dict = Depends(require_user),
 ):
     valid_langs = set(config.LANGUAGE_NATIVE_NAMES.keys())
@@ -1010,6 +1049,28 @@ async def create_job(
         parts_list = json.loads(parts_json) if parts_json else []
     except Exception:
         parts_list = []
+
+    # ===== 新 Timeline JSON 模式 =====
+    timeline_dict = None
+    if timeline_json and timeline_json.strip():
+        try:
+            timeline_dict = json.loads(timeline_json)
+            # 从 timeline 中提取配置（覆盖 form 字段的值）
+            source_lang = timeline_dict.get("sourceLang", source_lang)
+            target_lang = timeline_dict.get("targetLang", target_lang)
+            tl_res = timeline_dict.get("resolution", {})
+            if tl_res.get("width") == 1920:
+                resolution = "1080p"
+            elif tl_res.get("width") == 1280:
+                resolution = "720p"
+            num_words = timeline_dict.get("numWords", num_words)
+            num_expressions = timeline_dict.get("numExprs", num_expressions)
+            style_id = timeline_dict.get("styleId", style_id)
+            print(f"📦 使用 Timeline JSON 模式: {len(timeline_dict.get('elements', []))} 个元素, "
+                  f"{len(timeline_dict.get('parts', []))} 个 Part")
+        except Exception as e:
+            print(f"⚠️ timeline_json 解析失败: {e}, 回退到旧模式")
+            timeline_dict = None
 
     # ===== 从 parts_list 提取框的布局信息 =====
     # 将新的 parts/boxes 系统中的框位置（0-100%）转换为 VideoProcessor 期望的格式（0-1小数）
@@ -1121,6 +1182,7 @@ async def create_job(
             parts_list=parts_list or None,
             style_id=style_id or "aurora_dark",
             animation=animation or "fade",
+            timeline_json=timeline_dict,
             loop=asyncio.get_event_loop(),
         ))
 
@@ -1141,6 +1203,11 @@ async def cancel_job(job_id: str, current_user: dict = Depends(require_user)):
         job_out = OUTPUT_DIR / job_id
         if job_out.exists():
             _shutil.rmtree(str(job_out), ignore_errors=True)
+        # Also remove uploaded source video if it still exists
+        if job.get("video_filename"):
+            src_video = UPLOAD_DIR / f"{job_id}_{job['video_filename']}"
+            if src_video.exists():
+                src_video.unlink(missing_ok=True)
         if job_id in jobs:
             del jobs[job_id]
         database.delete_job(job_id, current_user["email"])
@@ -1185,7 +1252,7 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
                     update_job(job_id, video_write_pct=msg["data"].get("pct", 0))
                 await websocket.send_json(msg)
                 if msg["type"] in ("done", "error", "cancelled"):
-                    await websocket.send_json({"type": "status", "data": jobs[job_id]})
+                    await websocket.send_json({"type": "status", "data": jobs.get(job_id, {})})
                     break
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "ping"})
@@ -1333,9 +1400,60 @@ async def get_job_segments(job_id: str):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
+# ============================================================
+# STICKER routes
+# ============================================================
+
+STICKER_DIR = Path("uploads/stickers")
+STICKER_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.get("/api/stickers")
+async def list_stickers():
+    """列出所有已上传的贴纸"""
+    stickers = []
+    if STICKER_DIR.exists():
+        for f in sorted(STICKER_DIR.iterdir()):
+            if f.suffix.lower() in ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'):
+                stickers.append({
+                    "id": f.stem,
+                    "url": f"/stickers/{f.name}",
+                    "name": f.name,
+                })
+    return stickers
+
+
+@app.post("/api/stickers")
+async def upload_sticker(image: UploadFile = File(...)):
+    """上传贴纸图片"""
+    if not image.filename:
+        raise HTTPException(400, "未提供文件")
+
+    # Validate file type
+    allowed_types = {"image/png", "image/jpeg", "image/gif", "image/svg+xml", "image/webp"}
+    if image.content_type and image.content_type not in allowed_types:
+        raise HTTPException(400, "仅支持 PNG/JPG/GIF/SVG/WebP 格式")
+
+    # Generate unique filename
+    ext = Path(image.filename).suffix.lower() or '.png'
+    sticker_id = f"stk_{uuid.uuid4().hex[:8]}"
+    filename = f"{sticker_id}{ext}"
+    filepath = STICKER_DIR / filename
+
+    content = await image.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    return {
+        "id": sticker_id,
+        "url": f"/stickers/{filename}",
+        "name": filename,
+    }
+
+
 @app.get("/api/dictionary/{word}")
-async def lookup_dictionary(word: str):
-    """查询英文单词释义（Free Dictionary API v2）"""
+async def lookup_dictionary(word: str, target_lang: str = "zh"):
+    """查询英文单词释义（Free Dictionary API v2），可选翻译到目标语言"""
     import urllib.request
     import urllib.error
 
@@ -1379,12 +1497,23 @@ async def lookup_dictionary(word: str):
                     "synonyms": syns,
                 })
 
-        return {
+        result = {
             "word": entry.get("word", word),
             "phonetic": phonetic,
             "audio": audio_url,
             "meanings": meanings,
         }
+
+        # 翻译释义到目标语言（非英文时）
+        if target_lang and target_lang != "en" and meanings:
+            try:
+                translated = await _translate_definitions(word, meanings, target_lang)
+                if translated:
+                    result["translated_meanings"] = translated
+            except Exception as te:
+                print(f"⚠️ 翻译释义失败: {te}")
+
+        return result
 
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -1394,9 +1523,226 @@ async def lookup_dictionary(word: str):
         raise HTTPException(500, f"查询失败: {e}")
 
 
+# 释义翻译缓存
+_translation_cache: dict = {}
+
+async def _translate_definitions(word: str, meanings: list, target_lang: str) -> list:
+    """使用 DeepSeek/OpenAI 将英文释义翻译成目标语言"""
+    cache_key = f"{word}_{target_lang}"
+    if cache_key in _translation_cache:
+        return _translation_cache[cache_key]
+
+    lang_names = {
+        "zh": "中文", "ja": "日本語", "ko": "한국어",
+        "de": "Deutsch", "fr": "français", "es": "español", "ru": "русский"
+    }
+    lang_name = lang_names.get(target_lang, target_lang)
+
+    # 构建翻译请求
+    defs_text = "\n".join(
+        f"{i+1}. [{m['pos']}] {m['definition']}"
+        for i, m in enumerate(meanings) if m.get('definition')
+    )
+
+    from openai import OpenAI
+    api_key = getattr(config, 'OPENAI_API_KEY', '')
+    base_url = getattr(config, 'OPENAI_BASE_URL', '')
+    if not api_key:
+        return []
+
+    def _do_translate():
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": f"你是一个精准的词典翻译助手。将英文释义翻译成{lang_name}，保持简洁准确。每行一个翻译，格式为数字序号开头，只返回翻译内容。"},
+                {"role": "user", "content": f"翻译以下「{word}」的英文释义为{lang_name}：\n{defs_text}"}
+            ],
+            temperature=0.2,
+            max_tokens=200,
+        )
+        return resp.choices[0].message.content.strip()
+
+    raw = await asyncio.get_event_loop().run_in_executor(None, _do_translate)
+
+    # 解析翻译结果
+    translated = []
+    for line in raw.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # 去除序号前缀 "1. " / "1、" / "1) "
+        import re
+        cleaned = re.sub(r'^\d+[\.\、\)\]\s]+', '', line).strip()
+        # 去除可能的 [pos] 前缀
+        cleaned = re.sub(r'^\[.*?\]\s*', '', cleaned).strip()
+        if cleaned:
+            translated.append(cleaned)
+
+    _translation_cache[cache_key] = translated
+    return translated
+
+
+# ===== Quiz / Review Words API =====
+
+@app.get("/api/jobs/{job_id}/quiz-data")
+async def get_quiz_data(job_id: str, debug: bool = False):
+    """从 Markdown 文档提取词汇和表达数据用于自测"""
+    job_out = OUTPUT_DIR / job_id
+    # 获取 job 信息
+    j = get_job_or_404(job_id)
+    result = j.get("result") or {}
+    if isinstance(result, str):
+        result = json.loads(result) if result else {}
+    if not isinstance(result, dict):
+        result = {}
+    md_file = result.get("markdown")
+    if not md_file:
+        raise HTTPException(404, "无学习笔记")
+
+    md_path = job_out / md_file
+    if not md_path.exists():
+        raise HTTPException(404, f"笔记文件不存在: {md_path}")
+
+    content = md_path.read_text(encoding='utf-8')
+
+    # 更健壮的表格提取：找到标题后，提取表格（直到下一个 ## 标题或文件结尾）
+    import re
+    words = []
+    expressions = []
+
+    def extract_markdown_table(content, section_header):
+        """从Markdown中提取指定section的表格"""
+        # 先找到section标题
+        section_pattern = re.escape(section_header) + r'[^\n]*\n+(.*?)(?=\n##|$)'
+        section_match = re.search(section_pattern, content, re.DOTALL)
+        if not section_match:
+            return []
+
+        section_content = section_match.group(1)
+
+        # 从section内容中提取表格行（以 | 开头的行）
+        lines = section_content.split('\n')
+        table_rows = []
+        in_table = False
+        for line in lines:
+            if line.strip().startswith('|'):
+                # 检查是否是分隔线（包含 --- 或 :---: 等）
+                if '---' in line or ':---' in line:
+                    in_table = True
+                    continue
+                if in_table:
+                    table_rows.append(line)
+
+        return table_rows
+
+    # 提取词汇表
+    word_rows = extract_markdown_table(content, '## 📖')
+    for row in word_rows:
+        if not row.strip():
+            continue
+        cols = [c.strip() for c in row.strip('|').split('|')]
+        if len(cols) >= 3:
+            word = re.sub(r'\*\*(.+?)\*\*', r'\1', cols[0]).strip()
+            phonetic = re.sub(r'`(.+?)`', r'\1', cols[1]).strip()
+            meaning = cols[2].strip()
+            if word and meaning:
+                words.append({"word": word, "phonetic": phonetic, "meaning": meaning})
+
+    # 提取表达表
+    expr_rows = extract_markdown_table(content, '## 📝')
+    for row in expr_rows:
+        if not row.strip():
+            continue
+        cols = [c.strip() for c in row.strip('|').split('|')]
+        if len(cols) >= 2:
+            expr = re.sub(r'\*\*(.+?)\*\*', r'\1', cols[0]).strip()
+            meaning = cols[1].strip()
+            if expr and meaning:
+                expressions.append({"word": expr, "meaning": meaning})
+
+    result_data = {
+        "words": words,
+        "expressions": expressions,
+        "source_lang": result.get("source_lang", "en"),
+        "target_lang": result.get("target_lang", "zh"),
+        "job_name": j.get("name") or j.get("video_filename") or job_id[:12],
+    }
+
+    # Debug mode: 返回额外信息用于调试
+    if debug:
+        result_data["debug"] = {
+            "md_file": str(md_file),
+            "md_exists": md_path.exists(),
+            "word_rows_found": len(word_rows),
+            "expr_rows_found": len(expr_rows),
+            "markdown_length": len(content),
+            "has_word_section": '## 📖' in content,
+            "has_expr_section": '## 📝' in content,
+        }
+
+    return result_data
+
+
+@app.post("/api/review-words")
+async def save_review_words(
+    request: Request,
+    current_user: dict = Depends(require_user),
+):
+    """保存错误单词到复习本"""
+    body = await request.json()
+    job_id = body.get("job_id", "")
+    words = body.get("words", [])
+    if not job_id or not words:
+        raise HTTPException(400, "缺少 job_id 或 words")
+    added = database.add_review_words(current_user["email"], job_id, words)
+    return {"added": added, "total": len(words)}
+
+
+@app.get("/api/review-words")
+async def list_review_words(
+    job_id: str = None,
+    mastered: int = None,
+    current_user: dict = Depends(require_user),
+):
+    """获取复习单词列表"""
+    words = database.get_review_words(current_user["email"], job_id=job_id, mastered=mastered)
+    return {"words": words}
+
+
+@app.patch("/api/review-words/{word_id}")
+async def update_review_word(
+    word_id: int,
+    request: Request,
+    current_user: dict = Depends(require_user),
+):
+    """更新复习单词状态"""
+    body = await request.json()
+    mastered = body.get("mastered", 0)
+    ok = database.update_review_word(word_id, current_user["email"], mastered)
+    if not ok:
+        raise HTTPException(404, "单词不存在")
+    return {"ok": True}
+
+
+@app.delete("/api/review-words/{word_id}")
+async def delete_review_word_api(
+    word_id: int,
+    current_user: dict = Depends(require_user),
+):
+    """删除复习单词"""
+    ok = database.delete_review_word(word_id, current_user["email"])
+    if not ok:
+        raise HTTPException(404, "单词不存在")
+    return {"ok": True}
+
+
 # 头像目录单独挂载，避免被前端构建覆盖
 Path("uploads/avatars").mkdir(parents=True, exist_ok=True)
 app.mount("/avatars", StaticFiles(directory="uploads/avatars"), name="avatars")
+# 贴纸目录
+Path("uploads/stickers").mkdir(parents=True, exist_ok=True)
+app.mount("/stickers", StaticFiles(directory="uploads/stickers"), name="stickers")
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 

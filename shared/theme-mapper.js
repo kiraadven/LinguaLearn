@@ -628,7 +628,7 @@ export const STYLE_THEMES = {
 }
 
 /** Default style theme ID */
-export const DEFAULT_STYLE_ID = 'neon_cyberpunk'
+export const DEFAULT_STYLE_ID = 'ink_wash'
 
 /**
  * Apply a style theme to timeline elements.
@@ -646,8 +646,16 @@ export function applyThemeToElements(styleId, elements) {
     const themeSection = theme[el.type]
     if (!themeSection) continue
 
-    // Merge theme styles into element style (preserving fontFamily and fontScale)
-    const keepProps = { fontFamily: el.style.fontFamily, fontScale: el.style.fontScale }
+    // Merge theme styles into element style, preserving user-tuned typography/spacing knobs
+    const keepProps = {
+      fontFamily: el.style.fontFamily,
+      fontScale: el.style.fontScale,
+      lineHeight: el.style.lineHeight,
+      sourceLineHeight: el.style.sourceLineHeight,
+      targetLineHeight: el.style.targetLineHeight,
+      wordSpacing: el.style.wordSpacing,
+      bgOpacity: el.style.bgOpacity,
+    }
     Object.assign(el.style, themeSection, keepProps)
 
     // Set default animation from theme if element currently has 'fade'
@@ -663,7 +671,7 @@ export function applyThemeToElements(styleId, elements) {
  * Get all theme IDs and their display info for the style gallery
  */
 export function getThemeList() {
-  return Object.entries(STYLE_THEMES).map(([id, t]) => ({
+  const list = Object.entries(STYLE_THEMES).map(([id, t]) => ({
     id,
     name: t.name,
     desc: t.desc,
@@ -671,4 +679,10 @@ export function getThemeList() {
     backgroundColor: t.backgroundColor,
     defaultAnimation: t.defaultAnimation,
   }))
+  const neonIdx = list.findIndex(t => t.id === 'neon_cyberpunk')
+  const inkIdx = list.findIndex(t => t.id === 'ink_wash')
+  if (neonIdx !== -1 && inkIdx !== -1) {
+    ;[list[neonIdx], list[inkIdx]] = [list[inkIdx], list[neonIdx]]
+  }
+  return list
 }

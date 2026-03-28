@@ -26,6 +26,8 @@ export function createSubtitleNodes(element, content, containerSize) {
   const fontScale = style.fontScale || 1.0
   const borderRadius = style.borderRadius ?? 8
   const padding = Math.max(8, h * 0.10)   // use ACTUAL box height
+  const srcLineHeight = style.sourceLineHeight ?? style.srcLineHeight ?? style.lineHeight ?? 1.3
+  const tgtLineHeight = style.targetLineHeight ?? style.tgtLineHeight ?? style.lineHeight ?? 1.3
 
   const srcText = content?.text || 'Source language sentence goes here.'
   const tgtText = content?.translation || '翻译文本显示在这里'
@@ -36,8 +38,10 @@ export function createSubtitleNodes(element, content, containerSize) {
   // Font sizes based on fixed reference, not element size — large enough to be readable
   const baseSrcSize = Math.max(16, ch * 0.045)
   const baseTgtSize = Math.max(13, ch * 0.036)
-  const srcFontSize = adaptiveFontSize(srcText, baseSrcSize, innerW, innerH * 0.52, fontScale)
-  const tgtFontSize = adaptiveFontSize(tgtText, baseTgtSize, innerW, innerH * 0.42, fontScale * 0.85)
+  // Font sizes: adaptive (handles long text) then scaled by fontScale after the height cap,
+  // so fontScale always has a visible effect (same pattern as wordbox/exprbox)
+  const srcFontSize = adaptiveFontSize(srcText, baseSrcSize, innerW, innerH * 0.52) * fontScale
+  const tgtFontSize = adaptiveFontSize(tgtText, baseTgtSize, innerW, innerH * 0.42) * fontScale * 0.85
 
   const srcY = padding
   const tgtY = padding + innerH * 0.54
@@ -71,16 +75,16 @@ export function createSubtitleNodes(element, content, containerSize) {
     config: {
       x: padding, y: srcY,
       width: innerW,
-      height: innerH * 0.50,
+      height: innerH * 0.54,   // slightly more than the 0.52 passed to adaptiveFontSize → 2 lines never clip
       text: srcText,
       fontSize: srcFontSize,
       fontFamily,
       fontStyle: 'bold',
       fill: style.textColor || '#ffffff',
       align: 'center',
-      verticalAlign: 'middle',
+      verticalAlign: 'top',    // top-align to avoid centering overflow when text = 2 lines
       wrap: 'word',
-      lineHeight: 1.3,
+      lineHeight: srcLineHeight,
     },
   })
 
@@ -98,7 +102,7 @@ export function createSubtitleNodes(element, content, containerSize) {
       align: 'center',
       verticalAlign: 'top',
       wrap: 'word',
-      lineHeight: 1.3,
+      lineHeight: tgtLineHeight,
     },
   })
 

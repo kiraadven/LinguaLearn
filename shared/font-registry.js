@@ -37,7 +37,7 @@ export function getFontFamily(fontKey) {
  * Map from font key to TTF file name in static/fonts/
  * Used by Node.js for canvas registerFont()
  */
-const FONT_FILES = {
+export const FONT_FILES = {
   'noto-serif':   'NotoSerifSC-Regular.ttf',
   'xiaowei':      'ZCOOLXiaoWei-Regular.ttf',
   'ma-shan':      'MaShanZheng-Regular.ttf',
@@ -60,7 +60,11 @@ const FONT_FILES = {
  * @param {string} fontsDir - Path to fonts directory (e.g. 'static/fonts/')
  */
 export async function registerFonts(fontsDir) {
-  if (typeof window !== 'undefined') return // browser — no-op
+  const summary = {
+    registeredKeys: [],
+    missingKeys: [],
+  }
+  if (typeof window !== 'undefined') return summary // browser — no-op
 
   let registerFont
   try {
@@ -68,11 +72,19 @@ export async function registerFonts(fontsDir) {
     registerFont = canvas.registerFont
   } catch {
     console.warn('[font-registry] canvas module not available, skipping font registration')
-    return
+    summary.missingKeys = Object.keys(FONT_FILES)
+    return summary
   }
 
   const path = await import('path')
   const fs = await import('fs')
+
+  if (!fontsDir || !fs.existsSync(fontsDir)) {
+    // Missing static/fonts means export will fallback to system fonts.
+    summary.missingKeys = Object.keys(FONT_FILES)
+    console.warn(`[font-registry] Fonts directory not found: ${fontsDir || '(empty)'}`)
+    return summary
+  }
 
   for (const font of FONTS) {
     const file = FONT_FILES[font.val]
@@ -84,9 +96,14 @@ export async function registerFonts(fontsDir) {
       const family = font.css.split(',')[0].replace(/'/g, '').trim()
       try {
         registerFont(fontPath, { family })
+        summary.registeredKeys.push(font.val)
       } catch (e) {
         console.warn(`[font-registry] Failed to register ${family}: ${e.message}`)
+        summary.missingKeys.push(font.val)
       }
+    } else {
+      summary.missingKeys.push(font.val)
     }
   }
+  return summary
 }

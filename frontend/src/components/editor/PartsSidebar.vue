@@ -3,12 +3,19 @@
     <div class="sidebar-hdr">Part 列表</div>
 
     <div v-for="(p, i) in parts" :key="p.id"
-         :class="['part-chip', { active: currentPartIdx === i }]"
+         :class="['part-chip', { active: currentPartIdx === i, dragging: dragPartId === p.id, 'drag-over': dragOverPartId === p.id && dragPartId !== p.id }]"
+         draggable="true"
+         @dragstart="onDragStart(p.id, $event)"
+         @dragend="onDragEnd"
+         @dragenter.prevent="onDragEnter(p.id)"
+         @dragover.prevent
+         @drop="onDrop(p.id)"
          @click="$emit('selectPart', i)">
 
       <!-- Header row: title + action buttons -->
       <div style="display:flex;align-items:flex-start;justify-content:space-between">
-        <div class="part-chip-title">
+        <div class="part-chip-title" style="display:flex;align-items:center;gap:6px">
+          <span class="drag-handle" title="拖动排序">⋮⋮</span>
           Part {{ i + 1 }}
           <span style="font-size:10px;color:var(--text3);font-weight:400">
             {{ visibleCount(p) }} 元素
@@ -65,13 +72,43 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
+
 const props = defineProps({
   parts: { type: Array, required: true },
   allElements: { type: Array, required: true },
   currentPartIdx: { type: Number, default: 0 },
 })
 
-defineEmits(['selectPart', 'addPart', 'copyPart', 'removePart', 'toggleVisibility'])
+const emit = defineEmits(['selectPart', 'addPart', 'copyPart', 'removePart', 'toggleVisibility', 'movePart'])
+
+const dragPartId = ref(null)
+const dragOverPartId = ref(null)
+
+function onDragStart(partId, e) {
+  dragPartId.value = partId
+  dragOverPartId.value = partId
+  if (e?.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', partId)
+  }
+}
+
+function onDrop(targetPartId) {
+  if (!dragPartId.value || dragPartId.value === targetPartId) return
+  emit('movePart', dragPartId.value, targetPartId)
+  dragOverPartId.value = null
+}
+
+function onDragEnter(partId) {
+  if (!dragPartId.value) return
+  dragOverPartId.value = partId
+}
+
+function onDragEnd() {
+  dragPartId.value = null
+  dragOverPartId.value = null
+}
 
 const TYPE_COLORS = {
   subtitle: '#a78bfa',
@@ -126,6 +163,11 @@ function visibleCount(part) {
   cursor: pointer;
   transition: all .15s;
 }
+.part-chip.dragging { opacity: .55; }
+.part-chip.drag-over {
+  border-color: rgba(167,139,250,.7);
+  box-shadow: 0 0 0 1px rgba(167,139,250,.35) inset;
+}
 .part-chip.active {
   border-color: var(--accent);
   background: rgba(167,139,250,.06);
@@ -134,6 +176,13 @@ function visibleCount(part) {
   font-size: 13px;
   font-weight: 700;
   color: var(--text1);
+}
+.drag-handle {
+  font-size: 11px;
+  color: var(--text3);
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
 }
 .part-action-btn {
   padding: 2px 5px;

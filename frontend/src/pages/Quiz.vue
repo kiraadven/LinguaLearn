@@ -37,11 +37,22 @@
       </div>
 
       <!-- Review book section -->
-      <div v-if="isLoggedIn && reviewWords.length > 0" class="review-section">
-        <h2>复习单词本 <span class="review-count">{{ reviewWords.length }}</span></h2>
+      <div v-if="isLoggedIn && reviewWords.length > 0" class="review-section" ref="reviewSectionRef">
+        <div class="review-section-hdr">
+          <h2>复习单词本 <span class="review-count">{{ reviewWords.length }}</span></h2>
+          <button class="btn-flashcard" @click="startFlashcard">🃏 闪卡复习</button>
+        </div>
         <div class="review-grid">
           <div v-for="w in reviewWords" :key="w.id" class="review-card" :class="{mastered: w.mastered}">
-            <div class="rc-word">{{ w.word }}</div>
+            <div class="rc-word">
+              <template v-for="(token, ti) in getReviewLookupTokens(w)" :key="`${w.id}_${ti}`">
+                <span v-if="token.lookup"
+                      class="dict-word"
+                      @mouseover="onWordHoverToken(token, getReviewWordTargetLang(w), $event)"
+                      @mouseleave="onWordLeave($event)">{{ token.text }}</span>
+                <span v-else>{{ token.text }}</span>
+              </template>
+            </div>
             <div class="rc-meaning">{{ w.meaning }}</div>
             <div class="rc-actions">
               <button v-if="!w.mastered" class="rc-btn ok" @click="markMastered(w)" title="标记已掌握">✓</button>
@@ -50,6 +61,82 @@
           </div>
         </div>
       </div>
+
+      <!-- Dictionary tooltip -->
+      <Teleport to="body">
+        <Transition name="dt">
+          <div v-if="dictTooltip.visible"
+               :class="['dict-tooltip', { 'left-side': dictTooltip.side === 'left' }]"
+               :style="dictTooltipStyle"
+               @mouseenter="cancelDictHide"
+               @mouseleave="scheduleDictHide">
+            <div v-if="dictTooltip.loading" class="dt-loading">
+              <span class="dt-spin">⟳</span> 查询中…
+            </div>
+            <div v-else-if="dictTooltip.notFound" class="dt-not-found">
+              未找到 "{{ dictTooltip.word }}"
+            </div>
+            <template v-else-if="dictTooltip.data">
+              <div class="dt-head">
+                <span class="dt-word">{{ dictTooltip.data.word }}</span>
+                <span v-if="dictTooltip.data.phonetic" class="dt-phonetic">{{ dictTooltip.data.phonetic }}</span>
+                <button v-if="dictTooltip.data.audio" class="dt-audio" @click="playDictAudio" title="播放发音">🔊</button>
+              </div>
+              <div v-for="(m, i) in dictTooltip.data.meanings" :key="i" class="dt-meaning">
+                <span v-if="m.pos" class="dt-pos">{{ m.pos }}</span>
+                <p class="dt-def">{{ m.definition }}</p>
+                <p v-if="dictTooltip.data.translated_meanings?.[i]" class="dt-def-trans">{{ dictTooltip.data.translated_meanings[i] }}</p>
+                <p v-if="m.example" class="dt-ex">"{{ m.example }}"</p>
+                <p v-if="m.synonyms?.length" class="dt-syns">
+                  同义: <span v-for="s in m.synonyms" :key="s" class="dt-syn">{{ s }}</span>
+                </p>
+              </div>
+            </template>
+          </div>
+        </Transition>
+      </Teleport>
+
+      <!-- Flashcard overlay -->
+      <Teleport to="body">
+        <div v-if="flashcardActive" class="flashcard-overlay" @click.self="flashcardActive=false">
+          <div class="flashcard-modal">
+            <div class="fc-header">
+              <span class="fc-progress">{{ fcIndex + 1 }} / {{ fcWords.length }}</span>
+              <span class="fc-title">🃏 闪卡复习</span>
+              <button class="fc-close" @click="flashcardActive=false">✕</button>
+            </div>
+
+            <div class="fc-progress-bar">
+              <div class="fc-progress-fill" :style="{width: ((fcIndex+1)/fcWords.length*100)+'%'}"></div>
+            </div>
+
+            <div :class="['fc-card', {flipped: fcFlipped}]" @click="fcFlipped=!fcFlipped">
+              <div class="fc-front">
+                <div class="fc-label">{{ fcCurrentWord?.word_type === 'expression' ? '表达' : '单词' }}</div>
+                <div class="fc-word">{{ fcCurrentWord?.word }}</div>
+                <div class="fc-hint">点击翻转查看释义</div>
+              </div>
+              <div class="fc-back">
+                <div class="fc-meaning-big">{{ fcCurrentWord?.meaning }}</div>
+                <div class="fc-word-small">{{ fcCurrentWord?.word }}</div>
+              </div>
+            </div>
+
+            <div class="fc-actions">
+              <button class="fc-btn fc-prev" @click="fcPrev" :disabled="fcIndex === 0">← 上一个</button>
+              <div class="fc-center-btns">
+                <button v-if="!fcCurrentWord?.mastered" class="fc-btn fc-mastered" @click="fcMarkMastered">✓ 已掌握</button>
+                <button v-else class="fc-btn fc-unmastered" @click="fcUnmarkMastered">↩ 取消掌握</button>
+              </div>
+              <button class="fc-btn fc-next" @click="fcNext" :disabled="fcIndex === fcWords.length - 1">下一个 →</button>
+            </div>
+
+            <div class="fc-stats">
+              已掌握 <strong>{{ fcMasteredCount }}</strong> / {{ fcWords.length }}
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </template>
 
     <!-- Phase 2: Quiz in progress -->
@@ -83,6 +170,7 @@
         <!-- Hidden input captures keystrokes; visually invisible -->
         <input ref="answerInput" v-model="userAnswer" class="q-input-hidden"
                @keyup.enter="checkAnswer"
+               @input="autoSkipSpaces"
                :disabled="showingFeedback" />
         <div class="q-submit-row">
           <button class="q-submit" @click="checkAnswer" :disabled="showingFeedback || !userAnswer.trim()">确认</button>
@@ -209,6 +297,15 @@ const answers = ref([])  // {word, meaning, type, userAnswer, correct}
 
 // Score state
 
+// Flashcard state
+const flashcardActive = ref(false)
+const fcWords = ref([])
+const fcIndex = ref(0)
+const fcFlipped = ref(false)
+
+const fcCurrentWord = computed(() => fcWords.value[fcIndex.value] || null)
+const fcMasteredCount = computed(() => fcWords.value.filter(w => w.mastered).length)
+
 // ── Computed ──
 const currentItem = computed(() => quizItems.value[currentIndex.value])
 const progressPct = computed(() => Math.round((currentIndex.value / quizItems.value.length) * 100))
@@ -243,6 +340,75 @@ const hintChars = computed(() => {
 
 function focusInput() {
   answerInput.value?.focus()
+}
+
+function autoSkipSpaces() {
+  // When typing advances cursor to a space position in hintChars, auto-insert the space
+  // so the user doesn't have to type it manually between words
+  const chars = hintChars.value
+  let pos = userAnswer.value.length
+  let extra = ''
+  while (pos < chars.length && chars[pos] === ' ') {
+    extra += ' '
+    pos++
+  }
+  if (extra) {
+    userAnswer.value += extra
+  }
+}
+
+// ── Flashcard methods ──
+
+function startFlashcard() {
+  fcWords.value = [...reviewWords.value]
+  fcIndex.value = 0
+  fcFlipped.value = false
+  flashcardActive.value = true
+}
+
+function fcNext() {
+  if (fcIndex.value < fcWords.value.length - 1) {
+    fcIndex.value++
+    fcFlipped.value = false
+  }
+}
+
+function fcPrev() {
+  if (fcIndex.value > 0) {
+    fcIndex.value--
+    fcFlipped.value = false
+  }
+}
+
+async function fcMarkMastered() {
+  const w = fcCurrentWord.value
+  if (!w || w.mastered) return
+  try {
+    await apiFetch(`/api/review-words/${w.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mastered: 1 }),
+    })
+    w.mastered = 1
+    // Sync back to reviewWords
+    const rv = reviewWords.value.find(x => x.id === w.id)
+    if (rv) rv.mastered = 1
+  } catch {}
+}
+
+async function fcUnmarkMastered() {
+  const w = fcCurrentWord.value
+  if (!w || !w.mastered) return
+  try {
+    await apiFetch(`/api/review-words/${w.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mastered: 0 }),
+    })
+    w.mastered = 0
+    const rv = reviewWords.value.find(x => x.id === w.id)
+    if (rv) rv.mastered = 0
+  } catch {}
 }
 
 // ── Sound effects (Web Audio API) ──
@@ -457,6 +623,160 @@ async function removeReviewWord(w) {
 
 function fmtDate(s) { return s ? new Date(s).toLocaleDateString('zh-CN') : '-' }
 
+// ── Dictionary tooltip (review book) ───────────────────────────────────────
+const reviewSectionRef = ref(null)
+const dictTooltip = ref({ visible: false, loading: false, notFound: false, word: '', data: null, y: 0, side: 'right', anchorX: 0 })
+const dictCache = {}
+let dictShowTimer = null
+let dictHideTimer = null
+let dictHoverToken = 0
+let dictActiveHoverKey = ''
+let dictRequestToken = 0
+const DICT_TOOLTIP_W = 300
+
+const dictTooltipStyle = computed(() => {
+  const MARGIN = 10
+  const GAP = 20
+  let x, y
+  if (dictTooltip.value.side === 'left') {
+    x = dictTooltip.value.anchorX - DICT_TOOLTIP_W - GAP
+    x = Math.max(MARGIN, x)
+  } else {
+    x = dictTooltip.value.anchorX + GAP
+    x = Math.min(x, window.innerWidth - DICT_TOOLTIP_W - MARGIN)
+  }
+  y = dictTooltip.value.y - 10
+  y = Math.max(MARGIN, Math.min(y, window.innerHeight - 300))
+  return { left: `${x}px`, top: `${y}px`, width: `${DICT_TOOLTIP_W}px` }
+})
+
+function onWordHoverToken(token, targetLang, event) {
+  const el = event.currentTarget
+  dictHoverToken += 1
+  const localHover = dictHoverToken
+  clearTimeout(dictHideTimer)
+  clearTimeout(dictShowTimer)
+  dictShowTimer = setTimeout(() => {
+    // Ignore stale hover timers.
+    if (localHover !== dictHoverToken) return
+    triggerDictTooltip(token, targetLang, el)
+  }, 200)
+}
+
+function onWordLeave(event) {
+  if (!event.relatedTarget?.closest?.('.dict-tooltip')) {
+    dictHoverToken += 1
+    dictActiveHoverKey = ''
+    clearTimeout(dictShowTimer)
+    if (dictTooltip.value.visible) scheduleDictHide()
+  }
+}
+
+function cancelDictHide() { clearTimeout(dictHideTimer) }
+function scheduleDictHide() {
+  dictHideTimer = setTimeout(() => {
+    dictTooltip.value.visible = false
+    dictTooltip.value.loading = false
+  }, 200)
+}
+
+function getReviewWordTargetLang(reviewWord) {
+  return reviewWord?.target_lang || reviewWord?.targetLang || quizTargetLang.value || 'zh'
+}
+
+function normalizeDictToken(raw) {
+  return String(raw || '')
+    .replace(/[’]/g, "'")
+    .replace(/^'+|'+$/g, '')
+    .toLowerCase()
+}
+
+function getReviewLookupTokens(reviewWord) {
+  const raw = String(reviewWord?.word || '')
+  if (!raw) return []
+
+  const sourceLang = reviewWord?.source_lang || reviewWord?.sourceLang || quizSourceLang.value || 'en'
+  // CJK languages: keep as one token (no whitespace word boundaries)
+  if (['zh', 'ja', 'ko'].includes(sourceLang)) {
+    const lookup = normalizeDictToken(raw)
+    return [{ text: raw, lookup: lookup || null }]
+  }
+
+  const tokens = []
+  const RE = /[A-Za-zÀ-ÖØ-öø-ÿА-Яа-яЁё]+(?:['’-][A-Za-zÀ-ÖØ-öø-ÿА-Яа-яЁё]+)*/g
+  let last = 0
+  let m
+  RE.lastIndex = 0
+  while ((m = RE.exec(raw)) !== null) {
+    if (m.index > last) tokens.push({ text: raw.slice(last, m.index), lookup: null })
+    const text = m[0]
+    const lookup = normalizeDictToken(text)
+    tokens.push({ text, lookup: lookup || null })
+    last = RE.lastIndex
+  }
+  if (last < raw.length) tokens.push({ text: raw.slice(last), lookup: null })
+  return tokens.length ? tokens : [{ text: raw, lookup: normalizeDictToken(raw) || null }]
+}
+
+async function triggerDictTooltip(token, targetLang, el) {
+  const rawWord = token?.text || ''
+  const word = token?.lookup || normalizeDictToken(rawWord)
+  if (!word) return
+  const hoverKey = `${word}__${targetLang}__${Math.round(el?.getBoundingClientRect?.().left || 0)}`
+  dictActiveHoverKey = hoverKey
+  const rect = el.getBoundingClientRect()
+  dictTooltip.value.word = rawWord || word
+  dictTooltip.value.y = rect.top + rect.height / 2
+  dictTooltip.value.notFound = false
+
+  const containerRect = reviewSectionRef.value?.getBoundingClientRect()
+  const wordCenterX = rect.left + rect.width / 2
+  const centerX = containerRect ? (containerRect.left + containerRect.right) / 2 : window.innerWidth / 2
+  const isLeft = wordCenterX < centerX
+  dictTooltip.value.side = isLeft ? 'left' : 'right'
+  dictTooltip.value.anchorX = isLeft
+    ? (containerRect?.left ?? rect.left)
+    : (containerRect?.right ?? rect.right)
+
+  const cacheKey = `${word}__${targetLang}`
+  if (dictCache[cacheKey] !== undefined) {
+    if (dictActiveHoverKey !== hoverKey) return
+    dictTooltip.value.data = dictCache[cacheKey] || null
+    dictTooltip.value.notFound = !dictCache[cacheKey]
+    dictTooltip.value.loading = false
+    dictTooltip.value.visible = true
+    return
+  }
+
+  dictTooltip.value.loading = true
+  dictTooltip.value.data = null
+  dictTooltip.value.visible = true
+
+  dictRequestToken += 1
+  const localReq = dictRequestToken
+  try {
+    const data = await apiFetch(`/api/dictionary/${encodeURIComponent(word)}?target_lang=${targetLang}`)
+    dictCache[cacheKey] = data
+    // Drop stale responses from previous hover/request.
+    if (localReq !== dictRequestToken || dictActiveHoverKey !== hoverKey) return
+    dictTooltip.value.data = data
+    dictTooltip.value.notFound = false
+  } catch {
+    dictCache[cacheKey] = null
+    if (localReq !== dictRequestToken || dictActiveHoverKey !== hoverKey) return
+    dictTooltip.value.notFound = true
+    dictTooltip.value.data = null
+  } finally {
+    if (localReq !== dictRequestToken || dictActiveHoverKey !== hoverKey) return
+    dictTooltip.value.loading = false
+  }
+}
+
+function playDictAudio() {
+  const url = dictTooltip.value.data?.audio
+  if (url) new Audio(url).play().catch(() => {})
+}
+
 watch(isLoggedIn, v => { if (v) { loadJobs(); loadReviewWords() } }, { immediate: true })
 </script>
 
@@ -487,7 +807,7 @@ watch(isLoggedIn, v => { if (v) { loadJobs(); loadReviewWords() } }, { immediate
 
 /* Review section */
 .review-section { margin-top: 40px; }
-.review-section h2 { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.review-section h2 { font-size: 18px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }
 .review-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 24px; height: 24px; padding: 0 8px; border-radius: 12px;
@@ -692,6 +1012,172 @@ watch(isLoggedIn, v => { if (v) { loadJobs(); loadReviewWords() } }, { immediate
 
 .panel-enter-active, .panel-leave-active { transition: all .3s ease; }
 .panel-enter-from, .panel-leave-to { opacity: 0; transform: translateY(-10px); }
+
+/* Review section header */
+.review-section-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.review-section-hdr h2 { font-size: 18px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; margin: 0; }
+.btn-flashcard {
+  padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff; border: none; transition: all .2s;
+}
+.btn-flashcard:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99,102,241,.3); }
+
+/* Flashcard overlay */
+.flashcard-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 500;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  backdrop-filter: blur(4px);
+}
+.flashcard-modal {
+  background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+  width: 100%; max-width: 480px; padding: 28px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.4);
+}
+.fc-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+}
+.fc-title { font-size: 15px; font-weight: 700; color: var(--text); }
+.fc-progress { font-size: 12px; font-weight: 700; color: var(--accent); padding: 3px 10px; border-radius: 10px; background: rgba(99,102,241,.1); }
+.fc-close { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg3); color: var(--text3); font-size: 12px; cursor: pointer; }
+.fc-close:hover { color: var(--text); }
+
+.fc-progress-bar { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; margin-bottom: 24px; }
+.fc-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 2px; transition: width .4s ease; }
+
+/* Flip card */
+.fc-card {
+  perspective: 1000px;
+  height: 220px; cursor: pointer; margin-bottom: 24px;
+  position: relative;
+}
+.fc-front, .fc-back {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 14px; padding: 24px;
+  backface-visibility: hidden;
+  transition: transform .45s cubic-bezier(.4,.2,.2,1);
+}
+.fc-front {
+  background: linear-gradient(135deg, rgba(99,102,241,.12), rgba(139,92,246,.08));
+  border: 1.5px solid rgba(99,102,241,.2);
+  transform: rotateY(0deg);
+}
+.fc-back {
+  background: linear-gradient(135deg, rgba(16,185,129,.1), rgba(99,102,241,.08));
+  border: 1.5px solid rgba(16,185,129,.2);
+  transform: rotateY(180deg);
+}
+.fc-card.flipped .fc-front { transform: rotateY(-180deg); }
+.fc-card.flipped .fc-back { transform: rotateY(0deg); }
+
+.fc-label { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+.fc-word { font-size: 32px; font-weight: 800; color: var(--text); text-align: center; line-height: 1.2; }
+.fc-hint { font-size: 12px; color: var(--text3); margin-top: 16px; }
+.fc-meaning-big { font-size: 22px; font-weight: 700; color: var(--text); text-align: center; line-height: 1.4; margin-bottom: 10px; }
+.fc-word-small { font-size: 14px; color: var(--text3); font-style: italic; }
+
+.fc-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.fc-btn {
+  padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg3); color: var(--text2); transition: all .15s;
+}
+.fc-btn:hover:not(:disabled) { background: var(--border); color: var(--text); }
+.fc-btn:disabled { opacity: .35; cursor: not-allowed; }
+.fc-prev, .fc-next { flex: 1; }
+.fc-center-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.fc-mastered { background: rgba(16,185,129,.1); color: var(--ok); border-color: rgba(16,185,129,.3); }
+.fc-mastered:hover { background: rgba(16,185,129,.2) !important; }
+.fc-unmastered { background: rgba(239,68,68,.08); color: var(--err); border-color: rgba(239,68,68,.2); font-size: 12px; }
+.fc-unmastered:hover { background: rgba(239,68,68,.14) !important; }
+
+.fc-stats { text-align: center; font-size: 12px; color: var(--text3); }
+.fc-stats strong { color: var(--ok); }
+
+/* ── Review book hoverable words ── */
+.rc-word .dict-word {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--text3);
+  transition: color .12s, border-color .12s;
+  display: inline-block;
+}
+.rc-word .dict-word:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Dictionary tooltip card ── */
+.dict-tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 12px 12px 0;
+  padding: 14px 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.1);
+  pointer-events: auto;
+  transform: translateY(-50%);
+}
+.dict-tooltip.left-side {
+  border-left: 1px solid var(--border);
+  border-right: 3px solid var(--accent);
+  border-radius: 12px 0 0 12px;
+}
+.dict-tooltip::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 2px;
+  background: linear-gradient(to left, var(--accent) 20%, rgba(99,102,241,0.15) 100%);
+  border-radius: 1px;
+}
+.dict-tooltip.left-side::before {
+  right: auto;
+  left: 100%;
+  background: linear-gradient(to right, var(--accent) 20%, rgba(99,102,241,0.15) 100%);
+}
+.dict-tooltip::after {
+  content: '';
+  position: absolute;
+  right: calc(100% + 45px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+  opacity: 0.6;
+}
+.dict-tooltip.left-side::after {
+  right: auto;
+  left: calc(100% + 45px);
+}
+
+.dt-enter-active { transition: opacity .14s ease, transform .14s ease; }
+.dt-leave-active { transition: opacity .1s ease; }
+.dt-enter-from   { opacity: 0; transform: translateY(-50%) translateX(-6px); }
+.dt-leave-to     { opacity: 0; }
+
+.dt-loading { font-size: 13px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
+.dt-spin { display: inline-block; animation: spin .9s linear infinite; }
+.dt-not-found { font-size: 12px; color: var(--text3); }
+.dt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.dt-word { font-size: 17px; font-weight: 700; color: var(--text); }
+.dt-phonetic { font-size: 12px; color: var(--text3); font-family: monospace; flex: 1; }
+.dt-audio { background: none; border: none; cursor: pointer; font-size: 14px; padding: 2px 5px; border-radius: 6px; color: var(--text3); transition: all .15s; }
+.dt-audio:hover { background: var(--bg3); color: var(--accent); }
+.dt-meaning { margin-bottom: 9px; }
+.dt-meaning:last-child { margin-bottom: 0; }
+.dt-pos { display: inline-block; padding: 1px 7px; border-radius: 10px; margin-bottom: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; background: rgba(99,102,241,.1); color: var(--accent); }
+.dt-def { font-size: 13px; color: var(--text); margin: 0 0 3px; line-height: 1.5; }
+.dt-def-trans { font-size: 12px; color: var(--accent); margin: 0 0 4px; line-height: 1.4; font-weight: 600; }
+.dt-ex  { font-size: 12px; color: var(--text3); font-style: italic; margin: 0 0 3px; }
+.dt-syns { font-size: 11px; color: var(--text3); margin: 0; }
+.dt-syn { display: inline-block; margin: 1px 3px 1px 0; padding: 1px 5px; background: var(--bg3); border-radius: 4px; font-size: 11px; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>

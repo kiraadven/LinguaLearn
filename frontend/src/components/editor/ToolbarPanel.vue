@@ -25,19 +25,28 @@
 </template>
 
 <script setup>
-defineProps({
-  zoom: { type: Number, default: 1.0 },
-  isAnimating: { type: Boolean, default: false },
-})
+import { computed } from 'vue'
 
 defineEmits(['addElement', 'zoomIn', 'zoomOut', 'zoomReset', 'previewAnimation'])
 
-const elementTypes = [
+const props = defineProps({
+  zoom: { type: Number, default: 1.0 },
+  isAnimating: { type: Boolean, default: false },
+  isMember: { type: Boolean, default: false },
+})
+
+const elementTypes = computed(() => ([
   { type: 'subtitle', label: '字幕', icon: '📝', color: '#a78bfa', bgChip: 'rgba(167,139,250,.1)' },
   { type: 'wordbox', label: '词框', icon: '📖', color: '#38bdf8', bgChip: 'rgba(56,189,248,.1)' },
   { type: 'exprbox', label: '表达框', icon: '💬', color: '#f472b6', bgChip: 'rgba(244,114,182,.1)' },
-  { type: 'watermark', label: '水印', icon: '💧', color: '#94a3b8', bgChip: 'rgba(148,163,184,.1)' },
-]
+  {
+    type: 'watermark',
+    label: props.isMember ? '水印' : '开通会员自定义水印',
+    icon: '💧',
+    color: '#94a3b8',
+    bgChip: 'rgba(148,163,184,.1)',
+  },
+]))
 </script>
 
 <style scoped>

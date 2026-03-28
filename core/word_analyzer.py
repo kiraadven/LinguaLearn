@@ -68,13 +68,13 @@ class WordAnalyzer:
 
 请返回以下信息：
 1. chinese_translation: 将原句翻译成{tgt_name}（字段名保持 chinese_translation，内容为{tgt_name}）
-2. key_words: 2-6个重难点词汇（数组），每个词汇包含：
+2. key_words: 2-12个重难点词汇（数组），每个词汇包含：
    - word: 词汇的【词典原型/基本形式】（{src_name}）——绝对禁止使用句中的时态/格/活用变化形式！
      例：句中是"went"→ 填"go"；"studied"→"study"；"running"→"run"；"children"→"child"
    - phonetic: 发音标注（使用{phonetic_desc}，标注原型词的发音）
    - translation: {tgt_name}释义
    - difficulty: 难度等级（1-5，5最难）
-3. useful_expressions: 1-3个最有价值的{src_name}表达方式（数组），每个包含：
+3. useful_expressions: 1-8个最有价值的{src_name}表达方式（数组），每个包含：
    - english: {src_name}表达原型（2-8个词的短语或句型，字段名保持 english）
      ——必须用原型形式，如动词用原形：句中"is looking forward to"→ 填"look forward to"
    - chinese: {tgt_name}翻译（字段名保持 chinese）
@@ -159,20 +159,20 @@ class WordAnalyzer:
             if 'useful_expressions' not in result:
                 result['useful_expressions'] = []
 
-            # 限制单词数量在2-6个之间
-            if len(result['key_words']) > 6:
+            # 限制单词数量上限，避免异常超长输出
+            if len(result['key_words']) > 12:
                 result['key_words'] = sorted(
                     result['key_words'],
                     key=lambda x: x.get('difficulty', 0),
                     reverse=True
-                )[:6]
+                )[:12]
 
-            # 删除难度为1的表达，并限制在1-3个
+            # 删除难度为1的表达，并限制总数上限
             expressions = [expr for expr in result['useful_expressions'] if expr.get('difficulty', 0) != 1]
             # 过滤掉词数少于2个或多于8个的表达
             expressions = [expr for expr in expressions if 2 <= len(expr.get('english', '').split()) <= 8]
-            if len(expressions) > 3:
-                expressions = sorted(expressions, key=lambda x: x.get('difficulty', 0), reverse=True)[:3]
+            if len(expressions) > 8:
+                expressions = sorted(expressions, key=lambda x: x.get('difficulty', 0), reverse=True)[:8]
             result['useful_expressions'] = expressions
 
             # 确保每个表达都有 difficulty 字段

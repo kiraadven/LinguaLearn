@@ -20,12 +20,13 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Tuple
 
 import config
 
 # ffmpeg-full includes libass (for ASS subtitle burning); fallback to plain ffmpeg
 _FFMPEG = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg" if os.path.exists("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg") else "ffmpeg"
+_FFPROBE = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe" if os.path.exists("/opt/homebrew/opt/ffmpeg-full/bin/ffprobe") else "ffprobe"
 from ass_generator import ASSGenerator
 from ass_styles import DEFAULT_STYLE_ID
 from html_renderer import HTMLRenderer
@@ -33,9 +34,9 @@ from konva_renderer import KonvaRenderer
 
 # 默认布局（0-1 小数）
 _DEFAULT_LAYOUT = {
-    "subtitle": {"x_pct": 0.05, "y_pct": 0.76, "w_pct": 0.90, "h_pct": 0.14, "font_scale": 1.0},
-    "wordbox":  {"x_pct": 0.75, "y_pct": 0.005, "w_pct": 0.245, "h_pct": 0.65, "font_scale": 1.0},
-    "exprbox":  {"x_pct": 0.005, "y_pct": 0.005, "w_pct": 0.245, "h_pct": 0.55, "font_scale": 1.0},
+    "subtitle": {"x_pct": 0.011, "y_pct": 0.704, "w_pct": 0.961, "h_pct": 0.346, "font_scale": 1.15},
+    "wordbox":  {"x_pct": 0.761, "y_pct": 0.008, "w_pct": 0.222, "h_pct": 0.689, "font_scale": 0.90},
+    "exprbox":  {"x_pct": 0.002, "y_pct": 0.005, "w_pct": 0.275, "h_pct": 0.483, "font_scale": 1.00},
 }
 
 
@@ -65,6 +66,9 @@ class VideoProcessor:
         style: Optional[Dict] = None,
         # 新 Timeline JSON 模式（优先级最高）
         timeline_json: Optional[Dict] = None,
+        # 会员能力控制
+        membership_tier: str = "free",
+        forced_watermark: Optional[Dict] = None,
     ) -> dict:
         """
         处理完整视频，输出学习版 MP4。
@@ -92,6 +96,14 @@ class VideoProcessor:
             if tl_res.get("width"):
                 frame_w = tl_res["width"]
                 frame_h = tl_res["height"]
+
+        # Ensure the rendered video geometry matches editor canvas resolution.
+        src_w, src_h = self._probe_video_resolution(video_path)
+        need_rescale = (src_w is None or src_h is None or src_w != frame_w or src_h != frame_h)
+        if need_rescale:
+            print(f"[VideoProcessor] 📐 将片段统一到编辑器分辨率: {frame_w}x{frame_h} (源视频={src_w}x{src_h})")
+        else:
+            print(f"[VideoProcessor] 📐 源视频分辨率已匹配编辑器: {frame_w}x{frame_h}")
 
         ass_gen    = ASSGenerator(style_id, resolution)
         segs       = segments_info or []
@@ -163,7 +175,7 @@ class VideoProcessor:
 
         try:
             # ── Konva 模式：批量预渲染所有句子的 PNG（一次 Node.js 调用）──
-            konva_pngs: Dict[int, Dict[str, tuple]] = {}
+            konva_pngs: Dict = {}
             if use_konva and konva_renderer:
                 print("[VideoProcessor] 🎨 正在用 konva-node 批量渲染 PNG...")
                 konva_pngs = konva_renderer.render_all_sentences(
@@ -172,7 +184,13 @@ class VideoProcessor:
                     output_dir=str(job_tmp / "konva"),
                     resolution={"width": frame_w, "height": frame_h},
                 )
-                print(f"[VideoProcessor] ✅ konva-node 渲染完成，共 {sum(len(v) for v in konva_pngs.values())} 个 PNG")
+                total_pngs = 0
+                for by_sentence in konva_pngs.values():
+                    if by_sentence and all(isinstance(v, tuple) for v in by_sentence.values()):
+                        total_pngs += len(by_sentence)  # legacy
+                    else:
+                        total_pngs += sum(len(v) for v in by_sentence.values() if isinstance(v, dict))
+                print(f"[VideoProcessor] ✅ konva-node 渲染完成，共 {total_pngs} 个 PNG")
 
             for i, sent in enumerate(sentences_data):
                 if cancelled_fn and cancelled_fn():
@@ -185,12 +203,14 @@ class VideoProcessor:
                 next_start = segs[i + 1].get("start", end) if i + 1 < len(segs) else end
 
                 # ── 提前为本句生成 PNG（每句只生成一次，多个 Part 复用）──
-                sent_pngs: Dict[str, tuple] = {}  # key → (png_path, x_px, y_px)
+                # Konva new format: {part_id: {element_id: (png_path, x_px, y_px)}}
+                # Konva legacy format: {element_id: (png_path, x_px, y_px)}
+                sent_pngs: Dict = {}
 
                 if use_konva:
                     # Konva 模式：从预渲染结果获取 PNG
                     if i in konva_pngs:
-                        sent_pngs = konva_pngs[i]
+                        sent_pngs = konva_pngs[i] or {}
                 elif use_png_overlay:
                     # 旧 HTML 渲染模式
                     # 判断整个句子里哪些框至少在一个 Part 中显示
@@ -281,17 +301,44 @@ class VideoProcessor:
                         # Use element-level visibility from timeline parts
                         tl_vis = part.get("_tl_visibility", {})
                         overlays = []
-                        for elem_id, png_info in sent_pngs.items():
-                            # Check element visibility in this specific part
-                            if tl_vis.get(elem_id, False):
-                                overlays.append(png_info)
+
+                        # Backward compatibility: legacy flat structure
+                        is_legacy_flat = bool(sent_pngs) and all(
+                            isinstance(v, tuple) for v in sent_pngs.values()
+                        )
+                        if is_legacy_flat:
+                            for elem_id, png_info in sent_pngs.items():
+                                if tl_vis.get(elem_id, False):
+                                    overlays.append(png_info)
+                        else:
+                            part_id = str(part.get("_tl_part_id", ""))
+                            if part_id and part_id in sent_pngs:
+                                part_pngs = sent_pngs.get(part_id, {})
+                            else:
+                                # Fallback: align by part order if no explicit timeline part id.
+                                part_dict_keys = [k for k, v in sent_pngs.items() if isinstance(v, dict)]
+                                pidx = parts_config.index(part)
+                                fallback_key = part_dict_keys[pidx] if pidx < len(part_dict_keys) else None
+                                part_pngs = sent_pngs.get(fallback_key, {}) if fallback_key else {}
+                            for elem_id, png_info in part_pngs.items():
+                                if tl_vis.get(elem_id, False):
+                                    overlays.append(png_info)
 
                         if overlays:
                             burned_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_burned.mp4")
-                            self._render_with_overlays(base_clip, overlays, burned_path)
+                            self._render_with_overlays(
+                                base_clip, overlays, burned_path,
+                                frame_w if need_rescale else None,
+                                frame_h if need_rescale else None,
+                            )
                             final_clip = burned_path
                         else:
-                            final_clip = base_clip
+                            if need_rescale:
+                                norm_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_norm.mp4")
+                                self._normalize_resolution(base_clip, frame_w, frame_h, norm_path)
+                                final_clip = norm_path
+                            else:
+                                final_clip = base_clip
 
                     elif use_png_overlay:
                         # ── 3a. PNG overlay 模式 ──
@@ -305,10 +352,19 @@ class VideoProcessor:
 
                         if overlays:
                             burned_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_burned.mp4")
-                            self._render_with_overlays(base_clip, overlays, burned_path)
+                            self._render_with_overlays(
+                                base_clip, overlays, burned_path,
+                                frame_w if need_rescale else None,
+                                frame_h if need_rescale else None,
+                            )
                             final_clip = burned_path
                         else:
-                            final_clip = base_clip
+                            if need_rescale:
+                                norm_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_norm.mp4")
+                                self._normalize_resolution(base_clip, frame_w, frame_h, norm_path)
+                                final_clip = norm_path
+                            else:
+                                final_clip = base_clip
                     else:
                         # ── 3b. ASS 降级模式（style=None 时，CLI 批处理）──
                         show_key = (show_sub, show_wb, show_eb)
@@ -333,10 +389,19 @@ class VideoProcessor:
 
                         if need_overlay:
                             burned_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_burned.mp4")
-                            self._burn_ass(base_clip, ass_cache[show_key], burned_path)
+                            self._burn_ass(
+                                base_clip, ass_cache[show_key], burned_path,
+                                frame_w if need_rescale else None,
+                                frame_h if need_rescale else None,
+                            )
                             final_clip = burned_path
                         else:
-                            final_clip = base_clip
+                            if need_rescale:
+                                norm_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_norm.mp4")
+                                self._normalize_resolution(base_clip, frame_w, frame_h, norm_path)
+                                final_clip = norm_path
+                            else:
+                                final_clip = base_clip
 
                     # ── 4. 按 repeat 次数加入拼接列表 ──
                     for _ in range(repeat):
@@ -359,9 +424,46 @@ class VideoProcessor:
             if progress_callback:
                 progress_callback("write", {"pct": 0})
 
+            # Konva 模式下通常已经通过时间线渲染了水印元素，避免重复叠加
+            has_timeline_watermark = False
+            if use_konva and timeline_json:
+                el_map = {e.get("id"): e.get("type") for e in timeline_json.get("elements", [])}
+                wm_ids = {eid for eid, et in el_map.items() if et == "watermark"}
+                if wm_ids:
+                    for p in timeline_json.get("parts", []):
+                        vis = p.get("elementVisibility", {})
+                        if any(vis.get(wid) for wid in wm_ids):
+                            has_timeline_watermark = True
+                            break
+
+            watermark_cfg = None
+            if membership_tier != "member":
+                if (not use_konva) or (not has_timeline_watermark):
+                    watermark_cfg = forced_watermark or {
+                        "text": "LinguaLearn",
+                        "position": {"x": 0.348, "y": 0.352},
+                        "size": {"w": 0.18, "h": 0.06},
+                        "rotation": -30,
+                        "opacity": 0.35,
+                        "font_size": 90,
+                    }
+            print(
+                f"[VideoProcessor] 💧 watermark route: tier={membership_tier}, "
+                f"use_konva={use_konva}, has_timeline_watermark={has_timeline_watermark}, "
+                f"drawtext_fallback={bool(watermark_cfg)}"
+            )
+            if watermark_cfg:
+                print(
+                    f"[VideoProcessor] 💧 drawtext cfg: text={watermark_cfg.get('text')}, "
+                    f"pos={watermark_cfg.get('position')}, size={watermark_cfg.get('size')}, "
+                    f"rotation={watermark_cfg.get('rotation')}, opacity={watermark_cfg.get('opacity')}, "
+                    f"font_size={watermark_cfg.get('font_size')}"
+                )
+
             self._concat_with_watermark(
                 all_clip_paths, full_output_path, frame_w, frame_h,
-                progress_callback
+                progress_callback,
+                watermark_cfg=watermark_cfg,
             )
 
             if progress_callback:
@@ -408,16 +510,28 @@ class VideoProcessor:
         ], check=True, capture_output=True)
 
     @staticmethod
-    def _burn_ass(src: str, ass_path: str, out: str) -> None:
+    def _burn_ass(
+        src: str, ass_path: str, out: str,
+        frame_w: Optional[int] = None, frame_h: Optional[int] = None,
+    ) -> None:
         """将 ASS 字幕烧录到视频"""
         # 转换为绝对路径，避免相对路径问题
         abs_path = os.path.abspath(ass_path)
         # FFmpeg filter 字符串转义：反斜杠 → \\，冒号 → \:
         # 注意：subprocess 不走 shell，所以不需要 shell 级别的引号
         safe_ass = abs_path.replace("\\", "/").replace(":", "\\:")
+
+        vf_chain = []
+        if frame_w and frame_h:
+            vf_chain.append(
+                f"scale={frame_w}:{frame_h}:force_original_aspect_ratio=decrease,"
+                f"pad={frame_w}:{frame_h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+            )
+        vf_chain.append(f"ass=filename={safe_ass}")
+
         result = subprocess.run([
             _FFMPEG, "-y", "-i", src,
-            "-vf", f"ass=filename={safe_ass}",
+            "-vf", ",".join(vf_chain),
             "-c:v", "libx264", "-preset", "superfast", "-crf", "23",
             "-c:a", "copy",
             out,
@@ -427,7 +541,10 @@ class VideoProcessor:
             raise subprocess.CalledProcessError(result.returncode, result.args)
 
     @staticmethod
-    def _render_with_overlays(src: str, overlays: list, out: str) -> None:
+    def _render_with_overlays(
+        src: str, overlays: list, out: str,
+        frame_w: Optional[int] = None, frame_h: Optional[int] = None,
+    ) -> None:
         """
         将多张 PNG 叠加到视频上（与布局编辑器预览一致的 Chrome Headless 渲染）。
         overlays: [(png_path, x_px, y_px), ...]
@@ -443,6 +560,12 @@ class VideoProcessor:
 
         filter_parts = []
         prev = "0:v"
+        if frame_w and frame_h:
+            filter_parts.append(
+                f"[0:v]scale={frame_w}:{frame_h}:force_original_aspect_ratio=decrease,"
+                f"pad={frame_w}:{frame_h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[vbase]"
+            )
+            prev = "vbase"
         for idx, (_png, x, y) in enumerate(overlays):
             nxt = f"v{idx}"
             filter_parts.append(f"[{prev}][{idx+1}:v]overlay={x}:{y}[{nxt}]")
@@ -458,6 +581,46 @@ class VideoProcessor:
         if result.returncode != 0:
             print(f"[FFmpeg overlay] stderr: {result.stderr[-2000:]}")
             raise subprocess.CalledProcessError(result.returncode, result.args)
+
+    @staticmethod
+    def _normalize_resolution(src: str, frame_w: int, frame_h: int, out: str) -> None:
+        """统一片段分辨率到编辑器画布尺寸（保留宽高比，黑边补齐）。"""
+        vf = (
+            f"scale={frame_w}:{frame_h}:force_original_aspect_ratio=decrease,"
+            f"pad={frame_w}:{frame_h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+        )
+        result = subprocess.run([
+            _FFMPEG, "-y", "-i", src,
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "superfast", "-crf", "23",
+            "-c:a", "copy",
+            out,
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"[FFmpeg normalize] stderr: {result.stderr[-2000:]}")
+            raise subprocess.CalledProcessError(result.returncode, result.args)
+
+    @staticmethod
+    def _probe_video_resolution(video_path: str) -> Tuple[Optional[int], Optional[int]]:
+        """读取视频首个视频流分辨率。"""
+        try:
+            result = subprocess.run([
+                _FFPROBE, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "json",
+                video_path,
+            ], capture_output=True, text=True, check=True)
+            import json
+            data = json.loads(result.stdout or "{}")
+            streams = data.get("streams", [])
+            if not streams:
+                return None, None
+            width = streams[0].get("width")
+            height = streams[0].get("height")
+            return int(width) if width else None, int(height) if height else None
+        except Exception:
+            return None, None
 
     @staticmethod
     def _build_atempo_chain(speed: float) -> str:
@@ -482,6 +645,7 @@ class VideoProcessor:
         frame_w: int,
         frame_h: int,
         progress_callback: Optional[Callable],
+        watermark_cfg: Optional[Dict] = None,
     ) -> None:
         """使用 concat filter 拼接所有片段并叠加水印，一次 pass 完成"""
         n = len(clip_paths)
@@ -492,20 +656,28 @@ class VideoProcessor:
         # 构建 filter_complex
         in_refs   = "".join(f"[{i}:v][{i}:a]" for i in range(n))
         concat_f  = f"{in_refs}concat=n={n}:v=1:a=1[vc][aout]"
-
-        # 水印（居中 -30° 半透灰字）
-        wm_text   = "Made By LinguaLearn"
-        wm_size   = max(16, int(min(frame_w, frame_h) * 0.04))
-        wm_filter = (
-            f"[vc]drawtext="
-            f"text='{wm_text}':"
-            f"fontsize={wm_size}:"
-            f"fontcolor=gray@0.15:"
-            f"x=(w-text_w)/2:"
-            f"y=(h-text_h)/2"
-            f"[vout]"
-        )
-        filter_complex = f"{concat_f};{wm_filter}"
+        filter_complex = concat_f
+        v_ref = "vc"
+        if watermark_cfg:
+            wm_text = str(watermark_cfg.get("text", "LinguaLearn")).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+            wm_opacity = float(watermark_cfg.get("opacity", 0.35))
+            wm_size = int(watermark_cfg.get("font_size", max(16, int(min(frame_w, frame_h) * 0.04))))
+            x_pct = float((watermark_cfg.get("position") or {}).get("x", 0.348))
+            y_pct = float((watermark_cfg.get("position") or {}).get("y", 0.352))
+            wm_x = int(frame_w * x_pct)
+            wm_y = int(frame_h * y_pct)
+            # drawtext 不支持直接旋转；Konva 模式下默认走时间线水印（支持旋转）
+            wm_filter = (
+                f"[vc]drawtext="
+                f"text='{wm_text}':"
+                f"fontsize={wm_size}:"
+                f"fontcolor=white@{wm_opacity}:"
+                f"x={wm_x}:"
+                f"y={wm_y}"
+                f"[vout]"
+            )
+            filter_complex = f"{concat_f};{wm_filter}"
+            v_ref = "vout"
 
         # 文件大小进度线程
         _stop = threading.Event()
@@ -534,7 +706,7 @@ class VideoProcessor:
             subprocess.run([
                 _FFMPEG, "-y", *inputs,
                 "-filter_complex", filter_complex,
-                "-map", "[vout]", "-map", "[aout]",
+                "-map", f"[{v_ref}]", "-map", "[aout]",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "22",
                 "-c:a", "aac", "-ar", "44100",
                 out,

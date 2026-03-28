@@ -10,67 +10,74 @@
     <!-- Properties form -->
     <div v-else class="props-form">
       <!-- Position & Size -->
-      <div class="prop-row2">
+      <div v-if="!isLockedWatermark" class="prop-row2">
         <div>
           <label class="label">X %</label>
           <input type="number" class="input input-sm"
                  :value="pct(selectedElement.position.x)"
                  @change="updatePos('x', $event.target.value)"
-                 min="0" max="99" step="0.5">
+                 min="-200" max="300" step="1">
         </div>
         <div>
           <label class="label">Y %</label>
           <input type="number" class="input input-sm"
                  :value="pct(selectedElement.position.y)"
                  @change="updatePos('y', $event.target.value)"
-                 min="0" max="99" step="0.5">
+                 min="-200" max="300" step="1">
         </div>
         <div>
           <label class="label">宽 %</label>
           <input type="number" class="input input-sm"
                  :value="pct(selectedElement.size.w)"
                  @change="updateSize('w', $event.target.value)"
-                 min="3" max="100" step="0.5">
+                 min="1" max="300" step="1">
         </div>
         <div>
           <label class="label">高 %</label>
           <input type="number" class="input input-sm"
                  :value="pct(selectedElement.size.h)"
                  @change="updateSize('h', $event.target.value)"
-                 min="2" max="100" step="0.5">
+                 min="1" max="300" step="1">
         </div>
       </div>
 
       <!-- Rotation (watermark only) -->
       <template v-if="selectedElement.type === 'watermark'">
-        <label class="label" style="margin-top:8px">旋转：{{ (selectedElement.rotation || 0).toFixed(0) }}°</label>
-        <input type="range" class="slider"
-               :value="selectedElement.rotation || 0"
-               @input="$emit('update', selectedElement.id, { rotation: Number($event.target.value) })"
-               min="-180" max="180" step="1" style="margin-bottom:6px">
+        <template v-if="isLockedWatermark">
+          <div class="wm-lock-tip" style="margin-top:8px">
+            固定位置：x34.8%，y35.2%，宽18%，高6%，旋转 -30°，透明度 35%，字号 90px。
+          </div>
+        </template>
+        <template v-else>
+          <label class="label" style="margin-top:8px">旋转：{{ (selectedElement.rotation || 0).toFixed(0) }}°</label>
+          <input type="range" class="slider"
+                 :value="selectedElement.rotation || 0"
+                 @input="onPatchElement(selectedElement.id, { rotation: Number($event.target.value) })"
+                 min="-180" max="180" step="1" style="margin-bottom:6px">
 
-        <!-- Watermark opacity -->
-        <label class="label">透明度：{{ ((selectedElement.opacity ?? 0.5) * 100).toFixed(0) }}%</label>
-        <input type="range" class="slider"
-               :value="selectedElement.opacity ?? 0.5"
-               @input="$emit('update', selectedElement.id, { opacity: Number($event.target.value) })"
-               min="0" max="1" step="0.05" style="margin-bottom:6px">
+          <!-- Watermark opacity -->
+          <label class="label">透明度：{{ ((selectedElement.opacity ?? 0.5) * 100).toFixed(0) }}%</label>
+          <input type="range" class="slider"
+                 :value="selectedElement.opacity ?? 0.5"
+                 @input="onPatchElement(selectedElement.id, { opacity: Number($event.target.value) })"
+                 min="0" max="1" step="0.05" style="margin-bottom:6px">
 
-        <!-- Watermark text & color -->
-        <div style="margin-bottom:8px">
-          <label class="label">水印文字</label>
-          <input type="text" class="input"
-                 :value="selectedElement.style.text"
-                 @change="$emit('updateStyle', selectedElement.id, { text: $event.target.value })"
-                 placeholder="LinguaLearn">
-        </div>
-        <ColorPicker label="文字色" :value="selectedElement.style.color || '#ffffff'"
-                     @update="$emit('updateStyle', selectedElement.id, { color: $event })" />
-        <label class="label">字号：{{ selectedElement.style.fontSize || 16 }}px</label>
-        <input type="range" class="slider"
-               :value="selectedElement.style.fontSize || 16"
-               @input="$emit('updateStyle', selectedElement.id, { fontSize: Number($event.target.value) })"
-               min="8" max="64" step="1">
+          <!-- Watermark text & color -->
+          <div style="margin-bottom:8px">
+            <label class="label">水印文字</label>
+            <input type="text" class="input"
+                   :value="selectedElement.style.text"
+                   @change="onPatchStyle(selectedElement.id, { text: $event.target.value })"
+                   placeholder="LinguaLearn">
+          </div>
+          <ColorPicker label="文字色" :value="selectedElement.style.color || '#ffffff'"
+                       @update="onPatchStyle(selectedElement.id, { color: $event })" />
+          <label class="label">字号：{{ selectedElement.style.fontSize || 16 }}px</label>
+          <input type="range" class="slider"
+                 :value="selectedElement.style.fontSize || 16"
+                 @input="onPatchStyle(selectedElement.id, { fontSize: Number($event.target.value) })"
+                 min="8" max="160" step="1">
+        </template>
       </template>
 
       <!-- Content box (subtitle / wordbox / exprbox) properties -->
@@ -79,15 +86,37 @@
         <label class="label" style="margin-top:8px">背景透明度：{{ bgAlphaPct }}%</label>
         <input type="range" class="slider"
                :value="bgAlpha"
-               @input="$emit('updateStyle', selectedElement.id, { bgOpacity: Number($event.target.value) })"
+               @input="onPatchStyle(selectedElement.id, { bgOpacity: Number($event.target.value) })"
                min="0" max="1" step="0.05" style="margin-bottom:6px">
 
         <!-- Font scale -->
-        <label class="label">字号倍率：{{ (selectedElement.style.fontScale || 1).toFixed(1) }}x</label>
+        <label class="label">字号倍率：{{ (selectedElement.style.fontScale || 1).toFixed(2) }}x</label>
         <input type="range" class="slider"
                :value="selectedElement.style.fontScale || 1"
-               @input="$emit('updateStyle', selectedElement.id, { fontScale: Number($event.target.value) })"
-               min="0.5" max="2.5" step="0.1" style="margin-bottom:10px">
+               @input="onPatchStyle(selectedElement.id, { fontScale: Number($event.target.value) })"
+               min="0.1" max="5.0" step="0.05" style="margin-bottom:10px">
+
+        <template v-if="selectedElement.type === 'subtitle'">
+          <label class="label">源语言行间距：{{ subtitleSrcLineHeightVal.toFixed(1) }}x</label>
+          <input type="range" class="slider"
+                 :value="subtitleSrcLineHeightVal"
+                 @input="onSourceLineSpacingInput($event.target.value)"
+                 min="0.5" max="6.0" step="0.1" style="margin-bottom:8px">
+
+          <label class="label">目标语言行间距：{{ subtitleTgtLineHeightVal.toFixed(1) }}x</label>
+          <input type="range" class="slider"
+                 :value="subtitleTgtLineHeightVal"
+                 @input="onTargetLineSpacingInput($event.target.value)"
+                 min="0.5" max="6.0" step="0.1" style="margin-bottom:10px">
+        </template>
+
+        <template v-else>
+          <label class="label">单词间距：{{ wordSpacingVal.toFixed(2) }}x</label>
+          <input type="range" class="slider"
+                 :value="wordSpacingVal"
+                 @input="onWordSpacingInput($event.target.value)"
+                 min="0.05" max="6.0" step="0.05" style="margin-bottom:10px">
+        </template>
 
         <!-- Animation picker (per element) -->
         <div class="anim-label">动画效果</div>
@@ -105,13 +134,20 @@
           <input type="range" class="slider"
                  :value="currentAnimDuration"
                  @input="onSetAnimDuration(Number($event.target.value))"
-                 min="100" max="1200" step="50" style="margin-bottom:6px">
+                 min="50" max="6000" step="50" style="margin-bottom:6px">
         </div>
 
       </template>
 
+      <!-- Word list panel (for wordbox) -->
+      <WordListPanel v-if="selectedElement.type === 'wordbox'"
+                     :sourceLang="sourceLang"
+                     :targetLang="targetLang"
+                     :numWords="numWords"
+                     :numExprs="numExprs" />
+
       <!-- Delete button -->
-      <button class="remove-btn" @click="$emit('remove', selectedElement.id)">
+      <button v-if="!isLockedWatermark" class="remove-btn" @click="$emit('remove', selectedElement.id)">
         🗑️ 从画布移除此元素
       </button>
     </div>
@@ -121,9 +157,17 @@
 <script setup>
 import { computed } from 'vue'
 import ColorPicker from './ColorPicker.vue'
+import WordListPanel from './WordListPanel.vue'
 
 const props = defineProps({
   selectedElement: { type: Object, default: null },
+  watermarkLocked: { type: Boolean, default: false },
+  sourceLang: { type: String, default: 'en' },
+  targetLang: { type: String, default: 'zh' },
+  numWords: { type: Number, default: 6 },
+  numExprs: { type: Number, default: 4 },
+  applyPatch: { type: Function, default: null },
+  applyStylePatch: { type: Function, default: null },
 })
 
 const emit = defineEmits(['update', 'updateStyle', 'setAnimation', 'previewAnimation', 'remove'])
@@ -146,17 +190,40 @@ const TYPE_LABELS = {
 
 function typeLabel(type) { return TYPE_LABELS[type] || type }
 function pct(v) { return Math.round((v || 0) * 1000) / 10 }
+const isLockedWatermark = computed(() =>
+  props.selectedElement?.type === 'watermark' && props.watermarkLocked
+)
+
+function onPatchElement(id, patch) {
+  if (isLockedWatermark.value) return
+  if (!id || !patch) return
+  if (typeof props.applyPatch === 'function') {
+    props.applyPatch(id, patch)
+    return
+  }
+  emit('update', id, patch)
+}
+
+function onPatchStyle(id, patch) {
+  if (isLockedWatermark.value) return
+  if (!id || !patch) return
+  if (typeof props.applyStylePatch === 'function') {
+    props.applyStylePatch(id, patch)
+    return
+  }
+  emit('updateStyle', id, patch)
+}
 
 function updatePos(axis, val) {
   const v = Number(val) / 100
   const pos = { ...props.selectedElement.position, [axis]: v }
-  emit('update', props.selectedElement.id, { position: pos })
+  onPatchElement(props.selectedElement.id, { position: pos })
 }
 
 function updateSize(dim, val) {
   const v = Number(val) / 100
   const size = { ...props.selectedElement.size, [dim]: v }
-  emit('update', props.selectedElement.id, { size })
+  onPatchElement(props.selectedElement.id, { size })
 }
 
 // ── Background opacity ──
@@ -176,6 +243,49 @@ const bgAlphaPct = computed(() => Math.round(bgAlpha.value * 100))
 
 // ── Per-element animation ──
 
+const subtitleSrcLineHeightVal = computed(() => {
+  const style = props.selectedElement?.style || {}
+  return (
+    style.sourceLineHeight ??
+    style.srcLineHeight ??
+    style.lineHeight ??
+    1.3
+  )
+})
+
+const subtitleTgtLineHeightVal = computed(() => {
+  const style = props.selectedElement?.style || {}
+  return (
+    style.targetLineHeight ??
+    style.tgtLineHeight ??
+    style.lineHeight ??
+    1.3
+  )
+})
+
+const wordSpacingVal = computed(() => {
+  const style = props.selectedElement?.style || {}
+  return style.wordSpacing ?? style.lineHeight ?? 1.0
+})
+
+function onSourceLineSpacingInput(rawVal) {
+  if (!props.selectedElement) return
+  const v = Number(rawVal)
+  onPatchStyle(props.selectedElement.id, { sourceLineHeight: v })
+}
+
+function onTargetLineSpacingInput(rawVal) {
+  if (!props.selectedElement) return
+  const v = Number(rawVal)
+  onPatchStyle(props.selectedElement.id, { targetLineHeight: v })
+}
+
+function onWordSpacingInput(rawVal) {
+  if (!props.selectedElement) return
+  const v = Number(rawVal)
+  onPatchStyle(props.selectedElement.id, { wordSpacing: v })
+}
+
 const currentAnimType = computed(() =>
   props.selectedElement?.animation?.enter?.type || 'fade'
 )
@@ -190,7 +300,7 @@ function onPickAnimation(animType) {
 }
 
 function onSetAnimDuration(ms) {
-  emit('update', props.selectedElement.id, {
+  onPatchElement(props.selectedElement.id, {
     animation: { enter: { duration: ms } }
   })
 }
@@ -198,6 +308,9 @@ function onSetAnimDuration(ms) {
 
 <style scoped>
 .props-sidebar {
+  position: relative;
+  z-index: 3;
+  pointer-events: auto;
   width: 220px;
   min-width: 190px;
   padding: 10px;
@@ -219,6 +332,17 @@ function onSetAnimDuration(ms) {
   text-align: center;
   padding: 20px 0;
   line-height: 1.7;
+}
+.wm-lock-tip {
+  margin-top: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,.35);
+  background: rgba(15,23,42,.55);
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .prop-row2 {
   display: grid;

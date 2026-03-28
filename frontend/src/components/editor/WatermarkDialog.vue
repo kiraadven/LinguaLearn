@@ -11,7 +11,7 @@
 
         <div class="form-group">
           <label class="label">字号: {{ fontSize }}px</label>
-          <input type="range" class="slider" v-model.number="fontSize" min="8" max="64" step="1">
+          <input type="range" class="slider" v-model.number="fontSize" min="8" max="160" step="1">
         </div>
 
         <div class="form-group">

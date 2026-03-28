@@ -2,7 +2,7 @@
  * Watermark Element Renderer — creates Konva nodes for text watermark
  *
  * Opacity and rotation are applied on the Konva group (not the text node).
- * Width auto-expands so long text is never clipped.
+ * Keep geometry strict to element.size so server output matches saved preset.
  */
 import { getFontFamily } from '../font-registry.js'
 
@@ -22,13 +22,9 @@ export function createWatermarkNodes(element, _content, containerSize) {
   const strokeColor = style.strokeColor || 'rgba(0,0,0,0.3)'
   const strokeWidth = style.strokeWidth || 0
 
-  // Width: auto-expand to fit text content (estimate: ~0.62 * fontSize per char + padding)
-  const estimatedTextW = text.length * fontSize * 0.62 + 20
-  const minW = size.w * cw
-  const w = Math.max(minW, estimatedTextW)
-
-  // Height: always fit the font size so text is never clipped
-  const h = Math.max(size.h * ch, fontSize + 10)
+  // Strict box size from timeline preset (percentage of canvas).
+  const w = Math.max(1, size.w * cw)
+  const h = Math.max(1, size.h * ch)
 
   const nodes = []
 
@@ -47,6 +43,7 @@ export function createWatermarkNodes(element, _content, containerSize) {
       align: 'center',
       verticalAlign: 'middle',
       wrap: 'none',
+      ellipsis: true,
     },
   })
 

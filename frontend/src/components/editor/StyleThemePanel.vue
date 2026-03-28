@@ -42,7 +42,7 @@ import { FONTS } from '@shared/font-registry.js'
 import { getThemeList } from '@shared/theme-mapper.js'
 
 defineProps({
-  currentStyleId: { type: String, default: 'neon_cyberpunk' },
+  currentStyleId: { type: String, default: 'ink_wash' },
   currentFont: { type: String, default: 'system' },
 })
 

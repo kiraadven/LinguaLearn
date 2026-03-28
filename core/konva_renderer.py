@@ -12,7 +12,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 
 # Resolve paths
@@ -29,10 +29,14 @@ class KonvaRenderer:
     Usage:
         renderer = KonvaRenderer()
         results = renderer.render_all_sentences(timeline_json, sentences_data, output_dir)
-        # results = {
-        #   0: { 'subtitle_1': ('/path/to/s0000_subtitle_subtitle_1.png', 96, 820), ... },
+        # results (new): {
+        #   0: {
+        #     'p_1': { 'subtitle_1': ('/path/to/s0000_p00_...png', 96, 820), ... },
+        #     'p_2': { ... },
+        #   },
         #   1: { ... },
         # }
+        # results (legacy): { 0: { 'subtitle_1': (...) } }
     """
 
     def __init__(self):
@@ -45,7 +49,7 @@ class KonvaRenderer:
         sentences_data: List[Dict],
         output_dir: str,
         resolution: Optional[Dict] = None,
-    ) -> Dict[int, Dict[str, Tuple[str, int, int]]]:
+    ) -> Dict[int, Union[Dict[str, Tuple[str, int, int]], Dict[str, Dict[str, Tuple[str, int, int]]]]]:
         """
         Render all elements for all sentences in a single Node.js subprocess call.
 
@@ -56,7 +60,9 @@ class KonvaRenderer:
             resolution: Override resolution, e.g. {"width": 1920, "height": 1080}
 
         Returns:
-            Dict mapping sentence_index -> { element_id: (png_path, x_px, y_px) }
+            Dict mapping sentence_index ->
+              new format: { part_id: { element_id: (png_path, x_px, y_px) } }
+              legacy format: { element_id: (png_path, x_px, y_px) }
         """
         os.makedirs(output_dir, exist_ok=True)
 
@@ -89,6 +95,9 @@ class KonvaRenderer:
             stderr = result.stderr[-2000:] if result.stderr else "(no stderr)"
             print(f"[KonvaRenderer] Worker failed (exit={result.returncode}):\n{stderr}")
             return {}
+        elif result.stderr and result.stderr.strip():
+            # Keep non-fatal worker warnings (e.g. missing fonts) visible for debugging.
+            print(f"[KonvaRenderer] Worker warnings:\n{result.stderr[-2000:]}")
 
         # Parse stdout for results JSON
         try:
@@ -100,17 +109,39 @@ class KonvaRenderer:
                 print(f"[KonvaRenderer] stderr: {result.stderr[-1000:]}")
             return {}
 
-        # Convert results format: { "0": { "subtitle_1": { "path": ..., "x": ..., "y": ... } } }
-        # To: { 0: { "subtitle_1": (path, x, y) } }
+        # Convert worker output to tuple format used by VideoProcessor.
         parsed = {}
         raw_results = output.get("results", {})
-        for si_str, elements in raw_results.items():
+        for si_str, elements_or_parts in raw_results.items():
             si = int(si_str)
             parsed[si] = {}
-            for elem_id, info in elements.items():
-                parsed[si][elem_id] = (info["path"], info["x"], info["y"])
 
-        n_total = sum(len(v) for v in parsed.values())
+            # Legacy format: { elem_id: {path,x,y,...} }
+            if isinstance(elements_or_parts, dict) and all(
+                isinstance(v, dict) and "path" in v for v in elements_or_parts.values()
+            ):
+                for elem_id, info in elements_or_parts.items():
+                    parsed[si][elem_id] = (info["path"], info["x"], info["y"])
+                continue
+
+            # New format: { part_id: { elem_id: {path,x,y,...} } }
+            if isinstance(elements_or_parts, dict):
+                for part_id, part_elements in elements_or_parts.items():
+                    parsed[si][part_id] = {}
+                    if not isinstance(part_elements, dict):
+                        continue
+                    for elem_id, info in part_elements.items():
+                        if not isinstance(info, dict) or "path" not in info:
+                            continue
+                        parsed[si][part_id][elem_id] = (info["path"], info["x"], info["y"])
+
+        # Count PNGs across both formats
+        n_total = 0
+        for by_sentence in parsed.values():
+            if by_sentence and all(isinstance(v, tuple) for v in by_sentence.values()):
+                n_total += len(by_sentence)
+            else:
+                n_total += sum(len(v) for v in by_sentence.values() if isinstance(v, dict))
         print(f"[KonvaRenderer] Rendered {n_total} PNGs for {len(parsed)} sentences")
         return parsed
 

@@ -7,7 +7,14 @@ import config
 
 
 class MarkdownExporter:
-    def __init__(self, output_dir: str = 'output', source_lang: str = None, target_lang: str = None):
+    def __init__(
+        self,
+        output_dir: str = 'output',
+        source_lang: str = None,
+        target_lang: str = None,
+        footer_watermark_text: str = None,
+        footer_watermark_enabled: bool = True,
+    ):
         """
         初始化Markdown导出器
 
@@ -19,6 +26,8 @@ class MarkdownExporter:
         self.output_dir = output_dir
         self.source_lang = source_lang or getattr(config, 'SOURCE_LANGUAGE', 'en')
         self.target_lang = target_lang or getattr(config, 'TARGET_LANGUAGE', 'zh')
+        self.footer_watermark_text = footer_watermark_text
+        self.footer_watermark_enabled = bool(footer_watermark_enabled)
         os.makedirs(output_dir, exist_ok=True)
 
         # 语言显示名称
@@ -315,7 +324,7 @@ class MarkdownExporter:
             f.write('---\n\n')
 
             # ── Introduction ─────────────────────────────────────────────────
-            f.write(f'## 📖 {ui["intro"]}\n\n')
+            f.write(f'## 📚 {ui["intro"]}\n\n')
             f.write(f'> {introduction}\n\n')
             f.write('---\n\n')
 
@@ -416,7 +425,9 @@ class MarkdownExporter:
             f.write('---\n\n')
 
             # ── Footer ────────────────────────────────────────────────────────
-            f.write(f'*{ui["footer"]}*\n\n')
+            if self.footer_watermark_enabled:
+                footer_text = (self.footer_watermark_text or "").strip() or ui["footer"]
+                f.write(f'*{footer_text}*\n\n')
             f.write(f'*{ui["footer2"]}*\n')
 
         print(f"Markdown文字稿已导出到: {output_path}")

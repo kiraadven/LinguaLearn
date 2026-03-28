@@ -12,21 +12,35 @@
     </div>
 
     <div v-else>
+      <div class="member-tip card">
+        <div class="member-tip-left">
+          <img src="/premium-badge.svg" alt="VIP" class="member-tip-logo">
+          <div>
+            <div class="member-tip-title">
+              {{ isMember ? '当前为会员' : '当前为非会员' }}
+            </div>
+            <div class="member-tip-sub" v-if="user?.membership">
+              今日已生成 {{ user.membership.usage?.videos_generated_today ?? 0 }} 个
+              <template v-if="user.membership.limits?.daily_video_limit !== null">
+                / 最多 {{ user.membership.limits?.daily_video_limit }} 个
+              </template>
+              ，单视频最长 {{ Math.floor((user.membership.limits?.max_video_seconds || 300) / 60) }} 分钟
+            </div>
+          </div>
+        </div>
+        <button class="btn-ghost" style="font-size:12px;padding:7px 12px" @click="openMembership()">
+          {{ isMember ? '管理会员' : '开通会员' }}
+        </button>
+      </div>
+
       <!-- Preset bar -->
-      <div class="preset-bar" v-if="presets.length>0||showPresetSave">
-        <template v-if="!showPresetSave">
-          <select class="input" v-model="selectedPresetId" style="flex:1;max-width:240px;margin-bottom:0;font-size:13px">
-            <option value="">— 选择预设 —</option>
-            <option v-for="p in presets" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
-          <button class="btn-ghost" style="padding:7px 12px;font-size:12px" @click="applyPreset">加载</button>
-          <button class="btn-ghost" style="padding:7px 10px;font-size:12px;color:var(--err);border-color:rgba(248,113,113,.3)" @click="deletePreset">删除</button>
-        </template>
-        <template v-else>
-          <input class="input" v-model="presetName" placeholder="预设名称..." style="flex:1;max-width:240px;margin-bottom:0;font-size:13px" @keyup.enter="savePreset">
-          <button class="btn-primary" style="padding:7px 14px;font-size:12px" @click="savePreset">💾 保存</button>
-          <button class="btn-ghost" style="padding:7px 10px;font-size:12px" @click="showPresetSave=false">取消</button>
-        </template>
+      <div class="preset-bar" v-if="presets.length>0">
+        <select class="input" v-model="selectedPresetId" style="flex:1;max-width:240px;margin-bottom:0;font-size:13px">
+          <option value="">— 选择预设 —</option>
+          <option v-for="p in presets" :key="p.id" :value="p.id">{{ p.name }}</option>
+        </select>
+        <button class="btn-ghost" style="padding:7px 12px;font-size:12px" @click="applyPreset">加载</button>
+        <button class="btn-ghost" style="padding:7px 10px;font-size:12px;color:var(--err);border-color:rgba(248,113,113,.3)" @click="deletePreset">删除</button>
       </div>
 
       <div v-if="!jobRunning || jobDone">
@@ -86,9 +100,9 @@
           <div class="card config-card">
             <div class="card-title">📚 词汇 & 表达</div>
             <label class="label">关键词：{{ numWords===0?'不限制':numWords+' 个/句' }}</label>
-            <input type="range" class="slider" v-model.number="numWords" @input="timeline.numWords=numWords" min="0" max="6" style="margin-bottom:20px">
+            <input type="range" class="slider" v-model.number="numWords" @input="tl.timeline.numWords=numWords" min="0" max="12" style="margin-bottom:20px">
             <label class="label">实用表达：{{ numExprs===0?'不限制':numExprs+' 个/句' }}</label>
-            <input type="range" class="slider" v-model.number="numExprs" @input="timeline.numExprs=numExprs" min="0" max="3">
+            <input type="range" class="slider" v-model.number="numExprs" @input="tl.timeline.numExprs=numExprs" min="0" max="8">
           </div>
         </div>
 
@@ -104,10 +118,11 @@
               :allElements="tl.elements.value"
               :currentPartIdx="currentPartIdx"
               @selectPart="currentPartIdx=$event"
-              @addPart="tl.addPart()"
-              @copyPart="tl.copyPart($event)"
+              @addPart="onAddPart"
+              @copyPart="onCopyPart"
               @removePart="onRemovePart"
-              @toggleVisibility="tl.setPartVisibility($event[0], $event[1], $event[2])"
+              @movePart="onMovePart"
+              @toggleVisibility="(partId, elId, vis) => tl.setPartVisibility(partId, elId, vis)"
             />
 
             <!-- Center: Konva Canvas -->
@@ -115,6 +130,7 @@
               <ToolbarPanel
                 :zoom="editor.canvasZoom.value"
                 :isAnimating="animPreview.isPlaying.value"
+                :isMember="isMember"
                 @addElement="onAddElement"
                 @zoomIn="editor.zoomIn()"
                 @zoomOut="editor.zoomOut()"
@@ -138,8 +154,15 @@
             <!-- Right: Properties panel -->
             <PropertiesPanel
               :selectedElement="editor.selectedElement.value"
-              @update="(id, patch) => tl.updatePartElement(currentPartId.value, id, patch)"
-              @updateStyle="(id, style) => tl.updatePartElement(currentPartId.value, id, { style })"
+              :watermarkLocked="selectedWatermarkLocked"
+              :sourceLang="srcLang"
+              :targetLang="tgtLang"
+              :numWords="numWords"
+              :numExprs="numExprs"
+              :applyPatch="patchCurrentPartElement"
+              :applyStylePatch="patchCurrentPartElementStyle"
+              @update="onUpdateElement"
+              @updateStyle="onUpdateElementStyle"
               @setAnimation="(id, type) => onSetAnimation(id, type)"
               @previewAnimation="onPreviewAnimation"
               @remove="onRemoveElement"
@@ -165,9 +188,12 @@
           <button class="btn-primary" style="font-size:15px;padding:14px 40px" :disabled="submitting" @click="submit">
             {{ submitting?'提交中...':'🚀 开始生成学习视频' }}
           </button>
-          <button class="btn-ghost" style="padding:13px 18px;font-size:13px" @click="showPresetSave=true;loadPresets()">
-            💾 保存为预设
-          </button>
+          <div class="preset-save-wrap">
+            <button class="btn-ghost" style="padding:13px 18px;font-size:13px" @click="openPresetSaveDialog">
+              💾 保存为预设
+            </button>
+            <div class="preset-save-tip">保存当前布局和样式，下次一键复用，省去重复调参时间。</div>
+          </div>
         </div>
       </div>
 
@@ -183,6 +209,32 @@
             <div style="display:flex;gap:10px">
               <button class="btn-primary" style="flex:1;padding:12px" @click="onNameConfirm">确认开始生成 →</button>
               <button class="btn-ghost" style="padding:12px 20px" @click="onNameCancel">取消</button>
+            </div>
+          </div>
+        </div>
+      </Teleport>
+
+      <!-- Preset Name Dialog -->
+      <Teleport to="body">
+        <div v-if="showPresetNameDialog" class="modal-overlay" @click.self="onPresetSaveCancel" style="z-index:301">
+          <div class="modal-box" style="max-width:440px">
+            <button class="modal-close" @click="onPresetSaveCancel">✕</button>
+            <div style="font-size:20px;font-weight:800;margin-bottom:6px;color:var(--text)">保存为预设</div>
+            <div style="font-size:13px;color:var(--text3);margin-bottom:18px">
+              输入一个好记的名称，后续可一键加载这套布局、样式和参数配置。
+            </div>
+            <label class="label">预设名称</label>
+            <input
+              ref="presetNameInput"
+              class="input"
+              v-model="presetName"
+              placeholder="例如：英文精听·通勤模板"
+              @keyup.enter="savePreset"
+              style="margin-bottom:18px"
+            >
+            <div style="display:flex;gap:10px">
+              <button class="btn-primary" style="flex:1;padding:12px" @click="savePreset">保存预设</button>
+              <button class="btn-ghost" style="padding:12px 20px" @click="onPresetSaveCancel">取消</button>
             </div>
           </div>
         </div>
@@ -230,6 +282,7 @@ import { apiFetch } from '../composables/useApi.js'
 import { useTimeline } from '../composables/useTimeline.js'
 import { useKonvaEditor } from '../composables/useKonvaEditor.js'
 import { useAnimationPreview } from '../composables/useAnimationPreview.js'
+import { STYLE_THEMES } from '@shared/theme-mapper.js'
 
 // Components
 import KonvaCanvas from '../components/editor/KonvaCanvas.vue'
@@ -239,8 +292,9 @@ import StyleThemePanel from '../components/editor/StyleThemePanel.vue'
 import ToolbarPanel from '../components/editor/ToolbarPanel.vue'
 import WatermarkDialog from '../components/editor/WatermarkDialog.vue'
 
-const { isLoggedIn } = useAuth()
+const { isLoggedIn, user, refreshMembership } = useAuth()
 const openAuth = inject('openAuth')
+const openMembership = inject('openMembership', () => {})
 const toast    = inject('toast')
 
 // ── Inline sub-component ──
@@ -263,6 +317,8 @@ const tl = useTimeline()
 const currentPartIdx = ref(0)
 const currentPartId = computed(() => tl.timeline.parts[currentPartIdx.value]?.id || '')
 const currentAnimation = ref('fade')
+const isMember = computed(() => user.value?.membership?.tier === 'member')
+const selectedWatermarkLocked = computed(() => isLockedWatermarkId(editor.selectedElement.value?.id))
 
 const editor = useKonvaEditor(tl, () => currentPartId.value)
 const animPreview = useAnimationPreview(editor.stageRef)
@@ -276,8 +332,8 @@ const langs        = ref([])
 const srcLang      = ref('en')
 const tgtLang      = ref('zh')
 const resolution   = ref('1080p')
-const numWords     = ref(3)
-const numExprs     = ref(2)
+const numWords     = ref(6)
+const numExprs     = ref(4)
 
 // Sync basic config → timeline
 watch(srcLang, v => { tl.timeline.sourceLang = v })
@@ -285,13 +341,44 @@ watch(tgtLang, v => { tl.timeline.targetLang = v })
 watch(numWords, v => { tl.timeline.numWords = v })
 watch(numExprs, v => { tl.timeline.numExprs = v })
 
+// Clear selection when switching parts so transformer doesn't persist on hidden elements
+watch(currentPartId, () => editor.clearSelection())
+
 // ── Dialogs ──
 const showWatermarkDialog = ref(false)
+const showPresetNameDialog = ref(false)
+const presetNameInput = ref(null)
+
+function ensureFreeDefaultWatermark() {
+  if (isMember.value) return
+
+  // 非会员编辑器中不显示任何水印（成片由后端自动注入默认 LinguaLearn 水印）
+  const watermarkEls = tl.timeline.elements.filter(e => e.type === 'watermark')
+  if (!watermarkEls.length) return
+  for (const el of watermarkEls) {
+    if (editor.selectedElementId.value === el.id) {
+      editor.clearSelection()
+    }
+    tl.removeElement(el.id)
+  }
+}
+
+function isLockedWatermarkId(elementId) {
+  if (isMember.value) return false
+  const el = tl.timeline.elements.find(e => e.id === elementId)
+  return el?.type === 'watermark'
+}
 
 // ── Element Operations ──
 
 function onAddElement(type) {
   if (type === 'watermark') {
+    if (!isMember.value) {
+      ensureFreeDefaultWatermark()
+      toast('开通会员后可自定义水印；非会员成片会自动添加默认 LinguaLearn 水印', 'warn')
+      openMembership()
+      return
+    }
     showWatermarkDialog.value = true
     return
   }
@@ -313,6 +400,12 @@ function onAddElement(type) {
 }
 
 function onAddWatermark(config) {
+  if (!isMember.value) {
+    ensureFreeDefaultWatermark()
+    toast('非会员不可自定义水印', 'warn')
+    openMembership()
+    return
+  }
   const el = tl.addElement('watermark', {
     opacity: config.opacity,
     rotation: config.rotation,
@@ -331,10 +424,34 @@ function onAddWatermark(config) {
 }
 
 function onRemoveElement(elementId) {
+  if (isLockedWatermarkId(elementId)) {
+    toast('默认 LinguaLearn 水印仅会员可删除', 'warn')
+    openMembership()
+    return
+  }
   if (editor.selectedElementId.value === elementId) {
     editor.clearSelection()
   }
   tl.removeElement(elementId)
+}
+
+function onAddPart() {
+  const newPart = tl.addPart()
+  if (newPart) {
+    // Auto-switch canvas to the newly created part
+    currentPartIdx.value = tl.timeline.parts.length - 1
+    editor.clearSelection()
+    ensureFreeDefaultWatermark()
+  }
+}
+
+function onCopyPart(partId) {
+  const copy = tl.copyPart(partId)
+  if (copy) {
+    currentPartIdx.value = tl.timeline.parts.findIndex(p => p.id === copy.id)
+    editor.clearSelection()
+    ensureFreeDefaultWatermark()
+  }
 }
 
 function onRemovePart(partId) {
@@ -344,23 +461,53 @@ function onRemovePart(partId) {
   }
 }
 
+function onMovePart(partId, targetPartId) {
+  const selectedId = currentPartId.value
+  tl.movePart(partId, targetPartId)
+  const nextIdx = tl.timeline.parts.findIndex(p => p.id === selectedId)
+  if (nextIdx >= 0) currentPartIdx.value = nextIdx
+}
+
+function onUpdateElement(id, patch) {
+  patchCurrentPartElement(id, patch)
+}
+
+function onUpdateElementStyle(id, style) {
+  patchCurrentPartElementStyle(id, style)
+}
+
+function patchCurrentPartElement(id, patch) {
+  if (isLockedWatermarkId(id)) {
+    ensureFreeDefaultWatermark()
+    toast('默认水印仅会员可编辑', 'warn')
+    return
+  }
+  const partId = currentPartId.value || tl.timeline.parts[0]?.id
+  if (!partId || !id || !patch) return
+  tl.updatePartElement(partId, id, patch)
+}
+
+function patchCurrentPartElementStyle(id, style) {
+  patchCurrentPartElement(id, { style })
+}
+
 // ── Style Theme ──
 
 function onApplyTheme(styleId) {
-  tl.applyStyleTheme(styleId, currentPartId.value)
-  const firstAnim = tl.timeline.elements[0]?.animation?.enter?.type || 'fade'
-  currentAnimation.value = firstAnim
+  tl.applyStyleTheme(styleId)
+  currentAnimation.value = STYLE_THEMES[styleId]?.defaultAnimation || 'fade'
 }
 
 // elementId = null means apply to all; specific id = that element only
 function onSetAnimation(elementId, animType) {
   currentAnimation.value = animType
+  const partId = currentPartId.value
   if (elementId) {
-    tl.updateElement(elementId, { animation: { enter: { type: animType } } })
+    tl.updatePartElement(partId, elementId, { animation: { enter: { type: animType } } })
   } else {
     for (const el of tl.timeline.elements) {
       if (['subtitle', 'wordbox', 'exprbox'].includes(el.type)) {
-        tl.updateElement(el.id, { animation: { enter: { type: animType } } })
+        tl.updatePartElement(partId, el.id, { animation: { enter: { type: animType } } })
       }
     }
   }
@@ -383,15 +530,18 @@ async function onPreviewAnimation(elementId) {
 
   if (elementId) {
     // Preview single element
-    const el = tl.getElementById(elementId)
+    const el = tl.getPartElement(currentPartId.value, elementId) || tl.getElementById(elementId)
     const node = stage.findOne('#' + elementId)
     if (el && node) elementNodes = [{ nodeRef: node, animation: el.animation }]
   } else {
     // Preview all content elements
+    const part = tl.timeline.parts.find(p => p.id === currentPartId.value)
     for (const el of tl.timeline.elements) {
       if (!['subtitle', 'wordbox', 'exprbox'].includes(el.type)) continue
+      if (part && !part.elementVisibility?.[el.id]) continue
       const node = stage.findOne('#' + el.id)
-      if (node) elementNodes.push({ nodeRef: node, animation: el.animation })
+      const merged = tl.getPartElement(currentPartId.value, el.id) || el
+      if (node) elementNodes.push({ nodeRef: node, animation: merged.animation })
     }
   }
 
@@ -405,8 +555,17 @@ async function onPreviewAnimation(elementId) {
 // ── Presets ──
 const presets = ref([])
 const selectedPresetId = ref('')
-const showPresetSave   = ref(false)
 const presetName       = ref('')
+
+function openPresetSaveDialog() {
+  presetName.value = ''
+  showPresetNameDialog.value = true
+  nextTick(() => presetNameInput.value?.focus?.())
+}
+
+function onPresetSaveCancel() {
+  showPresetNameDialog.value = false
+}
 
 async function loadPresets() {
   if (!isLoggedIn.value) return
@@ -417,16 +576,18 @@ async function loadPresets() {
 }
 
 async function savePreset() {
-  if (!presetName.value.trim()) { toast('请输入预设名称','warn'); return }
+  const name = presetName.value.trim()
+  if (!name) { toast('请输入预设名称','warn'); return }
   const cfg = tl.toJSON() // Save entire timeline JSON as preset
   const fd = new FormData()
-  fd.append('name', presetName.value)
+  fd.append('name', name)
   fd.append('config_json', JSON.stringify(cfg))
   try {
     await fetch('/api/config/presets', { method:'POST',
       headers:{ Authorization:'Bearer '+localStorage.getItem('ll_token') }, body:fd })
-    toast(`预设「${presetName.value}」已保存`, 'ok')
-    presetName.value = ''; showPresetSave.value = false
+    toast(`预设「${name}」已保存`, 'ok')
+    presetName.value = ''
+    showPresetNameDialog.value = false
     await loadPresets()
   } catch(e) { toast('保存失败','err') }
 }
@@ -450,6 +611,7 @@ function applyPreset() {
     resolution.value = tl.timeline.resolution.width >= 1920 ? '1080p' : '720p'
     numWords.value = tl.timeline.numWords
     numExprs.value = tl.timeline.numExprs
+    ensureFreeDefaultWatermark()
     toast(`已加载「${p.name}」`,'ok')
   } catch { toast('加载失败','err') }
 }
@@ -497,6 +659,7 @@ async function onNameConfirm() {
 }
 
 async function doSubmit(name) {
+  if (!isMember.value) ensureFreeDefaultWatermark()
   submitting.value = true
   const fd = new FormData()
   fd.append('video', selectedFile.value)
@@ -504,6 +667,7 @@ async function doSubmit(name) {
   fd.append('timeline_json', JSON.stringify(tl.toJSON()))
   if (name) fd.append('name', name)
 
+  let jobId = null
   try {
     const r = await fetch('/api/jobs', {
       method:'POST',
@@ -511,20 +675,30 @@ async function doSubmit(name) {
       body: fd
     })
     const d = await r.json()
-    if (!r.ok) throw new Error(d.detail||'提交失败')
-    if (name && d.job_id) {
+    if (!r.ok) {
+      const msg = Array.isArray(d.detail)
+        ? d.detail.map(e => e.msg || JSON.stringify(e)).join('; ')
+        : (d.detail || '提交失败')
+      throw new Error(msg)
+    }
+    jobId = d.job_id
+    if (name && jobId) {
       const nfd = new FormData(); nfd.append('name', name)
-      fetch(`/api/jobs/${d.job_id}`, { method:'PATCH',
+      fetch(`/api/jobs/${jobId}`, { method:'PATCH',
         headers:{Authorization:'Bearer '+localStorage.getItem('ll_token')}, body:nfd }).catch(()=>{})
     }
-    currentJobId.value = d.job_id
+    currentJobId.value = jobId
     jobRunning.value = true; jobDone.value = false
     currentStep.value = 0; clipsPct.value = 0; writePct.value = 0
     logs.value = []; stepName.value = '等待处理...'
     toast('任务已提交 🚀','ok')
-    connectWS(d.job_id)
-  } catch(e) { toast(e.message,'err') }
+  } catch(e) { console.error('doSubmit error:', e); toast(e.message,'err') }
   finally { submitting.value = false }
+
+  // Connect WS outside the error-reporting try block so WS issues don't mask submit errors
+  if (jobId) {
+    try { connectWS(jobId) } catch(wsErr) { console.warn('WS connect failed, falling back to poll:', wsErr); pollJob(jobId) }
+  }
 }
 
 function connectWS(jobId) {
@@ -594,6 +768,8 @@ function fmtSize(b) { return b>1e9?(b/1e9).toFixed(1)+' GB':b>1e6?(b/1e6).toFixe
 // ── Mount ──
 onMounted(async () => {
   if (!isLoggedIn.value) return
+  try { await refreshMembership() } catch {}
+  ensureFreeDefaultWatermark()
   try {
     const d = await apiFetch('/api/languages')
     if (d.languages?.length) langs.value=d.languages
@@ -605,6 +781,10 @@ onMounted(async () => {
     {code:'es',native_name:'Español',flag:'🇪🇸'},{code:'ru',native_name:'Русский',flag:'🇷🇺'},
   ]
   await loadPresets()
+})
+
+watch(() => user.value?.membership?.tier, () => {
+  ensureFreeDefaultWatermark()
 })
 </script>
 
@@ -618,6 +798,16 @@ onMounted(async () => {
 .section-label{font-size:11px;font-weight:800;letter-spacing:3px;color:var(--accent);text-transform:uppercase;margin:24px 0 12px;}
 
 .preset-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin-bottom:20px;background:rgba(99,102,241,.04);border:1px solid rgba(99,102,241,.15);border-radius:12px;}
+.member-tip{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 12px;margin-bottom:12px;
+  border:1px solid rgba(16,185,129,.25);
+  background:linear-gradient(135deg, rgba(16,185,129,.08), rgba(14,165,233,.06));
+}
+.member-tip-left{display:flex;align-items:center;gap:10px;}
+.member-tip-logo{width:30px;height:30px;border-radius:8px;}
+.member-tip-title{font-size:13px;font-weight:700;color:#14532d;}
+.member-tip-sub{font-size:11px;color:#334155;}
 
 .config-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:0;}
 .config-card{padding:20px;}
@@ -630,7 +820,7 @@ onMounted(async () => {
 .canvas-editor-wrap{display:grid;grid-template-columns:200px 1fr 220px;min-height:440px;}
 @media(max-width:900px){.canvas-editor-wrap{grid-template-columns:1fr;}}
 
-.canvas-center{display:flex;flex-direction:column;padding:10px;}
+.canvas-center{display:flex;flex-direction:column;padding:10px;position:relative;z-index:1;}
 .canvas-outer{flex:1;overflow:auto;min-height:320px;}
 
 /* STYLE */
@@ -638,6 +828,17 @@ onMounted(async () => {
 
 /* SUBMIT ROW */
 .submit-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px;}
+.preset-save-wrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.preset-save-tip{
+  font-size:12px;
+  color:var(--text3);
+  line-height:1.45;
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid rgba(99,102,241,.16);
+  background:rgba(99,102,241,.06);
+  max-width:360px;
+}
 
 /* PROGRESS */
 .progress-card{padding:28px;margin-top:20px;}

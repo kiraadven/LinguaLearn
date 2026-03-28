@@ -44,12 +44,12 @@ export const ANIMATION_PRESETS = {
   slide_right: {
     label: '从右滑入',
     enter: {
-      from: { opacity: 0, offsetX: -40 },
+      from: { opacity: 0, offsetX: 40 },
       to:   { opacity: 1, offsetX: 0 },
     },
     exit: {
       from: { opacity: 1, offsetX: 0 },
-      to:   { opacity: 0, offsetX: -40 },
+      to:   { opacity: 0, offsetX: 40 },
     },
     defaultDuration: 400,
     defaultEasing: 'EaseOut',

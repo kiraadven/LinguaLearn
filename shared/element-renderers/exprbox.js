@@ -25,6 +25,9 @@ export function createExprboxNodes(element, content, containerSize) {
   const borderRadius = style.borderRadius ?? 10
   const padding = Math.max(8, w * 0.07)   // use ACTUAL box width
   const innerW = w - padding * 2           // use ACTUAL box width
+  // Entry spacing (user-configurable). Keep backward compatibility with legacy lineHeight.
+  const rowSpacing = style.wordSpacing ?? style.lineHeight ?? 1.0
+  const rowGap = Math.max(0, Math.round(rowSpacing * 7))   // gap between expression entries
 
   const expressions = content?.expressions || []
 
@@ -60,7 +63,7 @@ export function createExprboxNodes(element, content, containerSize) {
   let curY = padding
 
   expressions.forEach((item) => {
-    if (curY + rowH > h - padding) return   // use ACTUAL box height
+    if (curY + rowH > h - 4) return   // small buffer for clip boundary; no longer requires a full padding gap at bottom
 
     // Expression (bold, single line with ellipsis to prevent overlap)
     nodes.push({
@@ -98,7 +101,7 @@ export function createExprboxNodes(element, content, containerSize) {
     }
 
     // Gap between expressions
-    curY += 10
+    curY += rowGap
   })
 
   return { x, y, w, h, nodes }

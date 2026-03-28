@@ -2,14 +2,17 @@
  * useTimeline — Timeline JSON state management composable
  * Single source of truth for all editor state
  */
-import { reactive, computed, watch, toRaw } from 'vue'
+import { reactive, computed } from 'vue'
 import { createDefaultTimeline, getPreviewContent } from '@shared/konva-renderer.js'
 import { applyThemeToElements, STYLE_THEMES } from '@shared/theme-mapper.js'
-import { FONTS } from '@shared/font-registry.js'
 
-let _idCounter = 0
+let _idCounter = 1  // Start at 1 to avoid collision with createDefaultTimeline's hardcoded IDs (suffix _1)
 function uid(prefix = 'el') {
   return `${prefix}_${++_idCounter}`
+}
+
+function cloneDeep(v) {
+  return v == null ? v : JSON.parse(JSON.stringify(v))
 }
 
 export function useTimeline() {
@@ -27,19 +30,97 @@ export function useTimeline() {
     return timeline.elements.find(e => e.id === id)
   }
 
+  function buildElementSnapshot(globalEl, seed = null) {
+    const base = seed || {}
+    return {
+      position: { ...(globalEl.position || {}), ...(base.position || {}) },
+      size: { ...(globalEl.size || {}), ...(base.size || {}) },
+      style: { ...(globalEl.style || {}), ...(base.style || {}) },
+      rotation: base.rotation ?? globalEl.rotation ?? 0,
+      opacity: base.opacity ?? globalEl.opacity ?? 1,
+      zIndex: base.zIndex ?? globalEl.zIndex ?? 0,
+      animation: {
+        ...(globalEl.animation || {}),
+        ...(base.animation || {}),
+        enter: {
+          ...(globalEl.animation?.enter || {}),
+          ...(base.animation?.enter || {}),
+        },
+        exit: {
+          ...(globalEl.animation?.exit || {}),
+          ...(base.animation?.exit || {}),
+        },
+      },
+    }
+  }
+
+  function ensurePartElementSnapshot(part, elementId) {
+    const globalEl = getElementById(elementId)
+    if (!globalEl) return null
+    if (!part.elementConfigs) part.elementConfigs = {}
+    if (!part.elementConfigs[elementId]) {
+      part.elementConfigs[elementId] = cloneDeep(buildElementSnapshot(globalEl))
+    }
+    return part.elementConfigs[elementId]
+  }
+
+  function hydratePartElementConfigs() {
+    for (const part of timeline.parts) {
+      if (!part.elementVisibility) part.elementVisibility = {}
+      if (!part.elementConfigs) part.elementConfigs = {}
+
+      for (const el of timeline.elements) {
+        if (!(el.id in part.elementVisibility)) part.elementVisibility[el.id] = false
+        ensurePartElementSnapshot(part, el.id)
+      }
+
+      // Clean up stale keys after element deletions
+      for (const k of Object.keys(part.elementVisibility)) {
+        if (!getElementById(k)) delete part.elementVisibility[k]
+      }
+      for (const k of Object.keys(part.elementConfigs)) {
+        if (!getElementById(k)) delete part.elementConfigs[k]
+      }
+    }
+  }
+
   function addElement(type, defaults = {}) {
     const defaultConfigs = {
       subtitle: {
-        position: { x: 0.05, y: 0.76 }, size: { w: 0.90, h: 0.14 }, zIndex: 10,
-        style: { bgColor: 'rgba(0,0,0,0.72)', bgStyle: 'dark', textColor: '#ffffff', translationColor: '#94a3b8', fontFamily: 'system', fontScale: 1.0, borderRadius: 8 },
+        position: { x: 0.011, y: 0.704 }, size: { w: 0.961, h: 0.346 }, zIndex: 10,
+        style: {
+          bgColor: 'rgba(0,0,0,1)',
+          bgOpacity: 0.85,
+          bgStyle: 'dark',
+          textColor: '#ffffff',
+          translationColor: '#94a3b8',
+          fontFamily: 'quicksand',
+          fontScale: 1.15,
+          lineHeight: 1.0,
+          sourceLineHeight: 1.0,
+          targetLineHeight: 1.3,
+          borderRadius: 8,
+        },
+        animation: {
+          enter: { type: 'slide_up', duration: 300, easing: 'easeOutCubic' },
+          exit: { type: 'fade', duration: 200, easing: 'easeInCubic' },
+        },
       },
       wordbox: {
-        position: { x: 0.75, y: 0.005 }, size: { w: 0.245, h: 0.65 }, zIndex: 8,
-        style: { bgColor: 'rgba(20,10,50,0.88)', wordColor: '#a78bfa', phoneticColor: '#94a3b8', translationColor: '#f1f5f9', accentColor: '#a78bfa', headerColor: '#94a3b8', fontFamily: 'system', fontScale: 1.0, borderRadius: 10 },
+        position: { x: 0.761, y: 0.008 }, size: { w: 0.222, h: 0.689 }, zIndex: 8,
+        style: { bgColor: 'rgba(20,10,50,1)', bgOpacity: 0.85, wordColor: '#a78bfa', phoneticColor: '#94a3b8', translationColor: '#f1f5f9', accentColor: '#a78bfa', headerColor: '#94a3b8', fontFamily: 'quicksand', fontScale: 0.9, wordSpacing: 1.0, borderRadius: 10 },
+        animation: {
+          enter: { type: 'pop', duration: 300, easing: 'easeOutCubic' },
+          exit: { type: 'fade', duration: 200, easing: 'easeInCubic' },
+        },
       },
       exprbox: {
-        position: { x: 0.005, y: 0.005 }, size: { w: 0.245, h: 0.55 }, zIndex: 8,
-        style: { bgColor: 'rgba(10,5,30,0.88)', expressionColor: '#f472b6', translationColor: '#94a3b8', accentColor: '#f472b6', headerColor: '#94a3b8', fontFamily: 'system', fontScale: 1.0, borderRadius: 10 },
+        position: { x: 0.002, y: 0.005 }, size: { w: 0.275, h: 0.483 }, zIndex: 8,
+        style: { bgColor: 'rgba(10,5,30,1)', bgOpacity: 0.85, expressionColor: '#f472b6', translationColor: '#94a3b8', accentColor: '#f472b6', headerColor: '#94a3b8', fontFamily: 'quicksand', fontScale: 1.0, wordSpacing: 1.0, borderRadius: 10 },
+        animation: {
+          enter: { type: 'pop', duration: 300, easing: 'easeOutCubic' },
+          exit: { type: 'fade', duration: 200, easing: 'easeInCubic' },
+        },
       },
       watermark: {
         position: { x: 0.60, y: 0.92 }, size: { w: 0.18, h: 0.06 }, zIndex: 100,
@@ -60,10 +141,12 @@ export function useTimeline() {
       opacity: type === 'watermark' ? 0.5 : 1.0,
       zIndex: config.zIndex,
       style: { ...config.style },
-      animation: {
-        enter: { type: 'fade', duration: 300, easing: 'easeOutCubic' },
-        exit: { type: 'fade', duration: 200, easing: 'easeInCubic' },
-      },
+      animation: config.animation
+        ? cloneDeep(config.animation)
+        : {
+            enter: { type: 'fade', duration: 300, easing: 'easeOutCubic' },
+            exit: { type: 'fade', duration: 200, easing: 'easeInCubic' },
+          },
       ...defaults,
     }
 
@@ -73,6 +156,8 @@ export function useTimeline() {
     for (const part of timeline.parts) {
       if (!part.elementVisibility) part.elementVisibility = {}
       part.elementVisibility[id] = false
+      if (!part.elementConfigs) part.elementConfigs = {}
+      part.elementConfigs[id] = cloneDeep(buildElementSnapshot(element))
     }
 
     return element
@@ -116,6 +201,9 @@ export function useTimeline() {
       if (part.elementVisibility) {
         delete part.elementVisibility[id]
       }
+      if (part.elementConfigs) {
+        delete part.elementConfigs[id]
+      }
     }
   }
 
@@ -139,6 +227,10 @@ export function useTimeline() {
       elementConfigs: {},
     }
 
+    for (const el of timeline.elements) {
+      part.elementConfigs[el.id] = cloneDeep(buildElementSnapshot(el))
+    }
+
     timeline.parts.push(part)
     return part
   }
@@ -155,18 +247,38 @@ export function useTimeline() {
     if (!src) return null
 
     const id = uid('p')
+    hydratePartElementConfigs()
+
+    // Snapshot the FULL effective state of every element (global defaults merged with
+    // any per-part overrides) into the new part's elementConfigs.
+    // This makes the copy completely independent: future theme/font/animation changes
+    // to global elements or to the source part will NOT bleed into the copied part.
+    const newConfigs = {}
+    for (const el of timeline.elements) {
+      const srcCfg = src.elementConfigs?.[el.id]
+      newConfigs[el.id] = cloneDeep(srcCfg || buildElementSnapshot(el))
+    }
+
     const copy = {
       id,
       repeat: src.repeat,
-      speed: src.speed,
+      speed:  src.speed,
       styleId: src.styleId ?? null,
       elementVisibility: { ...src.elementVisibility },
-      elementConfigs: JSON.parse(JSON.stringify(src.elementConfigs || {})),
+      elementConfigs: newConfigs,
     }
 
     const srcIdx = timeline.parts.findIndex(p => p.id === partId)
     timeline.parts.splice(srcIdx + 1, 0, copy)
     return copy
+  }
+
+  function movePart(partId, targetPartId) {
+    const fromIdx = timeline.parts.findIndex(p => p.id === partId)
+    const toIdx = timeline.parts.findIndex(p => p.id === targetPartId)
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return
+    const [moved] = timeline.parts.splice(fromIdx, 1)
+    timeline.parts.splice(toIdx, 0, moved)
   }
 
   function updatePart(partId, patch) {
@@ -179,11 +291,8 @@ export function useTimeline() {
     const part = timeline.parts.find(p => p.id === partId)
     if (!part) { updateElement(elementId, patch); return }
 
-    // Lazily init elementConfigs
-    if (!part.elementConfigs) part.elementConfigs = {}
-    if (!part.elementConfigs[elementId]) part.elementConfigs[elementId] = {}
-
-    const partEl = part.elementConfigs[elementId]
+    const partEl = ensurePartElementSnapshot(part, elementId)
+    if (!partEl) return
     for (const [key, val] of Object.entries(patch)) {
       if (key === 'position' || key === 'size' || key === 'style' || key === 'animation') {
         if (typeof val === 'object' && val !== null) {
@@ -210,14 +319,20 @@ export function useTimeline() {
     const globalEl = getElementById(elementId)
     if (!globalEl) return null
     const part = timeline.parts.find(p => p.id === partId)
-    const overrides = part?.elementConfigs?.[elementId]
-    if (!overrides) return globalEl
+    if (!part) return { ...globalEl, ...cloneDeep(buildElementSnapshot(globalEl)) }
+    const snap = ensurePartElementSnapshot(part, elementId)
+    if (!snap) return { ...globalEl, ...cloneDeep(buildElementSnapshot(globalEl)) }
     return {
-      ...globalEl,
-      ...overrides,
-      position: { ...globalEl.position, ...overrides.position },
-      size: { ...globalEl.size, ...overrides.size },
-      style: { ...globalEl.style, ...overrides.style },
+      id: globalEl.id,
+      type: globalEl.type,
+      visible: globalEl.visible,
+      position: snap.position || globalEl.position,
+      size: snap.size || globalEl.size,
+      style: snap.style || globalEl.style,
+      rotation: snap.rotation ?? globalEl.rotation ?? 0,
+      opacity: snap.opacity ?? globalEl.opacity ?? 1,
+      zIndex: snap.zIndex ?? globalEl.zIndex ?? 0,
+      animation: snap.animation || globalEl.animation,
     }
   }
 
@@ -243,21 +358,43 @@ export function useTimeline() {
     const theme = STYLE_THEMES[styleId]
     if (!theme) return
 
-    if (partId) {
-      const part = timeline.parts.find(p => p.id === partId)
-      if (part) part.styleId = styleId
-    } else {
-      timeline.styleId = styleId
-    }
-    // Always update global styleId and element colors for visual preview
     timeline.styleId = styleId
+    // Shared among all parts: update global base + each part snapshot style
     applyThemeToElements(styleId, timeline.elements)
+    hydratePartElementConfigs()
+
+    for (const part of timeline.parts) {
+      part.styleId = styleId
+      for (const el of timeline.elements) {
+        const themeSection = theme[el.type]
+        if (!themeSection) continue
+        const cfg = ensurePartElementSnapshot(part, el.id)
+        const keep = {
+          fontFamily: cfg.style?.fontFamily,
+          fontScale: cfg.style?.fontScale,
+          lineHeight: cfg.style?.lineHeight,
+          sourceLineHeight: cfg.style?.sourceLineHeight,
+          targetLineHeight: cfg.style?.targetLineHeight,
+          wordSpacing: cfg.style?.wordSpacing,
+          bgOpacity: cfg.style?.bgOpacity,
+        }
+        cfg.style = { ...(cfg.style || {}), ...themeSection, ...keep }
+      }
+    }
   }
 
-  function setGlobalFont(fontKey) {
+  function setGlobalFont(fontKey, partId = null) {
     timeline.defaultFont = fontKey
     for (const el of timeline.elements) {
       if (el.style) el.style.fontFamily = fontKey
+    }
+    hydratePartElementConfigs()
+    for (const part of timeline.parts) {
+      for (const el of timeline.elements) {
+        const cfg = ensurePartElementSnapshot(part, el.id)
+        if (!cfg.style) cfg.style = {}
+        cfg.style.fontFamily = fontKey
+      }
     }
   }
 
@@ -278,6 +415,7 @@ export function useTimeline() {
       const match = p.id.match(/_(\d+)$/)
       if (match) _idCounter = Math.max(_idCounter, parseInt(match[1]))
     }
+    hydratePartElementConfigs()
   }
 
   /**
@@ -288,7 +426,7 @@ export function useTimeline() {
     const tl = createDefaultTimeline({
       sourceLang: cfg.source_lang || cfg.srcLang || 'en',
       targetLang: cfg.target_lang || cfg.tgtLang || 'zh',
-      styleId: cfg.style_id || cfg.styleId || 'neon_cyberpunk',
+      styleId: cfg.style_id || cfg.styleId || 'ink_wash',
     })
 
     // Map resolution
@@ -296,8 +434,8 @@ export function useTimeline() {
       tl.resolution = { width: 1280, height: 720 }
     }
 
-    tl.numWords = cfg.num_words ?? cfg.numWords ?? 3
-    tl.numExprs = cfg.num_expressions ?? cfg.numExprs ?? 2
+    tl.numWords = cfg.num_words ?? cfg.numWords ?? 6
+    tl.numExprs = cfg.num_expressions ?? cfg.numExprs ?? 4
 
     // Map boxLayouts → elements
     const boxKeyMap = { subtitle: 'subtitle', wordbox: 'wordbox', expressionbox: 'exprbox', exprbox: 'exprbox' }
@@ -389,6 +527,9 @@ export function useTimeline() {
     )
   })
 
+  // Make every part own a fully independent snapshot of every element
+  hydratePartElementConfigs()
+
   return {
     timeline,
     elements,
@@ -406,6 +547,7 @@ export function useTimeline() {
     addPart,
     removePart,
     copyPart,
+    movePart,
     updatePart,
     updatePartElement,
     getPartElement,

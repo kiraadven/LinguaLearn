@@ -388,7 +388,7 @@ class HTMLRenderer:
         item_bg = _lighten_or_darken(bg, 0.05)
 
         words_html = ""
-        for w in words[:6]:
+        for w in words[:12]:
             words_html += (
                 f'<div class="word-item">'
                 f'  <div class="word-left">'
@@ -490,7 +490,7 @@ class HTMLRenderer:
         label_text = style.get('exprbox_label', 'Expressions')
 
         expressions_html = ""
-        for expr in expressions[:3]:
+        for expr in expressions[:8]:
             expressions_html += (
                 f'<div class="expr-item">'
                 f'  <div class="expr-src-row">'
@@ -563,20 +563,20 @@ class HTMLRenderer:
             or example['translations'].get('en')
             or list(example['translations'].values())[0]
         )
-        words       = example['words'][:max(1, min(num_words, 6))]
-        expressions = example['expressions'][:max(1, min(num_expressions, 3))]
+        words       = example['words'][:max(1, min(num_words, 12))]
+        expressions = example['expressions'][:max(1, min(num_expressions, 8))]
 
         is_1080p = resolution == "1080p"
         frame_w  = 1920 if is_1080p else 1280
         frame_h  = 1080 if is_1080p else 720
 
         layout = layout or {}
-        sub_w_pct = layout.get('subtitle_width_pct',  0.95)
-        sub_h_pct = layout.get('subtitle_height_pct', 0.22)
-        wb_w_pct  = layout.get('wordbox_width_pct',   0.245)
-        wb_h_pct  = layout.get('wordbox_height_pct',  0.65)
-        eb_w_pct  = layout.get('exprbox_width_pct',   0.245)
-        eb_h_pct  = layout.get('exprbox_height_pct',  0.55)
+        sub_w_pct = layout.get('subtitle_width_pct',  0.961)
+        sub_h_pct = layout.get('subtitle_height_pct', 0.346)
+        wb_w_pct  = layout.get('wordbox_width_pct',   0.222)
+        wb_h_pct  = layout.get('wordbox_height_pct',  0.689)
+        eb_w_pct  = layout.get('exprbox_width_pct',   0.275)
+        eb_h_pct  = layout.get('exprbox_height_pct',  0.483)
 
         sub_w = int(frame_w * sub_w_pct)
         sub_h = int(frame_h * sub_h_pct)
@@ -612,20 +612,20 @@ class HTMLRenderer:
             'frame_w': frame_w,
             'frame_h': frame_h,
             'subtitle': {
-                'x_pct': (1 - sub_w_pct) / 2,
-                'y_pct': 1 - sub_h_pct,
+                'x_pct': layout.get('subtitle_x_pct', 0.011),
+                'y_pct': layout.get('subtitle_y_pct', 0.704),
                 'width_pct': sub_w_pct,
                 'height_pct': sub_h_pct,
             },
             'wordbox': {
-                'x_pct': 1 - wb_w_pct - 0.005,
-                'y_pct': 0.005,
+                'x_pct': layout.get('wordbox_x_pct', 0.761),
+                'y_pct': layout.get('wordbox_y_pct', 0.008),
                 'width_pct': wb_w_pct,
                 'height_pct': wb_h_pct,
             },
             'exprbox': {
-                'x_pct': 0.005,
-                'y_pct': 0.005,
+                'x_pct': layout.get('exprbox_x_pct', 0.002),
+                'y_pct': layout.get('exprbox_y_pct', 0.005),
                 'width_pct': eb_w_pct,
                 'height_pct': eb_h_pct,
             },

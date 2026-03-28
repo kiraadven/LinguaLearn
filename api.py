@@ -11,23 +11,28 @@ import shutil
 import time
 import io
 import hashlib
+import hmac
 import random
 import smtplib
 import base64
+import subprocess
+import html
+from urllib.parse import urlencode, quote_plus
 try:
     import resend
 except ImportError:
     resend = None
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from contextlib import redirect_stdout
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -36,6 +41,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cor
 
 import config
 import database
+import markdown as md_lib
 
 app = FastAPI(title="LinguaLearn API", version="2.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -95,6 +101,415 @@ def get_job_or_404(job_id: str) -> dict:
     if db_job:
         return _normalize_job(db_job)
     raise HTTPException(404, "任务不存在")
+
+
+# ===== Membership helpers =====
+
+_FREE_DAILY_VIDEO_LIMIT = 5
+_FREE_MAX_VIDEO_SECONDS = 5 * 60
+_MEMBER_MAX_VIDEO_SECONDS = 30 * 60
+
+_DEFAULT_VIDEO_WATERMARK = {
+    "text": "LinguaLearn",
+    "position": {"x": 0.348, "y": 0.352},   # x34.8, y35.2 (%)
+    "size": {"w": 0.18, "h": 0.06},         # w18, h6 (%)
+    "rotation": -30,
+    "opacity": 0.35,                         # 35%
+    "font_size": 90,
+}
+
+_MEMBERSHIP_PLAN_SETS = {
+    "cn": [
+        {"code": "cn_day", "label": "1天体验价", "days": 1, "price": 3.0, "currency": "CNY", "period": "day", "auto_renew": False, "trial_once": True},
+        {"code": "cn_week", "label": "连续包周", "days": 7, "price": 8.0, "currency": "CNY", "period": "week", "auto_renew": True, "trial_once": False},
+        {"code": "cn_month", "label": "连续包月", "days": 30, "price": 25.0, "currency": "CNY", "period": "month", "auto_renew": True, "trial_once": False},
+        {"code": "cn_year", "label": "连续包年", "days": 365, "price": 260.0, "currency": "CNY", "period": "year", "auto_renew": True, "trial_once": False},
+    ],
+    "intl": [
+        {"code": "intl_day", "label": "1-day Trial", "days": 1, "price": 0.8, "currency": "USD", "period": "day", "auto_renew": False, "trial_once": True},
+        {"code": "intl_week", "label": "Weekly", "days": 7, "price": 2.0, "currency": "USD", "period": "week", "auto_renew": True, "trial_once": False},
+        {"code": "intl_month", "label": "Monthly", "days": 30, "price": 7.0, "currency": "USD", "period": "month", "auto_renew": True, "trial_once": False},
+        {"code": "intl_year", "label": "Yearly", "days": 365, "price": 75.0, "currency": "USD", "period": "year", "auto_renew": True, "trial_once": False},
+    ],
+}
+_PLAN_BY_CODE = {p["code"]: p for plans in _MEMBERSHIP_PLAN_SETS.values() for p in plans}
+
+_FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg" if os.path.exists("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg") else "ffmpeg"
+_FFPROBE_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe" if os.path.exists("/opt/homebrew/opt/ffmpeg-full/bin/ffprobe") else "ffprobe"
+
+
+def _country_bucket(country_code: str) -> str:
+    code = (country_code or "").strip().upper()
+    return "cn" if code in {"CN", "CHN", "CHINA", "中国"} else "intl"
+
+
+def _detect_country_code(request: Optional[Request], fallback: str = "CN") -> str:
+    if not request:
+        return fallback
+    # Common proxy/CDN headers
+    for key in ("cf-ipcountry", "x-country-code", "x-vercel-ip-country"):
+        v = request.headers.get(key)
+        if v:
+            return v.strip().upper()
+    return fallback
+
+
+def _get_plan_catalog(country_code: str, trial_used: bool = False) -> list:
+    bucket = _country_bucket(country_code)
+    plans = []
+    for p in _MEMBERSHIP_PLAN_SETS[bucket]:
+        item = dict(p)
+        item["available"] = not (item.get("trial_once") and trial_used)
+        plans.append(item)
+    return plans
+
+
+def _membership_limits(tier: str) -> dict:
+    is_member = tier == "member"
+    return {
+        "daily_video_limit": None if is_member else _FREE_DAILY_VIDEO_LIMIT,
+        "max_video_seconds": _MEMBER_MAX_VIDEO_SECONDS if is_member else _FREE_MAX_VIDEO_SECONDS,
+        "can_remove_default_watermark": is_member,
+        "can_customize_video_watermark": is_member,
+        "can_customize_doc_watermark": is_member,
+        "premium_badge": is_member,
+    }
+
+
+def _build_membership_status(email: str, country_code: str = "CN") -> dict:
+    rec = database.get_user_membership(email) or {}
+    tier = "member" if (rec.get("tier") == "member" and rec.get("status") == "active") else "free"
+    limits = _membership_limits(tier)
+    used_today = database.get_today_usage(email)
+    daily_limit = limits["daily_video_limit"]
+    remaining = None if daily_limit is None else max(0, daily_limit - used_today)
+    trial_used = bool(rec.get("trial_used", 0))
+    plans = _get_plan_catalog(country_code or rec.get("country_code") or "CN", trial_used)
+    return {
+        "tier": tier,
+        "status": rec.get("status", "inactive"),
+        "provider": rec.get("provider"),
+        "plan_code": rec.get("plan_code"),
+        "plan_name": rec.get("plan_name"),
+        "started_at": rec.get("started_at"),
+        "expires_at": rec.get("expires_at"),
+        "auto_renew": bool(rec.get("auto_renew", 0)),
+        "trial_used": trial_used,
+        "badge_unlocked": bool(rec.get("badge_unlocked", 0)),
+        "doc_watermark_text": rec.get("doc_watermark_text") or "LinguaLearn",
+        "doc_watermark_enabled": bool(rec.get("doc_watermark_enabled", 1)),
+        "usage": {
+            "day": datetime.now().strftime('%Y-%m-%d'),
+            "videos_generated_today": used_today,
+            "remaining_today": remaining,
+        },
+        "limits": limits,
+        "plans": plans,
+        "premium_logo": "/premium-badge.svg",
+    }
+
+
+def _probe_video_duration_seconds(path: Path) -> Optional[float]:
+    try:
+        result = subprocess.run(
+            [
+                _FFPROBE_BIN, "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        v = (result.stdout or "").strip()
+        return float(v) if v else None
+    except Exception:
+        return None
+
+
+def _normalize_stream_quality(value: str) -> str:
+    v = (value or "auto").strip().lower()
+    return v if v in {"auto", "1080", "720", "360"} else "auto"
+
+
+def _probe_video_height(path: Path) -> Optional[int]:
+    try:
+        result = subprocess.run(
+            [
+                _FFPROBE_BIN, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=height",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        v = (result.stdout or "").strip()
+        return int(v) if v else None
+    except Exception:
+        return None
+
+
+def _ensure_stream_variant(job_id: str, source_path: Path, quality: str) -> Path:
+    q = _normalize_stream_quality(quality)
+    if q == "auto":
+        return source_path
+    if source_path.suffix.lower() != ".mp4":
+        return source_path
+
+    target_h = int(q)
+    src_h = _probe_video_height(source_path)
+    if src_h and src_h <= target_h + 2:
+        return source_path
+
+    out_dir = OUTPUT_DIR / job_id / "_stream_variants"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    variant_path = out_dir / f"{source_path.stem}_{target_h}p.mp4"
+
+    if variant_path.exists():
+        try:
+            if variant_path.stat().st_mtime >= source_path.stat().st_mtime:
+                return variant_path
+        except Exception:
+            pass
+
+    tmp_path = out_dir / f"{source_path.stem}_{target_h}p_{uuid.uuid4().hex[:8]}.tmp.mp4"
+    vf = f"scale=-2:{target_h}:force_original_aspect_ratio=decrease"
+    try:
+        subprocess.run(
+            [
+                _FFMPEG_BIN, "-y",
+                "-i", str(source_path),
+                "-vf", vf,
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                str(tmp_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        tmp_path.replace(variant_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+    return variant_path
+
+
+def _ensure_default_watermark_in_timeline(timeline: dict) -> dict:
+    """
+    强制注入默认 LinguaLearn 水印（给非会员用）。
+    """
+    if not timeline:
+        return timeline
+
+    elements = timeline.get("elements") or []
+    parts = timeline.get("parts") or []
+    if not isinstance(elements, list) or not isinstance(parts, list):
+        return timeline
+
+    wm_id = None
+    for el in elements:
+        if el.get("type") == "watermark" and (el.get("style", {}).get("text") == "LinguaLearn" or el.get("id") == "watermark_default"):
+            wm_id = el.get("id")
+            break
+
+    wm_payload = {
+        "id": wm_id or "watermark_default",
+        "type": "watermark",
+        "visible": True,
+        "position": dict(_DEFAULT_VIDEO_WATERMARK["position"]),
+        "size": dict(_DEFAULT_VIDEO_WATERMARK["size"]),
+        "rotation": _DEFAULT_VIDEO_WATERMARK["rotation"],
+        "opacity": _DEFAULT_VIDEO_WATERMARK["opacity"],
+        "zIndex": 99,
+        "style": {
+            "text": _DEFAULT_VIDEO_WATERMARK["text"],
+            "fontFamily": "system",
+            "fontSize": _DEFAULT_VIDEO_WATERMARK["font_size"],
+            "color": "#ffffff",
+            "strokeColor": "rgba(0,0,0,0.28)",
+            "strokeWidth": 0,
+            "locked": True,
+            "lockedReason": "free_plan_default_watermark",
+        },
+        "animation": {
+            "enter": {"type": "none", "duration": 0, "easing": "linear"},
+            "exit": {"type": "none", "duration": 0, "easing": "linear"},
+        },
+    }
+
+    # 免费用户仅保留系统默认水印，不允许自定义其他 watermark 元素
+    kept = []
+    replaced = False
+    for el in elements:
+        if el.get("type") != "watermark":
+            kept.append(el)
+            continue
+        if (el.get("id") == wm_payload["id"] or el.get("style", {}).get("text") == "LinguaLearn") and not replaced:
+            kept.append(wm_payload)
+            replaced = True
+        # 其他 watermark 直接剔除
+    if not replaced:
+        kept.append(wm_payload)
+    elements = kept
+
+    if not parts:
+        parts.append({
+            "id": "p_1",
+            "repeat": 1,
+            "speed": 1.0,
+            "styleId": None,
+            "elementVisibility": {},
+            "elementConfigs": {},
+        })
+
+    for p in parts:
+        vis = p.setdefault("elementVisibility", {})
+        # 清理自定义 watermark 可见性
+        for k in list(vis.keys()):
+            if k != wm_payload["id"] and str(k).startswith("watermark"):
+                del vis[k]
+        vis[wm_payload["id"]] = True
+        cfg = p.setdefault("elementConfigs", {})
+        for k in list(cfg.keys()):
+            if k != wm_payload["id"] and str(k).startswith("watermark"):
+                del cfg[k]
+        cfg[wm_payload["id"]] = {
+            "position": dict(_DEFAULT_VIDEO_WATERMARK["position"]),
+            "size": dict(_DEFAULT_VIDEO_WATERMARK["size"]),
+            "style": dict(wm_payload["style"]),
+            "rotation": _DEFAULT_VIDEO_WATERMARK["rotation"],
+            "opacity": _DEFAULT_VIDEO_WATERMARK["opacity"],
+            "zIndex": 99,
+            "animation": dict(wm_payload["animation"]),
+        }
+
+    timeline["elements"] = elements
+    timeline["parts"] = parts
+    return timeline
+
+
+def _get_stripe_price_id(plan_code: str) -> str:
+    mapping = {
+        "cn_day": config.STRIPE_PRICE_CN_DAY,
+        "cn_week": config.STRIPE_PRICE_CN_WEEK,
+        "cn_month": config.STRIPE_PRICE_CN_MONTH,
+        "cn_year": config.STRIPE_PRICE_CN_YEAR,
+        "intl_day": config.STRIPE_PRICE_INTL_DAY,
+        "intl_week": config.STRIPE_PRICE_INTL_WEEK,
+        "intl_month": config.STRIPE_PRICE_INTL_MONTH,
+        "intl_year": config.STRIPE_PRICE_INTL_YEAR,
+    }
+    return mapping.get(plan_code, "")
+
+
+def _activate_membership_for_user(
+    email: str,
+    plan_code: str,
+    provider: str,
+    subscription_id: Optional[str] = None,
+    customer_id: Optional[str] = None,
+    country_code: str = "CN",
+) -> None:
+    plan = _PLAN_BY_CODE.get(plan_code)
+    if not plan:
+        raise HTTPException(400, f"未知套餐: {plan_code}")
+    now = datetime.now()
+    rec = database.get_user_membership(email) or {}
+    base = now
+    exp = rec.get("expires_at")
+    if exp:
+        try:
+            exp_dt = datetime.fromisoformat(exp)
+            if exp_dt > now:
+                base = exp_dt
+        except Exception:
+            pass
+    expires_at = (base + timedelta(days=int(plan["days"]))).isoformat()
+    database.update_user_membership(
+        email,
+        tier="member",
+        status="active",
+        provider=provider,
+        plan_code=plan_code,
+        plan_name=plan["label"],
+        subscription_id=subscription_id,
+        customer_id=customer_id,
+        country_code=country_code,
+        started_at=now.isoformat(),
+        expires_at=expires_at,
+        auto_renew=1 if plan.get("auto_renew") else 0,
+        badge_unlocked=1,
+    )
+    if plan.get("trial_once"):
+        database.mark_trial_used(email)
+
+
+def _render_markdown_pdf(markdown_text: str, output_pdf: Path, watermark_text: Optional[str] = None) -> None:
+    """
+    将 markdown 转为 PDF（使用 Playwright 打印，保证样式一致可控）。
+    """
+    from playwright.sync_api import sync_playwright
+
+    body_html = md_lib.markdown(
+        markdown_text,
+        extensions=["tables", "fenced_code", "nl2br", "sane_lists"],
+    )
+    wm_html = ""
+    if watermark_text:
+        safe_wm = html.escape(watermark_text)
+        wm_html = f'<div class="wm">{safe_wm}</div>'
+
+    doc_html = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @page {{ size: A4; margin: 18mm; }}
+    body {{
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+      color: #111827; line-height: 1.7; font-size: 13px;
+    }}
+    h1,h2,h3,h4 {{ margin: 14px 0 8px; line-height: 1.35; }}
+    h1 {{ font-size: 24px; }}
+    h2 {{ font-size: 19px; border-left: 4px solid #6366f1; padding-left: 10px; }}
+    h3 {{ font-size: 16px; }}
+    p {{ margin: 8px 0; }}
+    blockquote {{
+      margin: 10px 0; padding: 8px 12px; border-left: 3px solid #6366f1; background: #f8fafc;
+    }}
+    table {{ width: 100%; border-collapse: collapse; margin: 10px 0; }}
+    th, td {{ border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; vertical-align: top; }}
+    th {{ background: #f9fafb; font-weight: 700; }}
+    code {{ background: #f3f4f6; padding: 1px 5px; border-radius: 4px; }}
+    pre {{ background: #111827; color: #e5e7eb; padding: 10px; border-radius: 8px; overflow: auto; }}
+    hr {{ border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }}
+    .wm {{
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      pointer-events: none; user-select: none; font-size: 74px; font-weight: 800;
+      color: rgba(148,163,184,.22); transform: rotate(-30deg); z-index: 9999;
+      letter-spacing: 1px;
+    }}
+  </style>
+</head>
+<body>
+  {wm_html}
+  {body_html}
+</body>
+</html>"""
+
+    output_pdf.parent.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.set_content(doc_html, wait_until="load")
+        page.pdf(path=str(output_pdf), format="A4", print_background=True)
+        browser.close()
 
 
 # ===== Email sender =====
@@ -259,6 +674,9 @@ async def process_video_job(
     animation: Optional[str],
     loop: asyncio.AbstractEventLoop,
     timeline_json: Optional[dict] = None,
+    membership_tier: str = "free",
+    doc_watermark_text: str = "LinguaLearn",
+    doc_watermark_enabled: bool = True,
 ):
     def run_in_thread():
         # 这行打印直接输出到真实终端（在 stdout 重定向之前）
@@ -325,26 +743,26 @@ async def process_video_job(
                 # 从旧式 flat layout_dict 转换
                 if "subtitle_width_pct" in layout:
                     nested_layout["subtitle"] = {
-                        "x_pct": layout.get("subtitle_x_pct", 0.05),
-                        "y_pct": layout.get("subtitle_y_pct", 0.76),
-                        "w_pct": layout.get("subtitle_width_pct", 0.90),
-                        "h_pct": layout.get("subtitle_height_pct", 0.14),
-                        "font_scale": layout.get("subtitle_font_size_scale", 1.0),
+                        "x_pct": layout.get("subtitle_x_pct", 0.011),
+                        "y_pct": layout.get("subtitle_y_pct", 0.704),
+                        "w_pct": layout.get("subtitle_width_pct", 0.961),
+                        "h_pct": layout.get("subtitle_height_pct", 0.346),
+                        "font_scale": layout.get("subtitle_font_size_scale", 1.15),
                     }
                 if "wordbox_width_pct" in layout:
                     nested_layout["wordbox"] = {
-                        "x_pct": layout.get("wordbox_x_pct", 0.75),
-                        "y_pct": layout.get("wordbox_y_pct", 0.005),
-                        "w_pct": layout.get("wordbox_width_pct", 0.245),
-                        "h_pct": layout.get("wordbox_height_pct", 0.65),
-                        "font_scale": layout.get("wordbox_font_size_scale", 1.0),
+                        "x_pct": layout.get("wordbox_x_pct", 0.761),
+                        "y_pct": layout.get("wordbox_y_pct", 0.008),
+                        "w_pct": layout.get("wordbox_width_pct", 0.222),
+                        "h_pct": layout.get("wordbox_height_pct", 0.689),
+                        "font_scale": layout.get("wordbox_font_size_scale", 0.9),
                     }
                 if "exprbox_width_pct" in layout:
                     nested_layout["exprbox"] = {
-                        "x_pct": layout.get("exprbox_x_pct", 0.005),
+                        "x_pct": layout.get("exprbox_x_pct", 0.002),
                         "y_pct": layout.get("exprbox_y_pct", 0.005),
-                        "w_pct": layout.get("exprbox_width_pct", 0.245),
-                        "h_pct": layout.get("exprbox_height_pct", 0.55),
+                        "w_pct": layout.get("exprbox_width_pct", 0.275),
+                        "h_pct": layout.get("exprbox_height_pct", 0.483),
                         "font_scale": layout.get("exprbox_font_size_scale", 1.0),
                     }
 
@@ -361,6 +779,14 @@ async def process_video_job(
             config.OUTPUT_DIR = str(job_out)
             config.TEMP_DIR   = str(TEMP_DIR / job_id)
             Path(config.TEMP_DIR).mkdir(exist_ok=True)
+
+            # 调试快照：落盘本次任务使用的 timeline，便于排查“编辑器与成片不一致”。
+            if timeline_json:
+                try:
+                    with open(job_out / "timeline_debug.json", "w", encoding="utf-8") as f:
+                        json.dump(timeline_json, f, ensure_ascii=False, indent=2)
+                except Exception as _e:
+                    print(f"⚠️ timeline_debug.json 写入失败: {_e}")
 
             output_name = Path(video_path).stem[:50]
 
@@ -436,7 +862,9 @@ async def process_video_job(
             update_job(job_id, step=4, step_name="正在生成学习文档...")
             print("📝 开始生成 Markdown 学习文档...")
             exporter = MarkdownExporter(output_dir=str(job_out),
-                                        source_lang=source_lang, target_lang=target_lang)
+                                        source_lang=source_lang, target_lang=target_lang,
+                                        footer_watermark_text=doc_watermark_text,
+                                        footer_watermark_enabled=doc_watermark_enabled)
             markdown_path = exporter.export(sentences_data, f"{output_name}.md")
             print(f"✅ 文档生成完成: {markdown_path}")
 
@@ -472,6 +900,8 @@ async def process_video_job(
                 cancelled_fn=check_cancelled,
                 style=style or None,
                 timeline_json=timeline_json,
+                membership_tier=membership_tier,
+                forced_watermark=_DEFAULT_VIDEO_WATERMARK if membership_tier != "member" else None,
             )
             print("🎬 视频处理完成")
 
@@ -565,12 +995,12 @@ async def process_video_job(
                         if has_overlay and first_overlay_start is None:
                             first_overlay_start = video_cursor
                         video_cursor += clip_dur * rpt
-                    # 跳转目标：优先跳到第一个有字幕的 part，否则跳到句子起始
-                    jump_target = first_overlay_start if first_overlay_start is not None else seg_video_start
+                   
+                    jump_target = seg_video_start
                     segs_with_text.append({
                         "start": seg["start"],
                         "end": seg["end"],
-                        "video_start": round(jump_target, 3),       # 跳转用：第一个有叠加内容的 part
+                        "video_start": round(jump_target, 3),       # 跳转
                         "seg_start": round(seg_video_start, 3),     # 高亮用：句子在视频起始
                         "seg_end": round(video_cursor, 3),           # 高亮用：句子在视频结束
                         "text": sd.get("original_text", ""),
@@ -839,14 +1269,17 @@ async def login(
 
 
 @app.get("/api/auth/me")
-async def get_me(current_user: Optional[dict] = Depends(get_current_user)):
+async def get_me(request: Request, current_user: Optional[dict] = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(401, "未登录")
+    country_code = _detect_country_code(request)
+    membership = _build_membership_status(current_user["email"], country_code=country_code)
     return {
         "email": current_user["email"],
         "name": current_user["name"],
         "avatar_url": current_user.get("avatar_url"),
-        "created_at": current_user["created_at"]
+        "created_at": current_user["created_at"],
+        "membership": membership,
     }
 
 
@@ -984,6 +1417,332 @@ async def upload_avatar(
 
 
 # ============================================================
+# MEMBERSHIP routes
+# ============================================================
+
+@app.get("/api/membership/status")
+async def membership_status(request: Request, current_user: dict = Depends(require_user)):
+    country_code = _detect_country_code(request)
+    return _build_membership_status(current_user["email"], country_code=country_code)
+
+
+@app.post("/api/membership/preferences")
+async def update_membership_preferences(
+    request: Request,
+    current_user: dict = Depends(require_user),
+):
+    body = await request.json()
+    rec = _build_membership_status(current_user["email"], country_code=_detect_country_code(request))
+    if rec["tier"] != "member":
+        raise HTTPException(403, "仅会员可自定义文稿水印")
+
+    enabled = bool(body.get("doc_watermark_enabled", True))
+    text = str(body.get("doc_watermark_text", "LinguaLearn")).strip()[:64]
+    if enabled and not text:
+        text = "LinguaLearn"
+    database.update_user_membership(
+        current_user["email"],
+        doc_watermark_enabled=1 if enabled else 0,
+        doc_watermark_text=text,
+    )
+    return _build_membership_status(current_user["email"], country_code=_detect_country_code(request))
+
+
+@app.post("/api/membership/checkout/stripe")
+async def create_stripe_checkout(
+    request: Request,
+    current_user: dict = Depends(require_user),
+):
+    if not config.STRIPE_SECRET_KEY:
+        raise HTTPException(400, "未配置 STRIPE_SECRET_KEY")
+
+    body = await request.json()
+    plan_code = str(body.get("plan_code", "")).strip()
+    plan = _PLAN_BY_CODE.get(plan_code)
+    if not plan:
+        raise HTTPException(400, "套餐不存在")
+
+    country_code = (_detect_country_code(request) or "CN").upper()
+    rec = _build_membership_status(current_user["email"], country_code=country_code)
+    if plan.get("trial_once") and rec.get("trial_used"):
+        raise HTTPException(400, "1天体验价每个账号仅可使用一次")
+
+    price_id = _get_stripe_price_id(plan_code)
+    if not price_id:
+        raise HTTPException(400, f"套餐 {plan_code} 尚未配置 Stripe Price ID")
+
+    order_id = f"ord_{uuid.uuid4().hex[:24]}"
+    success_url = body.get("success_url") or f"{config.APP_BASE_URL}/#/profile?membership=success"
+    cancel_url = body.get("cancel_url") or f"{config.APP_BASE_URL}/#/profile?membership=cancel"
+
+    mode = "payment" if plan.get("period") == "day" else "subscription"
+    payload = [
+        ("mode", mode),
+        ("line_items[0][price]", price_id),
+        ("line_items[0][quantity]", "1"),
+        ("success_url", success_url),
+        ("cancel_url", cancel_url),
+        ("client_reference_id", current_user["email"]),
+        ("metadata[order_id]", order_id),
+        ("metadata[email]", current_user["email"]),
+        ("metadata[plan_code]", plan_code),
+        ("metadata[country_code]", country_code),
+    ]
+    if mode == "subscription":
+        payload.extend([
+            ("subscription_data[metadata][order_id]", order_id),
+            ("subscription_data[metadata][plan_code]", plan_code),
+            ("subscription_data[metadata][email]", current_user["email"]),
+        ])
+
+    resp = requests.post(
+        "https://api.stripe.com/v1/checkout/sessions",
+        data=payload,
+        auth=(config.STRIPE_SECRET_KEY, ""),
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise HTTPException(400, f"Stripe 创建结算失败: {resp.text[:300]}")
+    sd = resp.json()
+    checkout_url = sd.get("url")
+    if not checkout_url:
+        raise HTTPException(400, "Stripe 未返回支付链接")
+
+    database.save_membership_order(
+        order_id=order_id,
+        email=current_user["email"],
+        provider="stripe",
+        plan_code=plan_code,
+        currency=plan["currency"],
+        amount=plan["price"],
+        status="pending",
+        checkout_url=checkout_url,
+        subscription_id=sd.get("subscription"),
+        payload_json=json.dumps(sd, ensure_ascii=False),
+    )
+    return {
+        "order_id": order_id,
+        "provider": "stripe",
+        "checkout_url": checkout_url,
+        "session_id": sd.get("id"),
+    }
+
+
+def _verify_stripe_signature(raw_body: bytes, sig_header: str, secret: str) -> bool:
+    if not secret:
+        return True
+    try:
+        pieces = {}
+        for part in (sig_header or "").split(","):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                pieces.setdefault(k.strip(), []).append(v.strip())
+        ts = pieces.get("t", [None])[0]
+        sigs = pieces.get("v1", [])
+        if not ts or not sigs:
+            return False
+        signed_payload = f"{ts}.{raw_body.decode('utf-8')}"
+        expected = hmac.new(secret.encode("utf-8"), signed_payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        return any(hmac.compare_digest(expected, s) for s in sigs)
+    except Exception:
+        return False
+
+
+@app.post("/api/payments/stripe/webhook")
+async def stripe_webhook(request: Request):
+    raw = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    if not _verify_stripe_signature(raw, sig, config.STRIPE_WEBHOOK_SECRET):
+        raise HTTPException(400, "Stripe 签名校验失败")
+
+    event = json.loads(raw.decode("utf-8"))
+    typ = event.get("type")
+    obj = event.get("data", {}).get("object", {})
+
+    if typ == "checkout.session.completed":
+        meta = obj.get("metadata", {}) or {}
+        order_id = meta.get("order_id")
+        order = database.get_membership_order(order_id) if order_id else None
+        if order:
+            sub_id = obj.get("subscription") or order.get("subscription_id")
+            database.update_membership_order(
+                order_id,
+                status="paid",
+                subscription_id=sub_id,
+                payload_json=json.dumps(obj, ensure_ascii=False),
+            )
+            _activate_membership_for_user(
+                email=order["email"],
+                plan_code=order["plan_code"],
+                provider="stripe",
+                subscription_id=sub_id,
+                customer_id=obj.get("customer"),
+                country_code=(meta.get("country_code") or "CN"),
+            )
+
+    elif typ == "invoice.paid":
+        sub_id = obj.get("subscription")
+        if sub_id:
+            order = database.get_membership_order_by_subscription("stripe", sub_id)
+            if order:
+                database.update_membership_order(
+                    order["order_id"],
+                    status="paid",
+                    payload_json=json.dumps(obj, ensure_ascii=False),
+                )
+                _activate_membership_for_user(
+                    email=order["email"],
+                    plan_code=order["plan_code"],
+                    provider="stripe",
+                    subscription_id=sub_id,
+                    customer_id=obj.get("customer"),
+                    country_code=(database.get_user_membership(order["email"]) or {}).get("country_code", "CN"),
+                )
+
+    elif typ in ("customer.subscription.updated", "customer.subscription.deleted"):
+        sub_id = obj.get("id")
+        if sub_id:
+            order = database.get_membership_order_by_subscription("stripe", sub_id)
+            if order:
+                is_cancelled = typ == "customer.subscription.deleted" or obj.get("cancel_at_period_end")
+                if is_cancelled:
+                    database.update_user_membership(order["email"], auto_renew=0, status="cancelled")
+
+    return {"received": True}
+
+
+@app.post("/api/membership/checkout/alipay")
+async def create_alipay_checkout(
+    request: Request,
+    current_user: dict = Depends(require_user),
+):
+    body = await request.json()
+    plan_code = str(body.get("plan_code", "")).strip()
+    plan = _PLAN_BY_CODE.get(plan_code)
+    if not plan:
+        raise HTTPException(400, "套餐不存在")
+
+    rec = _build_membership_status(current_user["email"], country_code=_detect_country_code(request))
+    if plan.get("trial_once") and rec.get("trial_used"):
+        raise HTTPException(400, "1天体验价每个账号仅可使用一次")
+
+    if not (config.ALIPAY_APP_ID and config.ALIPAY_PRIVATE_KEY and config.ALIPAY_PUBLIC_KEY):
+        raise HTTPException(400, "未配置支付宝签约参数（ALIPAY_APP_ID/ALIPAY_PRIVATE_KEY/ALIPAY_PUBLIC_KEY）")
+
+    try:
+        from alipay import AliPay
+    except Exception:
+        raise HTTPException(500, "请先安装 python-alipay-sdk 才能启用支付宝支付")
+
+    order_id = f"ali_{uuid.uuid4().hex[:24]}"
+    alipay = AliPay(
+        appid=config.ALIPAY_APP_ID,
+        app_notify_url=config.ALIPAY_NOTIFY_URL or None,
+        app_private_key_string=config.ALIPAY_PRIVATE_KEY,
+        alipay_public_key_string=config.ALIPAY_PUBLIC_KEY,
+        sign_type="RSA2",
+        debug=("sandbox" in (config.ALIPAY_GATEWAY or "")),
+    )
+
+    # 支付宝“自动续费签约”在线上一般需要代扣签约流程。
+    # 这里先提供标准支付能力，并保留 auto_renew 标志由 webhook + 业务续签接入。
+    pay_str = alipay.api_alipay_trade_wap_pay(
+        out_trade_no=order_id,
+        total_amount=str(plan["price"]),
+        subject=f"LinguaLearn 会员 - {plan['label']}",
+        return_url=config.ALIPAY_RETURN_URL or f"{config.APP_BASE_URL}/#/profile?membership=success",
+        notify_url=config.ALIPAY_NOTIFY_URL or f"{config.APP_BASE_URL}/api/payments/alipay/webhook",
+    )
+    checkout_url = f"{config.ALIPAY_GATEWAY}?{pay_str}"
+
+    database.save_membership_order(
+        order_id=order_id,
+        email=current_user["email"],
+        provider="alipay",
+        plan_code=plan_code,
+        currency=plan["currency"],
+        amount=plan["price"],
+        status="pending",
+        checkout_url=checkout_url,
+        payload_json=json.dumps({"pay_str": pay_str}, ensure_ascii=False),
+    )
+    return {"order_id": order_id, "provider": "alipay", "checkout_url": checkout_url}
+
+
+@app.post("/api/payments/alipay/webhook")
+async def alipay_webhook(request: Request):
+    form = dict(await request.form())
+    sign = form.pop("sign", None)
+    form.pop("sign_type", None)
+    if not sign:
+        raise HTTPException(400, "缺少签名")
+
+    try:
+        from alipay import AliPay
+    except Exception:
+        raise HTTPException(500, "服务端未安装 python-alipay-sdk")
+
+    alipay = AliPay(
+        appid=config.ALIPAY_APP_ID,
+        app_notify_url=config.ALIPAY_NOTIFY_URL or None,
+        app_private_key_string=config.ALIPAY_PRIVATE_KEY,
+        alipay_public_key_string=config.ALIPAY_PUBLIC_KEY,
+        sign_type="RSA2",
+        debug=("sandbox" in (config.ALIPAY_GATEWAY or "")),
+    )
+    if not alipay.verify(form, sign):
+        raise HTTPException(400, "支付宝签名校验失败")
+
+    order_id = form.get("out_trade_no")
+    trade_status = form.get("trade_status")
+    order = database.get_membership_order(order_id) if order_id else None
+    if order and trade_status in ("TRADE_SUCCESS", "TRADE_FINISHED"):
+        agreement_no = form.get("agreement_no") or form.get("trade_no")
+        database.update_membership_order(
+            order_id,
+            status="paid",
+            subscription_id=agreement_no,
+            payload_json=json.dumps(form, ensure_ascii=False),
+        )
+        _activate_membership_for_user(
+            email=order["email"],
+            plan_code=order["plan_code"],
+            provider="alipay",
+            subscription_id=agreement_no,
+            country_code=(database.get_user_membership(order["email"]) or {}).get("country_code", "CN"),
+        )
+    elif order and trade_status:
+        database.update_membership_order(order_id, status="failed", payload_json=json.dumps(form, ensure_ascii=False))
+
+    return PlainTextResponse("success")
+
+
+@app.post("/api/membership/cancel-auto-renew")
+async def cancel_auto_renew(
+    request: Request,
+    current_user: dict = Depends(require_user),
+):
+    rec = database.get_user_membership(current_user["email"]) or {}
+    if rec.get("tier") != "member" or rec.get("status") != "active":
+        raise HTTPException(400, "当前不是有效会员")
+
+    provider = rec.get("provider")
+    sub_id = rec.get("subscription_id")
+    if provider == "stripe" and sub_id and config.STRIPE_SECRET_KEY:
+        resp = requests.post(
+            f"https://api.stripe.com/v1/subscriptions/{sub_id}",
+            data={"cancel_at_period_end": "true"},
+            auth=(config.STRIPE_SECRET_KEY, ""),
+            timeout=20,
+        )
+        if resp.status_code >= 400:
+            raise HTTPException(400, f"Stripe 取消自动续费失败: {resp.text[:300]}")
+
+    database.update_user_membership(current_user["email"], auto_renew=0, status="cancelled")
+    return {"status": "ok", "auto_renew": False}
+
+
+# ============================================================
 # JOB routes
 # ============================================================
 
@@ -1013,6 +1772,7 @@ async def get_styles():
 
 @app.post("/api/jobs")
 async def create_job(
+    request:            Request,
     video:              UploadFile = File(...),
     source_lang:        str   = Form("en"),
     target_lang:        str   = Form("zh"),
@@ -1036,6 +1796,14 @@ async def create_job(
         raise HTTPException(400, "不支持的语言代码")
     if source_lang == target_lang:
         raise HTTPException(400, "源语言和目标语言不能相同")
+
+    country_code = _detect_country_code(request)
+    membership = _build_membership_status(current_user["email"], country_code=country_code)
+    limits = membership["limits"]
+    tier = membership["tier"]
+    daily_limit = limits.get("daily_video_limit")
+    if daily_limit is not None and membership["usage"]["videos_generated_today"] >= daily_limit:
+        raise HTTPException(403, f"免费用户每日最多生成 {daily_limit} 个视频，请开通会员继续。")
 
     try:
         layout_dict = json.loads(layout) if layout else {}
@@ -1066,6 +1834,11 @@ async def create_job(
             num_words = timeline_dict.get("numWords", num_words)
             num_expressions = timeline_dict.get("numExprs", num_expressions)
             style_id = timeline_dict.get("styleId", style_id)
+            if tier != "member":
+                timeline_dict = _ensure_default_watermark_in_timeline(timeline_dict)
+            # timeline_json 是新主配置源，避免与旧版 parts/layout 双轨混用导致渲染结果不一致
+            parts_list = []
+            layout_dict = {}
             print(f"📦 使用 Timeline JSON 模式: {len(timeline_dict.get('elements', []))} 个元素, "
                   f"{len(timeline_dict.get('parts', []))} 个 Part")
         except Exception as e:
@@ -1139,6 +1912,17 @@ async def create_job(
     with open(video_path, "wb") as f:
         shutil.copyfileobj(video.file, f)
 
+    # 非会员：单视频时长上限 5 分钟；会员：30 分钟
+    duration_sec = _probe_video_duration_seconds(video_path)
+    max_sec = limits.get("max_video_seconds", _FREE_MAX_VIDEO_SECONDS)
+    if duration_sec and duration_sec > max_sec:
+        try:
+            video_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        max_min = int(max_sec // 60)
+        raise HTTPException(403, f"当前账号单个视频最长支持 {max_min} 分钟（当前约 {duration_sec/60:.1f} 分钟）")
+
     jobs[job_id] = {
         "id":             job_id,
         "status":         "queued",
@@ -1183,10 +1967,23 @@ async def create_job(
             style_id=style_id or "aurora_dark",
             animation=animation or "fade",
             timeline_json=timeline_dict,
+            membership_tier=tier,
+            doc_watermark_text=(
+                membership.get("doc_watermark_text") if tier == "member" else "LinguaLearn"
+            ),
+            doc_watermark_enabled=(
+                bool(membership.get("doc_watermark_enabled", True)) if tier == "member" else True
+            ),
             loop=asyncio.get_event_loop(),
         ))
 
-    return {"job_id": job_id, "status": "queued"}
+    database.increment_daily_video_usage(current_user["email"])
+
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "membership_tier": tier,
+    }
 
 
 @app.get("/api/jobs/{job_id}")
@@ -1265,10 +2062,30 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/download/{filename}")
-async def download_file(job_id: str, filename: str):
+async def download_file(
+    job_id: str,
+    filename: str,
+    request: Request,
+    current_user: Optional[dict] = Depends(get_current_user),
+):
     job = get_job_or_404(job_id)
     if job["status"] != "done":
         raise HTTPException(400, "任务尚未完成")
+
+    # Markdown 导出仅会员可用
+    if filename.lower().endswith(".md"):
+        if not current_user:
+            raise HTTPException(401, "导出 Markdown 需要先登录会员账号")
+        owner = job.get("email") or job.get("created_by") or ""
+        if owner and owner != current_user.get("email"):
+            raise HTTPException(403, "仅任务创建者可导出该文稿")
+        membership = _build_membership_status(
+            current_user["email"],
+            country_code=_detect_country_code(request),
+        )
+        if membership.get("tier") != "member":
+            raise HTTPException(403, "Markdown 导出为会员专属功能")
+
     file_path = OUTPUT_DIR / job_id / filename
     if not file_path.exists():
         raise HTTPException(404, "文件不存在")
@@ -1277,13 +2094,23 @@ async def download_file(job_id: str, filename: str):
 
 
 @app.get("/api/jobs/{job_id}/stream/{filename}")
-async def stream_file(job_id: str, filename: str):
+async def stream_file(job_id: str, filename: str, quality: str = "auto"):
     """Stream video with range request support for in-browser playback."""
     get_job_or_404(job_id)
     file_path = OUTPUT_DIR / job_id / filename
     if not file_path.exists():
         raise HTTPException(404, "文件不存在")
-    return FileResponse(path=str(file_path), media_type="video/mp4")
+
+    stream_path = file_path
+    q = _normalize_stream_quality(quality)
+    if q != "auto":
+        try:
+            stream_path = await asyncio.to_thread(_ensure_stream_variant, job_id, file_path, q)
+        except Exception as e:
+            print(f"⚠️ 生成 {q}p 流失败，回退原视频: {e}")
+            stream_path = file_path
+
+    return FileResponse(path=str(stream_path), media_type="video/mp4")
 
 
 @app.get("/api/jobs/{job_id}/preview/{filename}")
@@ -1296,6 +2123,50 @@ async def preview_file(job_id: str, filename: str):
         with open(file_path, "r", encoding="utf-8") as f:
             return {"content": f.read()}
     return FileResponse(path=str(file_path))
+
+
+@app.get("/api/jobs/{job_id}/export-notes-pdf")
+async def export_notes_pdf(
+    job_id: str,
+    request: Request,
+):
+    job = get_job_or_404(job_id)
+    owner = job.get("email") or job.get("created_by") or ""
+
+    result = job.get("result") or {}
+    if isinstance(result, str):
+        result = json.loads(result) if result else {}
+    md_file = result.get("markdown")
+    if not md_file:
+        raise HTTPException(404, "未找到学习文稿")
+
+    md_path = OUTPUT_DIR / job_id / md_file
+    if not md_path.exists():
+        raise HTTPException(404, "文稿文件不存在")
+
+    membership = _build_membership_status(owner, country_code=_detect_country_code(request)) if owner else {
+        "tier": "free",
+        "doc_watermark_enabled": True,
+        "doc_watermark_text": "LinguaLearn",
+    }
+    if membership["tier"] == "member":
+        wm_text = membership.get("doc_watermark_text") if membership.get("doc_watermark_enabled") else None
+    else:
+        wm_text = "LinguaLearn"
+
+    pdf_name = f"{Path(md_file).stem}.pdf"
+    pdf_path = OUTPUT_DIR / job_id / pdf_name
+    content = md_path.read_text(encoding="utf-8")
+    try:
+        await asyncio.to_thread(_render_markdown_pdf, content, pdf_path, wm_text)
+    except Exception as e:
+        raise HTTPException(500, f"PDF 导出失败: {e}")
+
+    return FileResponse(
+        path=str(pdf_path),
+        filename=pdf_name,
+        media_type="application/pdf",
+    )
 
 
 @app.get("/api/jobs")
@@ -1611,6 +2482,23 @@ async def get_quiz_data(job_id: str, debug: bool = False):
     words = []
     expressions = []
 
+    # 各语言词汇/表达汇总表的完整标题（避免与内容简介标题混淆）
+    _tl = result.get("target_lang", "zh")
+    _VOCAB_HEADERS = {
+        'zh': '## 📖 词汇汇总表', 'en': '## 📖 Vocabulary Summary',
+        'ja': '## 📖 語彙まとめ',  'ko': '## 📖 어휘 정리',
+        'de': '## 📖 Vokabeln Zusammenfassung', 'fr': '## 📖 Résumé du vocabulaire',
+        'es': '## 📖 Resumen de vocabulario',   'ru': '## 📖 Итоговый словарь',
+    }
+    _EXPR_HEADERS = {
+        'zh': '## 📝 表达汇总表', 'en': '## 📝 Expressions Summary',
+        'ja': '## 📝 表現まとめ',  'ko': '## 📝 표현 정리',
+        'de': '## 📝 Ausdrücke Zusammenfassung', 'fr': '## 📝 Résumé des expressions',
+        'es': '## 📝 Resumen de expresiones',    'ru': '## 📝 Итоговые выражения',
+    }
+    _vocab_header = _VOCAB_HEADERS.get(_tl, '## 📖 词汇汇总表')
+    _expr_header  = _EXPR_HEADERS.get(_tl, '## 📝 表达汇总表')
+
     def extract_markdown_table(content, section_header):
         """从Markdown中提取指定section的表格"""
         # 先找到section标题
@@ -1637,7 +2525,7 @@ async def get_quiz_data(job_id: str, debug: bool = False):
         return table_rows
 
     # 提取词汇表
-    word_rows = extract_markdown_table(content, '## 📖')
+    word_rows = extract_markdown_table(content, _vocab_header)
     for row in word_rows:
         if not row.strip():
             continue
@@ -1650,7 +2538,7 @@ async def get_quiz_data(job_id: str, debug: bool = False):
                 words.append({"word": word, "phonetic": phonetic, "meaning": meaning})
 
     # 提取表达表
-    expr_rows = extract_markdown_table(content, '## 📝')
+    expr_rows = extract_markdown_table(content, _expr_header)
     for row in expr_rows:
         if not row.strip():
             continue
@@ -1677,8 +2565,8 @@ async def get_quiz_data(job_id: str, debug: bool = False):
             "word_rows_found": len(word_rows),
             "expr_rows_found": len(expr_rows),
             "markdown_length": len(content),
-            "has_word_section": '## 📖' in content,
-            "has_expr_section": '## 📝' in content,
+            "has_word_section": _vocab_header in content,
+            "has_expr_section": _expr_header in content,
         }
 
     return result_data

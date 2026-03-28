@@ -39,6 +39,30 @@ WHISPER_LANGUAGE_MAP = {
 # CJK 语言集合（用于文本断行和音标系统判断）
 CJK_LANGUAGES = {'zh', 'ja', 'ko'}
 
+# 支持的语言及其本地名称（供 API 和前端语言选择器使用）
+LANGUAGE_NATIVE_NAMES = {
+    'en': 'English',
+    'zh': '中文',
+    'ja': '日本語',
+    'ko': '한국어',
+    'de': 'Deutsch',
+    'fr': 'Français',
+    'es': 'Español',
+    'ru': 'Русский',
+}
+
+# 语言对应的国旗 emoji
+LANGUAGE_FLAGS = {
+    'en': '🇺🇸',
+    'zh': '🇨🇳',
+    'ja': '🇯🇵',
+    'ko': '🇰🇷',
+    'de': '🇩🇪',
+    'fr': '🇫🇷',
+    'es': '🇪🇸',
+    'ru': '🇷🇺',
+}
+
 # ===== 句子分割配置 =====
 MAX_SENTENCE_WORDS = 30
 MIN_SENTENCE_WORDS = 5
@@ -72,6 +96,29 @@ VIDEO_RESOLUTION = os.getenv('VIDEO_RESOLUTION', '1080p')  # 1080p 或 720p
 
 # ===== 邮件配置 =====
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
+
+# ===== 会员支付配置 =====
+APP_BASE_URL = os.getenv('APP_BASE_URL', 'http://localhost:8080')
+
+# Stripe
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
+STRIPE_PRICE_CN_DAY = os.getenv('STRIPE_PRICE_CN_DAY', '')
+STRIPE_PRICE_CN_WEEK = os.getenv('STRIPE_PRICE_CN_WEEK', '')
+STRIPE_PRICE_CN_MONTH = os.getenv('STRIPE_PRICE_CN_MONTH', '')
+STRIPE_PRICE_CN_YEAR = os.getenv('STRIPE_PRICE_CN_YEAR', '')
+STRIPE_PRICE_INTL_DAY = os.getenv('STRIPE_PRICE_INTL_DAY', '')
+STRIPE_PRICE_INTL_WEEK = os.getenv('STRIPE_PRICE_INTL_WEEK', '')
+STRIPE_PRICE_INTL_MONTH = os.getenv('STRIPE_PRICE_INTL_MONTH', '')
+STRIPE_PRICE_INTL_YEAR = os.getenv('STRIPE_PRICE_INTL_YEAR', '')
+
+# 支付宝（签约代扣）
+ALIPAY_APP_ID = os.getenv('ALIPAY_APP_ID', '')
+ALIPAY_PRIVATE_KEY = os.getenv('ALIPAY_PRIVATE_KEY', '')
+ALIPAY_PUBLIC_KEY = os.getenv('ALIPAY_PUBLIC_KEY', '')
+ALIPAY_GATEWAY = os.getenv('ALIPAY_GATEWAY', 'https://openapi.alipay.com/gateway.do')
+ALIPAY_RETURN_URL = os.getenv('ALIPAY_RETURN_URL', '')
+ALIPAY_NOTIFY_URL = os.getenv('ALIPAY_NOTIFY_URL', '')
 
 # ===== HTML 渲染默认颜色（Chrome Headless 降级模式）=====
 # 这些值用于 HTMLRenderer，当 style dict 未提供相应键时使用

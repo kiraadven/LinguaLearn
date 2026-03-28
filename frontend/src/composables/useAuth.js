@@ -11,7 +11,13 @@ export function useAuth() {
     if (!token.value) return
     try {
       const d = await apiFetch('/api/auth/me')
-      user.value = { email: d.email, name: d.name, avatar_url: d.avatar_url, created_at: d.created_at }
+      user.value = {
+        email: d.email,
+        name: d.name,
+        avatar_url: d.avatar_url,
+        created_at: d.created_at,
+        membership: d.membership || null,
+      }
     } catch {
       token.value = ''
       user.value = null
@@ -24,7 +30,8 @@ export function useAuth() {
     const d = await apiPost('/api/auth/login', fd)
     token.value = d.token
     localStorage.setItem('ll_token', d.token)
-    user.value = { email: d.email, name: d.name, avatar_url: d.avatar_url }
+    user.value = { email: d.email, name: d.name, avatar_url: d.avatar_url, membership: null }
+    await checkAuth()
     return d
   }
 
@@ -38,7 +45,8 @@ export function useAuth() {
     const d = await apiPost('/api/auth/register', fd)
     token.value = d.token
     localStorage.setItem('ll_token', d.token)
-    user.value = { email: d.email, name: d.name, avatar_url: d.avatar_url }
+    user.value = { email: d.email, name: d.name, avatar_url: d.avatar_url, membership: null }
+    await checkAuth()
     return d
   }
 
@@ -77,5 +85,12 @@ export function useAuth() {
     return d
   }
 
-  return { token, user, isLoggedIn, checkAuth, login, register, sendCode, logout, changePassword, sendEmailCode, bindEmail, uploadAvatar }
+  async function refreshMembership() {
+    if (!token.value || !user.value) return null
+    const m = await apiFetch('/api/membership/status')
+    user.value = { ...user.value, membership: m }
+    return m
+  }
+
+  return { token, user, isLoggedIn, checkAuth, login, register, sendCode, logout, changePassword, sendEmailCode, bindEmail, uploadAvatar, refreshMembership }
 }

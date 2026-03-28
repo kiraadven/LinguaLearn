@@ -55,13 +55,79 @@
         <!-- Video column -->
         <div class="jd-video-col">
           <div class="video-wrap">
-            <video ref="videoEl" controls preload="metadata"
-              :src="`/api/jobs/${jobId}/stream/${encodeURIComponent(job.result.full_video)}`"
-              class="jd-video"
-              @timeupdate="onTimeUpdate"
-              @error="videoError='视频加载失败'">
-            </video>
-            <div v-if="videoError" class="video-err">⚠️ {{ videoError }}</div>
+            <div class="player-surface">
+              <video
+                ref="videoEl"
+                preload="metadata"
+                :src="videoSrc"
+                class="jd-video"
+                @timeupdate="onTimeUpdate"
+                @loadedmetadata="onVideoMeta"
+                @play="isPlaying = true"
+                @pause="isPlaying = false"
+                @error="videoError='视频加载失败'"
+                @click="togglePlay"
+                @dblclick="toggleFullscreen"
+              />
+              <button class="center-play" :class="{ hidden: isPlaying }" @click="togglePlay" :title="isPlaying ? '暂停' : '播放'">
+                {{ isPlaying ? '❚❚' : '▶' }}
+              </button>
+              <div v-if="videoError" class="video-err">⚠️ {{ videoError }}</div>
+            </div>
+
+            <div class="player-controls" @click.stop>
+              <button class="pc-btn primary" @click="togglePlay">{{ isPlaying ? '暂停' : '播放' }}</button>
+
+              <div class="pc-time">{{ fmtClock(currentTimeSec) }} / {{ fmtClock(durationSec) }}</div>
+
+              <input
+                class="pc-seek"
+                type="range"
+                min="0"
+                :max="durationSec || 0"
+                step="0.1"
+                :value="currentTimeSec"
+                @input="onSeekInput"
+              />
+
+              <div class="pc-menu-wrap" ref="qualityMenuRef">
+                <button class="pc-btn" @click="toggleQualityMenu">
+                  {{ currentQualityLabel }}
+                </button>
+                <div v-if="showQualityMenu" class="pc-menu">
+                  <button
+                    v-for="opt in qualityOptions"
+                    :key="opt.value"
+                    :class="['pc-menu-item', { active: selectedQuality === opt.value }]"
+                    @click="switchQuality(opt.value)"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="pc-menu-wrap" ref="speedMenuRef">
+                <button class="pc-btn" @click="onSpeedButton">
+                  {{ isMember ? `速度 ${currentSpeed.toFixed(2).replace(/\.00$/, '')}x` : '速度（会员）' }}
+                </button>
+                <div v-if="showSpeedMenu && isMember" class="pc-menu">
+                  <button
+                    v-for="sp in speedOptions"
+                    :key="sp"
+                    :class="['pc-menu-item', { active: currentSpeed === sp }]"
+                    @click="setSpeed(sp)"
+                  >
+                    {{ sp }}x
+                  </button>
+                </div>
+              </div>
+
+              <button class="pc-btn" @click="onCastClick">
+                {{ isMember ? '投屏' : '投屏（会员）' }}
+              </button>
+
+              <button class="pc-btn" @click="toggleFullscreen">{{ isFullscreen ? '退出全屏' : '全屏' }}</button>
+            </div>
           </div>
           <div class="video-meta-row">
             <div class="video-meta-info">
@@ -102,12 +168,24 @@
       <div class="jd-notes">
         <div class="notes-hdr">
           <span class="notes-hdr-title">📚 学习笔记</span>
-          <a v-if="job.result?.markdown"
-             :href="`/api/jobs/${jobId}/download/${encodeURIComponent(job.result.markdown)}`"
-             download class="dl-chip">⬇ 下载笔记</a>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <a v-if="job.result?.markdown && isMember"
+               :href="`/api/jobs/${jobId}/download/${encodeURIComponent(job.result.markdown)}`"
+               download class="dl-chip">⬇ 下载Markdown</a>
+            <button
+              v-if="job.result?.markdown && !isMember"
+              class="dl-chip dl-chip-btn"
+              @click="onClickMemberMarkdown"
+            >
+              ⬇ 下载Markdown
+            </button>
+            <a v-if="job.result?.markdown"
+               :href="`/api/jobs/${jobId}/export-notes-pdf`"
+               class="dl-chip">⬇ 导出PDF</a>
+          </div>
         </div>
         <div v-if="!markdownHtml" class="md-empty">暂无学习笔记</div>
-        <div v-else class="md-view" v-html="markdownHtml"
+        <div v-else class="md-view" ref="mdViewRef" v-html="markdownHtml"
              @mouseover="onMdHover" @mouseout="onMdOut" @mouseleave="onMdLeave"></div>
       </div>
     </div>
@@ -116,7 +194,7 @@
     <Teleport to="body">
       <Transition name="dt">
         <div v-if="tooltip.visible"
-             class="dict-tooltip"
+             :class="['dict-tooltip', { 'left-side': tooltip.side === 'left' }]"
              :style="tooltipStyle"
              @mouseenter="cancelHide"
              @mouseleave="scheduleHide">
@@ -149,24 +227,51 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import { apiFetch } from '../composables/useApi.js'
+import { useAuth } from '../composables/useAuth.js'
 
 const route  = useRoute()
 const jobId  = route.params.id
+const { user } = useAuth()
+const isMember = computed(() => user.value?.membership?.tier === 'member')
+const openMembership = inject('openMembership', () => {})
+const toast = inject('toast', () => {})
 
 const job        = ref(null)
 const loading    = ref(true)
 const videoEl    = ref(null)
 const videoError = ref('')
+const videoSrc   = ref('')
+const isPlaying  = ref(false)
+const isFullscreen = ref(false)
+const currentTimeSec = ref(0)
+const durationSec = ref(0)
+const selectedQuality = ref('auto')
+const currentSpeed = ref(1.0)
+const showQualityMenu = ref(false)
+const showSpeedMenu = ref(false)
+const qualityMenuRef = ref(null)
+const speedMenuRef = ref(null)
 const segments   = ref([])
 const segLoading = ref(false)
 const activeSeg  = ref(-1)
 const segRefs    = ref([])
 const transcriptOpen = ref(true)
 const markdownHtml = ref('')
+
+const qualityOptions = [
+  { value: 'auto', label: '自动' },
+  { value: '1080', label: '1080p' },
+  { value: '720', label: '720p' },
+  { value: '360', label: '360p' },
+]
+const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const currentQualityLabel = computed(
+  () => qualityOptions.find(o => o.value === selectedQuality.value)?.label || '自动'
+)
 
 // ── Live progress (for running/queued jobs) ──
 const liveStep    = ref(0)
@@ -182,6 +287,10 @@ function logClass(l) {
   if (l.includes('❌') || l.includes('错误') || l.includes('失败')) return 'log-err'
   if (l.includes('⚠️')) return 'log-warn'
   return ''
+}
+
+function onClickMemberMarkdown() {
+  openMembership()
 }
 
 function connectProgressWS() {
@@ -210,6 +319,7 @@ function connectProgressWS() {
           const d = await apiFetch(`/api/jobs/${jobId}`)
           job.value = d
           if (d.status === 'done' && d.result?.full_video) {
+            refreshVideoSrc()
             loadSegments()
             if (d.result.markdown) loadMarkdown(d.result.markdown)
           }
@@ -251,11 +361,154 @@ const jobName = computed(() =>
   job.value?.name || job.value?.video_filename || jobId.slice(0,12)
 )
 
+function buildStreamUrl(quality = selectedQuality.value) {
+  const f = job.value?.result?.full_video
+  if (!f) return ''
+  const q = encodeURIComponent(quality || 'auto')
+  return `/api/jobs/${jobId}/stream/${encodeURIComponent(f)}?quality=${q}`
+}
+
+function refreshVideoSrc() {
+  videoSrc.value = buildStreamUrl(selectedQuality.value)
+}
+
+function togglePlay() {
+  const v = videoEl.value
+  if (!v) return
+  if (v.paused) v.play().catch(() => {})
+  else v.pause()
+}
+
+function onVideoMeta() {
+  const v = videoEl.value
+  if (!v) return
+  durationSec.value = Number.isFinite(v.duration) ? v.duration : 0
+  if (isMember.value) {
+    v.playbackRate = currentSpeed.value
+  } else {
+    v.playbackRate = 1
+    currentSpeed.value = 1
+  }
+}
+
+function onSeekInput(e) {
+  const v = videoEl.value
+  if (!v) return
+  const t = Number(e?.target?.value || 0)
+  v.currentTime = t
+  currentTimeSec.value = t
+}
+
+function fmtClock(sec) {
+  const n = Math.max(0, Math.floor(sec || 0))
+  const h = Math.floor(n / 3600)
+  const m = Math.floor((n % 3600) / 60)
+  const s = n % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function toggleQualityMenu() {
+  showQualityMenu.value = !showQualityMenu.value
+  if (showQualityMenu.value) showSpeedMenu.value = false
+}
+
+function onSpeedButton() {
+  if (!isMember.value) {
+    toast('倍速播放为会员专属功能', 'warn')
+    openMembership()
+    return
+  }
+  showSpeedMenu.value = !showSpeedMenu.value
+  if (showSpeedMenu.value) showQualityMenu.value = false
+}
+
+function setSpeed(speed) {
+  if (!isMember.value) {
+    toast('倍速播放为会员专属功能', 'warn')
+    openMembership()
+    return
+  }
+  currentSpeed.value = speed
+  if (videoEl.value) videoEl.value.playbackRate = speed
+  showSpeedMenu.value = false
+}
+
+function switchQuality(quality) {
+  showQualityMenu.value = false
+  if (selectedQuality.value === quality) return
+
+  const v = videoEl.value
+  const current = v?.currentTime || 0
+  const wasPlaying = !!(v && !v.paused)
+
+  selectedQuality.value = quality
+  refreshVideoSrc()
+
+  if (!v) return
+  const restore = () => {
+    try {
+      v.currentTime = Math.max(0, Math.min(current, Number.isFinite(v.duration) ? v.duration : current))
+    } catch {}
+    if (isMember.value) v.playbackRate = currentSpeed.value
+    if (wasPlaying) v.play().catch(() => {})
+  }
+  v.addEventListener('loadedmetadata', restore, { once: true })
+  v.load()
+}
+
+async function onCastClick() {
+  if (!isMember.value) {
+    toast('投屏为会员专属功能', 'warn')
+    openMembership()
+    return
+  }
+  const v = videoEl.value
+  if (!v) return
+  try {
+    if (v.remote && typeof v.remote.prompt === 'function') {
+      await v.remote.prompt()
+      return
+    }
+    if (typeof v.webkitShowPlaybackTargetPicker === 'function') {
+      v.webkitShowPlaybackTargetPicker()
+      return
+    }
+    toast('当前浏览器暂不支持投屏', 'warn')
+  } catch {
+    toast('投屏未连接或已取消', 'warn')
+  }
+}
+
+function toggleFullscreen() {
+  const container = videoEl.value?.closest('.video-wrap')
+  if (!container) return
+  if (!document.fullscreenElement) {
+    container.requestFullscreen?.().catch(() => {})
+  } else {
+    document.exitFullscreen?.().catch(() => {})
+  }
+}
+
+function handleDocClick(e) {
+  const t = e.target
+  if (qualityMenuRef.value && !qualityMenuRef.value.contains(t)) showQualityMenu.value = false
+  if (speedMenuRef.value && !speedMenuRef.value.contains(t)) showSpeedMenu.value = false
+}
+
+function handleFullscreenChange() {
+  const container = videoEl.value?.closest('.video-wrap')
+  isFullscreen.value = !!container && document.fullscreenElement === container
+}
+
 onMounted(async () => {
+  document.addEventListener('click', handleDocClick)
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
   try {
     const d = await apiFetch(`/api/jobs/${jobId}`)
     job.value = d
     if (d.status === 'done' && d.result?.full_video) {
+      refreshVideoSrc()
       loadSegments()
       if (d.result.markdown) loadMarkdown(d.result.markdown)
     } else if (d.status === 'running' || d.status === 'queued') {
@@ -274,6 +527,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (ws) { try { ws.close() } catch {} }
+  document.removeEventListener('click', handleDocClick)
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
 })
 
 async function loadSegments() {
@@ -340,24 +595,34 @@ function wrapEnglishWords(html) {
 }
 
 // ── Dictionary tooltip ──────────────────────────────────────────────────────
-const tooltip = ref({ visible: false, loading: false, notFound: false, word: '', data: null, x: 0, y: 0 })
+const tooltip = ref({ visible: false, loading: false, notFound: false, word: '', data: null, x: 0, y: 0, side: 'right', anchorX: 0 })
+const mdViewRef = ref(null)
 const dictCache = {}
 let showTimer = null
 let hideTimer = null
+let hoverToken = 0
+let activeHoverKey = ''
+let requestToken = 0
 
 const TOOLTIP_W = 300
 
 const tooltipStyle = computed(() => {
   const MARGIN = 10
-  const GAP = 14
-  let x = tooltip.value.x + GAP
-  // If tooltip would go off right edge, show on left of word instead
-  if (x + TOOLTIP_W > window.innerWidth - MARGIN) {
-    x = tooltip.value.wordLeft - TOOLTIP_W - GAP
+  const GAP = 20   // gap between tooltip edge and document content
+  let x, y
+  if (tooltip.value.side === 'left') {
+    // Card in left margin: right edge of card at (anchorX - GAP)
+    x = tooltip.value.anchorX - TOOLTIP_W - GAP
+    x = Math.max(MARGIN, x)
+  } else {
+    // Card in right margin: left edge at (anchorX + GAP)
+    x = tooltip.value.anchorX + GAP
+    if (x + TOOLTIP_W > window.innerWidth - MARGIN) {
+      x = window.innerWidth - TOOLTIP_W - MARGIN
+    }
   }
-  x = Math.max(MARGIN, x)
   // Vertically: center on word
-  let y = tooltip.value.y - 10
+  y = tooltip.value.y - 10
   y = Math.max(MARGIN, Math.min(y, window.innerHeight - 300))
   return { left: `${x}px`, top: `${y}px`, width: `${TOOLTIP_W}px` }
 })
@@ -365,9 +630,15 @@ const tooltipStyle = computed(() => {
 function onMdHover(e) {
   const el = e.target.closest?.('.dict-word')
   if (el) {
+    hoverToken += 1
+    const localHover = hoverToken
     clearTimeout(hideTimer)
     clearTimeout(showTimer)
-    showTimer = setTimeout(() => triggerTooltip(el.dataset.word, el), 200)
+    showTimer = setTimeout(() => {
+      // Ignore stale hover timers.
+      if (localHover !== hoverToken) return
+      triggerTooltip(el.dataset.word, el)
+    }, 200)
     return
   }
   // Mouse is over non-word area within container — schedule hide (unless over tooltip)
@@ -381,6 +652,8 @@ function onMdOut(e) {
   // Specifically leaving a .dict-word element
   if (e.target.classList?.contains('dict-word')) {
     if (!e.relatedTarget?.closest?.('.dict-word') && !e.relatedTarget?.closest?.('.dict-tooltip')) {
+      hoverToken += 1
+      activeHoverKey = ''
       clearTimeout(showTimer)
       scheduleHide()
     }
@@ -388,24 +661,46 @@ function onMdOut(e) {
 }
 
 function onMdLeave(e) {
+  hoverToken += 1
+  activeHoverKey = ''
   clearTimeout(showTimer)
   if (e.relatedTarget?.closest?.('.dict-tooltip')) return
   scheduleHide()
 }
 
 function cancelHide() { clearTimeout(hideTimer) }
-function scheduleHide() { hideTimer = setTimeout(() => { tooltip.value.visible = false }, 200) }
+function scheduleHide() {
+  hideTimer = setTimeout(() => {
+    tooltip.value.visible = false
+    tooltip.value.loading = false
+  }, 200)
+}
 
 async function triggerTooltip(word, el) {
   if (!word) return
+  const hoverKey = `${word}__${el?.dataset?.word || ''}__${Math.round(el?.getBoundingClientRect?.().left || 0)}`
+  activeHoverKey = hoverKey
+
   const rect = el.getBoundingClientRect()
   tooltip.value.word = word
-  tooltip.value.x = rect.right           // show to the right of word
-  tooltip.value.wordLeft = rect.left     // backup for left-side fallback
   tooltip.value.y = rect.top + rect.height / 2
   tooltip.value.notFound = false
 
+  // Determine which margin to place the card in based on word's horizontal position
+  const containerRect = mdViewRef.value?.getBoundingClientRect()
+  const wordCenterX = (rect.left + rect.right) / 2
+  const centerX = containerRect
+    ? (containerRect.left + containerRect.right) / 2
+    : window.innerWidth / 2
+  const isLeft = wordCenterX < centerX
+  tooltip.value.side = isLeft ? 'left' : 'right'
+  // anchorX = the document edge nearest the card (left edge for left-side, right edge for right-side)
+  tooltip.value.anchorX = isLeft
+    ? (containerRect?.left ?? rect.left)
+    : (containerRect?.right ?? rect.right)
+
   if (dictCache[word] !== undefined) {
+    if (activeHoverKey !== hoverKey) return
     tooltip.value.data = dictCache[word] || null
     tooltip.value.notFound = !dictCache[word]
     tooltip.value.loading = false
@@ -417,17 +712,23 @@ async function triggerTooltip(word, el) {
   tooltip.value.data = null
   tooltip.value.visible = true
 
+  requestToken += 1
+  const localReq = requestToken
   try {
     const tgtLang = job.value?.result?.target_lang || 'zh'
     const data = await apiFetch(`/api/dictionary/${encodeURIComponent(word)}?target_lang=${tgtLang}`)
     dictCache[word] = data
+    // Drop stale responses from previous hover/request.
+    if (localReq !== requestToken || activeHoverKey !== hoverKey) return
     tooltip.value.data = data
     tooltip.value.notFound = false
   } catch {
     dictCache[word] = null
+    if (localReq !== requestToken || activeHoverKey !== hoverKey) return
     tooltip.value.notFound = true
     tooltip.value.data = null
   } finally {
+    if (localReq !== requestToken || activeHoverKey !== hoverKey) return
     tooltip.value.loading = false
   }
 }
@@ -439,8 +740,11 @@ function playAudio() {
 
 // ── Video sync ──────────────────────────────────────────────────────────────
 function onTimeUpdate() {
-  if (!videoEl.value || !segments.value.length) return
+  if (!videoEl.value) return
   const ct = videoEl.value.currentTime
+  currentTimeSec.value = ct
+  if (Number.isFinite(videoEl.value.duration)) durationSec.value = videoEl.value.duration
+  if (!segments.value.length) return
   let idx = -1
   for (let i = 0; i < segments.value.length; i++) {
     const s = segments.value[i]
@@ -462,6 +766,7 @@ function scrollToSeg(idx) {
 function jumpTo(t) {
   if (!videoEl.value) return
   videoEl.value.currentTime = t
+  currentTimeSec.value = t
   videoEl.value.play()
 }
 
@@ -515,11 +820,150 @@ function fmtTime(sec) {
 /* Video column */
 .jd-video-col { display: flex; flex-direction: column; }
 .video-wrap {
-  background: #000; border-radius: 12px; overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0,0,0,.15);
+  background: linear-gradient(180deg, rgba(15,23,42,.9), rgba(2,6,23,.95));
+  border-radius: 16px;
+  border: 1px solid rgba(148,163,184,.18);
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(15,23,42,.22), 0 2px 10px rgba(2,6,23,.35);
 }
-.jd-video { width: 100%; display: block; max-height: 520px; object-fit: contain; }
-.video-err { padding: 12px; color: var(--err); font-size: 13px; background: rgba(239,68,68,.08); }
+.video-wrap:fullscreen {
+  border-radius: 0;
+  border: none;
+  width: 100vw;
+  height: 100vh;
+}
+.video-wrap:fullscreen .jd-video {
+  max-height: calc(100vh - 72px);
+}
+.player-surface {
+  position: relative;
+  background: #000;
+}
+.jd-video {
+  width: 100%;
+  display: block;
+  max-height: 520px;
+  object-fit: contain;
+  background: #000;
+  cursor: pointer;
+}
+.center-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 66px;
+  height: 66px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.35);
+  background: rgba(15,23,42,.48);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: .9;
+  transition: all .2s;
+}
+.center-play:hover {
+  transform: translate(-50%, -50%) scale(1.06);
+  background: rgba(99,102,241,.45);
+}
+.center-play.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.video-err {
+  padding: 12px;
+  color: #fecaca;
+  font-size: 13px;
+  background: rgba(153,27,27,.52);
+}
+
+.player-controls {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, rgba(15,23,42,.95), rgba(15,23,42,.82));
+  border-top: 1px solid rgba(148,163,184,.15);
+}
+.pc-time {
+  font-size: 12px;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+  min-width: 92px;
+}
+.pc-seek {
+  width: 100%;
+  accent-color: #6366f1;
+  height: 4px;
+}
+.pc-btn {
+  border: 1px solid rgba(148,163,184,.28);
+  background: rgba(30,41,59,.68);
+  color: #e2e8f0;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all .16s;
+}
+.pc-btn:hover {
+  border-color: rgba(99,102,241,.55);
+  color: #fff;
+  background: rgba(79,70,229,.28);
+}
+.pc-btn.primary {
+  border-color: rgba(99,102,241,.62);
+  background: linear-gradient(135deg, rgba(99,102,241,.45), rgba(56,189,248,.28));
+}
+.pc-menu-wrap { position: relative; }
+.pc-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  min-width: 110px;
+  background: rgba(15,23,42,.96);
+  border: 1px solid rgba(148,163,184,.2);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 10px 28px rgba(2,6,23,.4);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 6;
+}
+.pc-menu-item {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.pc-menu-item:hover {
+  background: rgba(99,102,241,.18);
+  color: #fff;
+}
+.pc-menu-item.active {
+  border-color: rgba(99,102,241,.5);
+  background: rgba(99,102,241,.26);
+  color: #fff;
+}
+@media (max-width: 980px) {
+  .player-controls {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .pc-seek, .pc-time { grid-column: 1 / -1; }
+}
 .video-meta-row {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
   padding: 12px 4px 0;
@@ -594,6 +1038,9 @@ function fmtTime(sec) {
   white-space: nowrap; text-decoration: none;
 }
 .dl-chip:hover { background: rgba(99,102,241,.15); }
+.dl-chip-btn {
+  cursor: pointer;
+}
 
 /* ── Markdown doc view (Feishu-inspired) ── */
 .md-view {
@@ -725,17 +1172,45 @@ function fmtTime(sec) {
   pointer-events: auto;
   transform: translateY(-50%);
 }
-/* Connecting line from tooltip back toward the word */
+.dict-tooltip.left-side {
+  border-left: 1px solid var(--border);
+  border-right: 3px solid var(--accent);
+  border-radius: 12px 0 0 12px;
+}
+/* Connecting line — right side: line extends leftward from card toward document */
 .dict-tooltip::before {
   content: '';
   position: absolute;
   right: 100%;
   top: 50%;
   transform: translateY(-50%);
-  width: 12px;
+  width: 48px;
   height: 2px;
+  background: linear-gradient(to left, var(--accent) 20%, rgba(99,102,241,0.15) 100%);
+  border-radius: 1px;
+}
+/* Connecting line — left side: line extends rightward from card toward document */
+.dict-tooltip.left-side::before {
+  right: auto;
+  left: 100%;
+  background: linear-gradient(to right, var(--accent) 20%, rgba(99,102,241,0.15) 100%);
+}
+/* Small dot at the tip of the line (document side) */
+.dict-tooltip::after {
+  content: '';
+  position: absolute;
+  right: calc(100% + 45px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
   background: var(--accent);
-  opacity: 0.7;
+  border-radius: 50%;
+  opacity: 0.6;
+}
+.dict-tooltip.left-side::after {
+  right: auto;
+  left: calc(100% + 45px);
 }
 
 /* Tooltip enter/leave transition */

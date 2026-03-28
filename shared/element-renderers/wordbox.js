@@ -24,6 +24,9 @@ export function createWordboxNodes(element, content, containerSize) {
   const borderRadius = style.borderRadius ?? 10
   const padding = Math.max(8, w * 0.07)
   const innerW = w - padding * 2   // use ACTUAL box width for text area
+  // Word/entry spacing (user-configurable). Keep backward compatibility with legacy lineHeight.
+  const rowSpacing = style.wordSpacing ?? style.lineHeight ?? 1.0
+  const rowGap = Math.max(0, Math.round(rowSpacing * 8))   // gap between word entries
 
   const words = content?.words || []
 
@@ -60,7 +63,7 @@ export function createWordboxNodes(element, content, containerSize) {
   let curY = padding
 
   words.forEach((item) => {
-    if (curY + rowH > h - padding) return  // use ACTUAL box height for overflow check
+    if (curY + rowH > h - 4) return  // small buffer for clip boundary; no longer requires a full padding gap at bottom
 
     // Word (bold, accent color)
     nodes.push({
@@ -111,7 +114,7 @@ export function createWordboxNodes(element, content, containerSize) {
     }
 
     // Gap between words
-    curY += 12
+    curY += rowGap
   })
 
   return { x, y, w, h, nodes }

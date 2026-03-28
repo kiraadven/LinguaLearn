@@ -93,23 +93,29 @@ function onVideoSeeked() {
   } catch {}
 }
 
-// Canvas dimensions (16:9 aspect, scaled by zoom)
-const baseWidth = 640 // base canvas width in CSS pixels
+// Canvas dimensions — match actual video resolution, scale down via CSS transform
+// This makes the editor pixel-identical to the rendered video output.
+const displayWidth = 640 // CSS display width in pixels
+
+const actualWidth = computed(() => props.timeline.resolution?.width || 1920)
+const actualHeight = computed(() => props.timeline.resolution?.height || 1080)
+const displayScale = computed(() => displayWidth / actualWidth.value)
+
 const stageConfig = computed(() => ({
-  width: baseWidth,
-  height: baseWidth * 9 / 16,
+  width: actualWidth.value,
+  height: actualHeight.value,
 }))
 
 const canvasStyle = computed(() => ({
-  width: `${baseWidth}px`,
-  height: `${baseWidth * 9 / 16}px`,
-  transform: `scale(${props.zoom})`,
+  width: `${actualWidth.value}px`,
+  height: `${actualHeight.value}px`,
+  transform: `scale(${displayScale.value * props.zoom})`,
   transformOrigin: 'top left',
 }))
 
 const wrapperDimStyle = computed(() => ({
-  width: `${baseWidth * props.zoom}px`,
-  height: `${baseWidth * 9 / 16 * props.zoom}px`,
+  width: `${displayWidth * props.zoom}px`,
+  height: `${displayScale.value * actualHeight.value * props.zoom}px`,
 }))
 
 // Connect editor refs
@@ -152,13 +158,14 @@ const renderedElements = computed(() => {
   return visibleElements.value.map(el => {
     // Merge part-level overrides into the global element
     const overrides = part?.elementConfigs?.[el.id]
+    // Always return a plain object (never the raw reactive element) so parts don't share data
     const mergedEl = overrides ? {
       ...el,
       ...overrides,
       position: { ...el.position, ...(overrides.position || {}) },
       size: { ...el.size, ...(overrides.size || {}) },
       style: { ...el.style, ...(overrides.style || {}) },
-    } : el
+    } : { ...el, position: { ...el.position }, size: { ...el.size }, style: { ...el.style } }
 
     // Prepare content based on type
     let content = props.previewContent
@@ -257,7 +264,8 @@ function onStageClick(event) {
 .canvas-frame {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  background: #000;
   border-radius: 8px;
   display: block;
 }

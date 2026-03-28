@@ -15,10 +15,15 @@
     <button class="nav-btn" :class="{active:$route.path==='/quiz'}" @click="goQuiz">成果自测</button>
     <div class="nav-spacer"></div>
     <div style="display:flex;align-items:center;gap:10px">
+      <button class="nav-vip-btn" @click="openMembership">
+        <img src="/premium-badge.svg" alt="VIP" class="vip-mini">
+        会员
+      </button>
       <template v-if="user">
         <div class="nav-avatar" @click="$router.push('/profile')" :title="user.name||user.email">
           <img v-if="user.avatar_url" :src="user.avatar_url" :alt="user.name||user.email" style="width:100%;height:100%;border-radius:50%;object-fit:cover">
           <span v-else>{{ (user.name||user.email||'?')[0].toUpperCase() }}</span>
+          <img v-if="isMember" src="/premium-badge.svg" alt="VIP" class="avatar-vip-mark">
         </div>
       </template>
       <template v-else>
@@ -82,6 +87,13 @@
     </div>
   </Teleport>
 
+  <!-- Membership modal -->
+  <MembershipModal
+    :visible="showMembership"
+    @close="showMembership=false"
+    @refreshed="refreshMembershipSafe"
+  />
+
   <!-- Toasts -->
   <Teleport to="body">
     <div class="toasts">
@@ -91,23 +103,42 @@
 </template>
 
 <script setup>
-import { ref, provide, onMounted } from 'vue'
+import { ref, provide, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from './composables/useAuth.js'
 import { useToast } from './composables/useToast.js'
+import MembershipModal from './components/MembershipModal.vue'
 
 const router = useRouter()
-const { user, isLoggedIn, checkAuth, login, register, sendCode } = useAuth()
+const { user, isLoggedIn, checkAuth, login, register, sendCode, refreshMembership } = useAuth()
 const { toasts, toast } = useToast()
 
 const showAuth = ref(false)
+const showMembership = ref(false)
 const authTab  = ref('login')
+const isMember = ref(false)
 
 provide('auth',  { user, isLoggedIn, checkAuth })
 provide('toast', toast)
 provide('openAuth', () => { showAuth.value = true })
+provide('openMembership', () => {
+  if (!isLoggedIn.value) { showAuth.value = true; return }
+  showMembership.value = true
+})
 
-onMounted(() => checkAuth())
+onMounted(async () => {
+  await checkAuth()
+  isMember.value = user.value?.membership?.tier === 'member'
+  if (location.hash.includes('membership=success')) {
+    try {
+      await refreshMembership()
+      toast('支付成功，会员状态已刷新', 'ok')
+    } catch {}
+  }
+})
+watch(user, () => {
+  isMember.value = user.value?.membership?.tier === 'member'
+}, { deep: true })
 
 // Login state
 const loginEmail = ref(''); const loginPw = ref('')
@@ -119,6 +150,7 @@ async function doLogin() {
   loginLoading.value = true
   try {
     await login(loginEmail.value, loginPw.value)
+    isMember.value = user.value?.membership?.tier === 'member'
     showAuth.value = false
     toast('登录成功 🎉', 'ok')
   } catch(e) { loginErr.value = e.message }
@@ -152,6 +184,7 @@ async function doRegister() {
   regLoading.value = true
   try {
     await register(regEmail.value, regName.value, regPw.value, regCode.value)
+    isMember.value = user.value?.membership?.tier === 'member'
     showAuth.value = false
     toast('注册成功！欢迎 🎉', 'ok')
   } catch(e) { regErr.value = e.message }
@@ -167,6 +200,18 @@ function goQuiz() {
   if (!isLoggedIn.value) { showAuth.value = true; return }
   router.push('/quiz')
 }
+
+function openMembership() {
+  if (!isLoggedIn.value) { showAuth.value = true; return }
+  showMembership.value = true
+}
+
+async function refreshMembershipSafe() {
+  try {
+    await refreshMembership()
+    isMember.value = user.value?.membership?.tier === 'member'
+  } catch {}
+}
 </script>
 
 <style scoped>
@@ -176,6 +221,7 @@ function goQuiz() {
   display:flex;align-items:center;justify-content:center;
   font-size:13px;font-weight:700;cursor:pointer;color:#fff;
   box-shadow:0 2px 12px rgba(167,139,250,0.35);transition:all .2s;
+  position: relative;
 }
 .nav-avatar:hover{transform:scale(1.08);}
 .nav-login-btn {
@@ -185,6 +231,20 @@ function goQuiz() {
   transition:all .2s;box-shadow:0 2px 12px rgba(167,139,250,0.25);
 }
 .nav-login-btn:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(167,139,250,0.45);}
+.nav-vip-btn{
+  display:flex;align-items:center;gap:6px;
+  padding:7px 12px;border-radius:999px;
+  border:1px solid rgba(16,185,129,.35);
+  background:linear-gradient(135deg, rgba(16,185,129,.13), rgba(14,165,233,.1));
+  color:#065f46;font-size:12px;font-weight:700;
+}
+.vip-mini{width:16px;height:16px;border-radius:4px;}
+.avatar-vip-mark{
+  position:absolute;right:-6px;bottom:-6px;
+  width:15px;height:15px;border-radius:50%;
+  box-shadow:0 2px 8px rgba(15,23,42,.22);
+  background:#fff;
+}
 
 .auth-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;}
 .auth-tab{flex:1;padding:9px;text-align:center;font-size:13px;font-weight:600;color:var(--text3);

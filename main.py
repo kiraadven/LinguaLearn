@@ -50,9 +50,10 @@ class LinguaLearnGenerator:
         print("\n步骤 2/5: 分割句子...")
         print("-" * 60)
         sentences = self.splitter.split_text(text)
+        split_mapping = self.splitter.get_split_mapping()
         print(f"✓ 成功分割为 {len(sentences)} 个句子")
         sentence_timestamps = self.transcriber.align_sentences_to_timestamps(
-            audio_path, sentences, output_name
+            audio_path, sentences, output_name, split_mapping=split_mapping
         )
 
         print("\n步骤 3/5: 分析句子并识别重难点单词...")

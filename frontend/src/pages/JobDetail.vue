@@ -2,7 +2,7 @@
   <div class="jd-page">
 
     <!-- Sticky top bar -->
-    <div class="jd-topbar">
+    <div v-if="!isProcessing" class="jd-topbar">
       <button class="back-btn" @click="$router.push('/results')">← 返回</button>
       <div class="jd-title" :title="jobName">{{ jobName }}</div>
       <button class="toggle-btn" @click="transcriptOpen = !transcriptOpen" :title="transcriptOpen?'隐藏文稿':'显示文稿'">
@@ -15,9 +15,13 @@
     <div v-else-if="!job" class="jd-center"><p>任务不存在</p></div>
 
     <!-- ── Live progress view (running / queued) ── -->
-    <div v-else-if="job.status === 'running' || job.status === 'queued'" class="jd-progress-view">
-      <div class="prog-card">
-        <div class="prog-title">⚡ 处理进度</div>
+    <div v-else-if="isProcessing" class="jd-progress-view">
+      <div class="jd-create-header">
+        <h1>生成学习视频</h1>
+        <p>上传视频，配置布局与样式，AI 自动生成逐句精听视频</p>
+      </div>
+      <div class="card progress-card">
+        <div class="card-title">⚡ 处理进度</div>
         <div class="step-bar">
           <template v-for="i in 5" :key="i">
             <div :class="['step-dot', i < liveStep ? 'done' : i === liveStep ? 'active' : '']">{{ i }}</div>
@@ -35,7 +39,7 @@
           <div v-for="(l, i) in liveLogs" :key="i" :class="['log-line', logClass(l)]">{{ l }}</div>
         </div>
         <div v-if="job.status === 'running'" style="margin-top:14px;text-align:center">
-          <button class="cancel-btn" @click="cancelJob">取消任务</button>
+          <button class="btn-ghost cancel-job-btn" @click="cancelJob">取消任务</button>
         </div>
       </div>
     </div>
@@ -69,64 +73,89 @@
                 @click="togglePlay"
                 @dblclick="toggleFullscreen"
               />
+              <div class="player-scrim"></div>
               <button class="center-play" :class="{ hidden: isPlaying }" @click="togglePlay" :title="isPlaying ? '暂停' : '播放'">
                 {{ isPlaying ? '❚❚' : '▶' }}
               </button>
               <div v-if="videoError" class="video-err">⚠️ {{ videoError }}</div>
-            </div>
 
-            <div class="player-controls" @click.stop>
-              <button class="pc-btn primary" @click="togglePlay">{{ isPlaying ? '暂停' : '播放' }}</button>
+              <div class="player-controls" @click.stop>
+                <div class="pc-progress-row">
+                  <input
+                    class="pc-seek"
+                    type="range"
+                    min="0"
+                    :max="durationSec || 0"
+                    step="0.1"
+                    :value="currentTimeSec"
+                    @input="onSeekInput"
+                  />
+                </div>
 
-              <div class="pc-time">{{ fmtClock(currentTimeSec) }} / {{ fmtClock(durationSec) }}</div>
+                <div class="pc-main-row">
+                  <div class="pc-left-group">
+                    <button class="pc-icon-btn primary" @click="togglePlay" :title="isPlaying ? '暂停' : '播放'">
+                      {{ isPlaying ? '❚❚' : '▶' }}
+                    </button>
+                    <div class="pc-time">{{ fmtClock(currentTimeSec) }} / {{ fmtClock(durationSec) }}</div>
+                  </div>
 
-              <input
-                class="pc-seek"
-                type="range"
-                min="0"
-                :max="durationSec || 0"
-                step="0.1"
-                :value="currentTimeSec"
-                @input="onSeekInput"
-              />
+                  <div class="pc-right-group">
+                    <div class="pc-volume-wrap">
+                      <button class="pc-icon-btn" @click="toggleMute" :title="isMuted ? '取消静音' : '静音'">{{ volumeIcon }}</button>
+                      <input
+                        class="pc-volume"
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        :value="isMuted ? 0 : volumeLevel"
+                        @input="onVolumeInput"
+                      />
+                    </div>
 
-              <div class="pc-menu-wrap" ref="qualityMenuRef">
-                <button class="pc-btn" @click="toggleQualityMenu">
-                  {{ currentQualityLabel }}
-                </button>
-                <div v-if="showQualityMenu" class="pc-menu">
-                  <button
-                    v-for="opt in qualityOptions"
-                    :key="opt.value"
-                    :class="['pc-menu-item', { active: selectedQuality === opt.value }]"
-                    @click="switchQuality(opt.value)"
-                  >
-                    {{ opt.label }}
-                  </button>
+                    <div class="pc-menu-wrap" ref="qualityMenuRef">
+                      <button class="pc-pill-btn" @click="toggleQualityMenu" title="选择画质">
+                        {{ currentQualityLabel }}
+                      </button>
+                      <div v-if="showQualityMenu" class="pc-menu">
+                        <button
+                          v-for="opt in qualityOptions"
+                          :key="opt.value"
+                          :class="['pc-menu-item', { active: selectedQuality === opt.value }]"
+                          @click="switchQuality(opt.value)"
+                        >
+                          {{ opt.label }}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="pc-menu-wrap" ref="speedMenuRef">
+                      <button class="pc-pill-btn" @click="onSpeedButton" :title="isMember ? '播放速度' : '会员专属倍速'">
+                        {{ isMember ? currentSpeedLabel : '倍速' }}
+                      </button>
+                      <div v-if="showSpeedMenu && isMember" class="pc-menu">
+                        <button
+                          v-for="sp in speedOptions"
+                          :key="sp"
+                          :class="['pc-menu-item', { active: currentSpeed === sp }]"
+                          @click="setSpeed(sp)"
+                        >
+                          {{ sp }}x
+                        </button>
+                      </div>
+                    </div>
+
+                    <button class="pc-pill-btn" @click="onCastClick" :title="isMember ? '投屏播放' : '投屏为会员专属'">
+                      {{ isMember ? '投屏' : '投屏' }}
+                    </button>
+
+                    <button class="pc-icon-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+                      {{ isFullscreen ? '🗗' : '⛶' }}
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              <div class="pc-menu-wrap" ref="speedMenuRef">
-                <button class="pc-btn" @click="onSpeedButton">
-                  {{ isMember ? `速度 ${currentSpeed.toFixed(2).replace(/\.00$/, '')}x` : '速度（会员）' }}
-                </button>
-                <div v-if="showSpeedMenu && isMember" class="pc-menu">
-                  <button
-                    v-for="sp in speedOptions"
-                    :key="sp"
-                    :class="['pc-menu-item', { active: currentSpeed === sp }]"
-                    @click="setSpeed(sp)"
-                  >
-                    {{ sp }}x
-                  </button>
-                </div>
-              </div>
-
-              <button class="pc-btn" @click="onCastClick">
-                {{ isMember ? '投屏' : '投屏（会员）' }}
-              </button>
-
-              <button class="pc-btn" @click="toggleFullscreen">{{ isFullscreen ? '退出全屏' : '全屏' }}</button>
             </div>
           </div>
           <div class="video-meta-row">
@@ -148,7 +177,7 @@
               <div v-if="segments.length" class="sync-dot">● 实时同步</div>
               <div v-else-if="segLoading" style="font-size:11px;color:var(--text3)">加载中...</div>
             </div>
-            <div class="tc-list" @mouseover="onMdHover" @mouseleave="onMdLeave">
+            <div class="tc-list" @mouseover="onMdHover" @mouseleave="onMdLeave" @click="onWordClick">
               <div v-if="!segments.length && !segLoading" class="tc-empty">暂无文稿数据</div>
               <div v-for="(s, i) in segments" :key="i"
                    :ref="el => segRefs[i] = el"
@@ -186,6 +215,7 @@
         </div>
         <div v-if="!markdownHtml" class="md-empty">暂无学习笔记</div>
         <div v-else class="md-view" ref="mdViewRef" v-html="markdownHtml"
+             @click="onWordClick"
              @mouseover="onMdHover" @mouseout="onMdOut" @mouseleave="onMdLeave"></div>
       </div>
     </div>
@@ -251,6 +281,8 @@ const currentTimeSec = ref(0)
 const durationSec = ref(0)
 const selectedQuality = ref('auto')
 const currentSpeed = ref(1.0)
+const volumeLevel = ref(0.85)
+const isMuted = ref(false)
 const showQualityMenu = ref(false)
 const showSpeedMenu = ref(false)
 const qualityMenuRef = ref(null)
@@ -261,6 +293,7 @@ const activeSeg  = ref(-1)
 const segRefs    = ref([])
 const transcriptOpen = ref(true)
 const markdownHtml = ref('')
+const isProcessing = computed(() => job.value?.status === 'running' || job.value?.status === 'queued')
 
 const qualityOptions = [
   { value: 'auto', label: '自动' },
@@ -272,6 +305,12 @@ const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const currentQualityLabel = computed(
   () => qualityOptions.find(o => o.value === selectedQuality.value)?.label || '自动'
 )
+const currentSpeedLabel = computed(() => `${currentSpeed.value.toFixed(2).replace(/\.00$/, '')}x`)
+const volumeIcon = computed(() => {
+  if (isMuted.value || volumeLevel.value <= 0.001) return '🔇'
+  if (volumeLevel.value < 0.5) return '🔉'
+  return '🔊'
+})
 
 // ── Live progress (for running/queued jobs) ──
 const liveStep    = ref(0)
@@ -283,9 +322,9 @@ const liveLogBox  = ref(null)
 let ws = null
 
 function logClass(l) {
-  if (l.includes('✅') || l.includes('成功')) return 'log-ok'
-  if (l.includes('❌') || l.includes('错误') || l.includes('失败')) return 'log-err'
-  if (l.includes('⚠️')) return 'log-warn'
+  if (l.includes('✅') || l.includes('成功')) return 'ok'
+  if (l.includes('❌') || l.includes('错误') || l.includes('失败')) return 'err'
+  if (l.includes('⚠️')) return 'warn'
   return ''
 }
 
@@ -383,6 +422,8 @@ function onVideoMeta() {
   const v = videoEl.value
   if (!v) return
   durationSec.value = Number.isFinite(v.duration) ? v.duration : 0
+  v.volume = volumeLevel.value
+  v.muted = isMuted.value
   if (isMember.value) {
     v.playbackRate = currentSpeed.value
   } else {
@@ -397,6 +438,15 @@ function onSeekInput(e) {
   const t = Number(e?.target?.value || 0)
   v.currentTime = t
   currentTimeSec.value = t
+}
+
+function seekRelative(deltaSec) {
+  const v = videoEl.value
+  if (!v) return
+  const duration = Number.isFinite(v.duration) ? v.duration : (durationSec.value || 1e9)
+  const next = Math.max(0, Math.min(duration, (v.currentTime || 0) + deltaSec))
+  v.currentTime = next
+  currentTimeSec.value = next
 }
 
 function fmtClock(sec) {
@@ -432,6 +482,25 @@ function setSpeed(speed) {
   currentSpeed.value = speed
   if (videoEl.value) videoEl.value.playbackRate = speed
   showSpeedMenu.value = false
+}
+
+function onVolumeInput(e) {
+  const val = Number(e?.target?.value || 0)
+  volumeLevel.value = Math.max(0, Math.min(1, val))
+  isMuted.value = volumeLevel.value <= 0.001
+  const v = videoEl.value
+  if (!v) return
+  v.muted = isMuted.value
+  v.volume = volumeLevel.value
+}
+
+function toggleMute() {
+  const v = videoEl.value
+  isMuted.value = !isMuted.value
+  if (v) {
+    v.muted = isMuted.value
+    if (!isMuted.value) v.volume = volumeLevel.value
+  }
 }
 
 function switchQuality(quality) {
@@ -501,9 +570,34 @@ function handleFullscreenChange() {
   isFullscreen.value = !!container && document.fullscreenElement === container
 }
 
+function handlePlayerHotkeys(e) {
+  const active = document.activeElement
+  if (active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return
+  if (!videoEl.value || !job.value || job.value.status !== 'done') return
+
+  const key = String(e.key || '').toLowerCase()
+  if (key === ' ' || key === 'k') {
+    e.preventDefault()
+    togglePlay()
+  } else if (key === 'arrowleft' || key === 'j') {
+    e.preventDefault()
+    seekRelative(-5)
+  } else if (key === 'arrowright' || key === 'l') {
+    e.preventDefault()
+    seekRelative(5)
+  } else if (key === 'f') {
+    e.preventDefault()
+    toggleFullscreen()
+  } else if (key === 'm') {
+    e.preventDefault()
+    toggleMute()
+  }
+}
+
 onMounted(async () => {
   document.addEventListener('click', handleDocClick)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
+  document.addEventListener('keydown', handlePlayerHotkeys)
   try {
     const d = await apiFetch(`/api/jobs/${jobId}`)
     job.value = d
@@ -529,12 +623,13 @@ onUnmounted(() => {
   if (ws) { try { ws.close() } catch {} }
   document.removeEventListener('click', handleDocClick)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  document.removeEventListener('keydown', handlePlayerHotkeys)
 })
 
 async function loadSegments() {
   segLoading.value = true
   try {
-    const d = await apiFetch(`/api/jobs/${jobId}/segments`)
+    const d = await apiFetch(`/api/jobs/${jobId}/segments?_ts=${Date.now()}`)
     const list = Array.isArray(d) ? d : []
     // Wrap English words in each segment for hover dict support
     segments.value = list.map(s => ({ ...s, _html: wrapEnglishWords(`<span>${s.text || ''}</span>`).replace(/^<span>|<\/span>$/g, '') }))
@@ -666,6 +761,33 @@ function onMdLeave(e) {
   clearTimeout(showTimer)
   if (e.relatedTarget?.closest?.('.dict-tooltip')) return
   scheduleHide()
+}
+
+async function onWordClick(e) {
+  const el = e.target.closest?.('.dict-word')
+  if (!el) return
+
+  // 避免触发父层句子点击跳转
+  e.preventDefault()
+  e.stopPropagation()
+
+  clearTimeout(hideTimer)
+  clearTimeout(showTimer)
+
+  const word = (el.dataset.word || '').toLowerCase().trim()
+  if (!word) return
+
+  try {
+    // 确保 tooltip 数据已就绪（未缓存时会即时请求）
+    await triggerTooltip(word, el)
+  } catch {
+    // ignore
+  }
+
+  const url = tooltip.value.data?.audio || dictCache[word]?.audio
+  if (url) {
+    new Audio(url).play().catch(() => {})
+  }
 }
 
 function cancelHide() { clearTimeout(hideTimer) }
@@ -820,11 +942,13 @@ function fmtTime(sec) {
 /* Video column */
 .jd-video-col { display: flex; flex-direction: column; }
 .video-wrap {
-  background: linear-gradient(180deg, rgba(15,23,42,.9), rgba(2,6,23,.95));
-  border-radius: 16px;
-  border: 1px solid rgba(148,163,184,.18);
+  background:
+    radial-gradient(110% 120% at 50% -20%, rgba(255,255,255,.06), transparent 55%),
+    linear-gradient(180deg, rgba(16,18,23,.98), rgba(8,9,12,.98));
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,.08);
   overflow: hidden;
-  box-shadow: 0 16px 40px rgba(15,23,42,.22), 0 2px 10px rgba(2,6,23,.35);
+  box-shadow: 0 24px 58px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.25);
 }
 .video-wrap:fullscreen {
   border-radius: 0;
@@ -838,11 +962,21 @@ function fmtTime(sec) {
 .player-surface {
   position: relative;
   background: #000;
+  overflow: hidden;
+}
+.player-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to top, rgba(0,0,0,.55) 0%, rgba(0,0,0,.2) 22%, rgba(0,0,0,0) 42%);
+  opacity: .82;
+  z-index: 1;
 }
 .jd-video {
   width: 100%;
   display: block;
-  max-height: 520px;
+  max-height: 560px;
   object-fit: contain;
   background: #000;
   cursor: pointer;
@@ -852,12 +986,12 @@ function fmtTime(sec) {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 66px;
-  height: 66px;
+  width: 68px;
+  height: 68px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.35);
-  background: rgba(15,23,42,.48);
-  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.26);
+  background: radial-gradient(100% 100% at 30% 20%, rgba(255,255,255,.25), rgba(0,0,0,.45));
+  backdrop-filter: blur(10px);
   color: #fff;
   font-size: 22px;
   font-weight: 700;
@@ -865,74 +999,135 @@ function fmtTime(sec) {
   align-items: center;
   justify-content: center;
   opacity: .9;
+  z-index: 4;
   transition: all .2s;
+  box-shadow: 0 10px 28px rgba(2,6,23,.52), inset 0 1px 0 rgba(255,255,255,.25);
 }
 .center-play:hover {
   transform: translate(-50%, -50%) scale(1.06);
-  background: rgba(99,102,241,.45);
+  filter: brightness(1.15);
 }
 .center-play.hidden {
   opacity: 0;
   pointer-events: none;
 }
 .video-err {
-  padding: 12px;
+  position: absolute;
+  left: 14px;
+  bottom: 96px;
+  z-index: 5;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(248,113,113,.4);
   color: #fecaca;
-  font-size: 13px;
-  background: rgba(153,27,27,.52);
+  font-size: 12px;
+  background: rgba(153,27,27,.65);
 }
 
 .player-controls {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto auto auto auto;
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: linear-gradient(180deg, rgba(10,10,10,.72), rgba(10,10,10,.55));
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(0,0,0,.42);
+  padding: 8px 8px 7px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: all .22s ease;
+}
+.player-surface:hover .player-controls,
+.player-surface:focus-within .player-controls,
+.video-wrap:fullscreen .player-controls {
+  opacity: 1;
+  transform: translateY(0);
+}
+.pc-progress-row {
+  padding: 0 2px 6px;
+}
+.pc-main-row {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: linear-gradient(180deg, rgba(15,23,42,.95), rgba(15,23,42,.82));
-  border-top: 1px solid rgba(148,163,184,.15);
+  justify-content: space-between;
+  gap: 12px;
+}
+.pc-left-group,
+.pc-right-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 .pc-time {
-  font-size: 12px;
-  color: #cbd5e1;
+  font-size: 11.5px;
+  color: rgba(255,255,255,.88);
   font-variant-numeric: tabular-nums;
-  min-width: 92px;
+  letter-spacing: .18px;
+  min-width: 96px;
 }
 .pc-seek {
   width: 100%;
-  accent-color: #6366f1;
   height: 4px;
+  cursor: pointer;
+  accent-color: #ff5f57;
+  filter: drop-shadow(0 0 6px rgba(255,95,87,.3));
 }
-.pc-btn {
-  border: 1px solid rgba(148,163,184,.28);
-  background: rgba(30,41,59,.68);
-  color: #e2e8f0;
-  border-radius: 10px;
-  padding: 6px 10px;
+.pc-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.94);
   font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .16s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.pc-icon-btn:hover {
+  border-color: rgba(255,255,255,.34);
+  background: rgba(255,255,255,.18);
+  transform: translateY(-1px) scale(1.01);
+}
+.pc-icon-btn.primary {
+  border-color: rgba(255,95,87,.7);
+  background: linear-gradient(135deg, rgba(255,95,87,.72), rgba(255,149,0,.68));
+}
+.pc-pill-btn {
+  height: 30px;
+  border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.07);
+  color: rgba(255,255,255,.92);
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 11.5px;
   font-weight: 600;
   white-space: nowrap;
-  transition: all .16s;
+  transition: all .16s ease;
 }
-.pc-btn:hover {
-  border-color: rgba(99,102,241,.55);
+.pc-pill-btn:hover {
+  border-color: rgba(255,255,255,.34);
   color: #fff;
-  background: rgba(79,70,229,.28);
-}
-.pc-btn.primary {
-  border-color: rgba(99,102,241,.62);
-  background: linear-gradient(135deg, rgba(99,102,241,.45), rgba(56,189,248,.28));
+  background: rgba(255,255,255,.16);
 }
 .pc-menu-wrap { position: relative; }
 .pc-menu {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 8px);
-  min-width: 110px;
-  background: rgba(15,23,42,.96);
-  border: 1px solid rgba(148,163,184,.2);
+  bottom: calc(100% + 10px);
+  min-width: 120px;
+  background: rgba(10,10,10,.95);
+  border: 1px solid rgba(255,255,255,.18);
   border-radius: 12px;
   padding: 6px;
-  box-shadow: 0 10px 28px rgba(2,6,23,.4);
+  box-shadow: 0 12px 30px rgba(2,6,23,.52);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -949,20 +1144,45 @@ function fmtTime(sec) {
   cursor: pointer;
 }
 .pc-menu-item:hover {
-  background: rgba(99,102,241,.18);
+  background: rgba(255,255,255,.12);
   color: #fff;
 }
 .pc-menu-item.active {
-  border-color: rgba(99,102,241,.5);
-  background: rgba(99,102,241,.26);
+  border-color: rgba(255,95,87,.7);
+  background: rgba(255,95,87,.24);
   color: #fff;
+}
+.pc-volume-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pc-volume {
+  width: 84px;
+  accent-color: #fff;
+  height: 4px;
 }
 @media (max-width: 980px) {
   .player-controls {
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    opacity: 1;
+    transform: none;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    padding: 8px 8px 7px;
   }
-  .pc-seek, .pc-time { grid-column: 1 / -1; }
+  .pc-main-row { flex-wrap: wrap; gap: 8px; }
+  .pc-left-group, .pc-right-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .pc-right-group {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .pc-volume-wrap { flex: 1; min-width: 130px; }
+  .pc-volume { width: 100%; }
+  .pc-time { min-width: 92px; }
 }
 .video-meta-row {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
@@ -1255,66 +1475,136 @@ function fmtTime(sec) {
 
 /* ── Live progress view ── */
 .jd-progress-view {
-  max-width: 700px; margin: 40px auto; padding: 0 20px;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 22px 20px 30px;
 }
-.prog-card {
-  background: var(--card); border: 1px solid var(--border); border-radius: 16px;
-  padding: 32px 36px; box-shadow: var(--shadow2);
+.jd-create-header {
+  margin-bottom: 14px;
 }
-.prog-title {
-  font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 24px;
+.jd-create-header h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text);
+}
+.jd-create-header p {
+  margin: 8px 0 0;
+  color: var(--text3);
+  font-size: 14px;
+}
+.progress-card {
+  padding: 28px;
+  margin-top: 6px;
 }
 .step-bar {
-  display: flex; align-items: center; margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
 }
 .step-dot {
-  width: 32px; height: 32px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700; flex-shrink: 0;
-  background: var(--bg3); border: 2px solid var(--border); color: var(--text3);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--bg3);
+  border: 2px solid var(--border);
+  color: var(--text3);
   transition: all .3s;
 }
-.step-dot.done { background: var(--accent); border-color: var(--accent); color: #fff; }
 .step-dot.active {
-  background: rgba(99,102,241,.15); border-color: var(--accent); color: var(--accent);
-  box-shadow: 0 0 0 4px rgba(99,102,241,.2); animation: pulse-step 1.5s infinite;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 0 16px rgba(99, 102, 241, .35);
 }
-@keyframes pulse-step { 0%,100%{box-shadow:0 0 0 4px rgba(99,102,241,.2)} 50%{box-shadow:0 0 0 8px rgba(99,102,241,.05)} }
+.step-dot.done {
+  background: rgba(16, 185, 129, .1);
+  border-color: rgba(16, 185, 129, .4);
+  color: var(--ok);
+}
 .step-ln {
-  flex: 1; height: 2px; background: var(--border); transition: background .3s;
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  transition: background .3s;
 }
-.step-ln.done { background: var(--accent); }
+.step-ln.done {
+  background: linear-gradient(90deg, var(--ok), rgba(16, 185, 129, .3));
+}
 .cur-step {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 4px;
 }
 .pulse-dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
-  animation: blink 1s step-end infinite;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.5s infinite;
+  flex-shrink: 0;
 }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .55; transform: scale(1.2); }
+}
 .pbar-row {
-  display: flex; justify-content: space-between; font-size: 12px; color: var(--text2);
-  margin-bottom: 6px; font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text2);
+  margin-bottom: 6px;
+  font-weight: 600;
 }
 .pbar-track {
-  height: 6px; background: rgba(255,255,255,.06); border-radius: 3px; overflow: hidden;
+  height: 6px;
+  background: rgba(255, 255, 255, .06);
+  border-radius: 3px;
+  overflow: hidden;
 }
 .pbar-fill {
-  height: 100%; border-radius: 3px; transition: width .5s; box-shadow: 0 0 8px rgba(167,139,250,.4);
+  height: 100%;
+  border-radius: 3px;
+  transition: width .5s;
+  box-shadow: 0 0 8px rgba(167, 139, 250, .4);
 }
 .log-box {
-  margin-top: 16px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
-  padding: 12px 14px; max-height: 280px; overflow-y: auto; font-family: monospace;
-  font-size: 12px; line-height: 1.7;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 14px;
+  padding: 12px;
+  background: #1e1e2e;
+  border-radius: 8px;
+  border: 1px solid #2d2d3e;
+  font-size: 12px;
+  line-height: 1.7;
 }
-.log-line { color: var(--text2); }
-.log-line.log-ok { color: var(--ok); }
-.log-line.log-err { color: var(--err); }
-.log-line.log-warn { color: #f59e0b; }
-.cancel-btn {
-  padding: 8px 20px; border-radius: 8px; border: 1px solid rgba(248,113,113,.3);
-  background: transparent; color: var(--err); font-size: 13px; cursor: pointer; transition: all .15s;
+.log-line {
+  color: #94a3b8;
 }
-.cancel-btn:hover { background: rgba(248,113,113,.1); }
+.log-line.ok {
+  color: #10b981;
+}
+.log-line.err {
+  color: #ef4444;
+}
+.log-line.warn {
+  color: #f59e0b;
+}
+.cancel-job-btn {
+  padding: 8px 18px;
+  font-size: 13px;
+  color: var(--err);
+  border-color: rgba(248,113,113,.3);
+}
 </style>

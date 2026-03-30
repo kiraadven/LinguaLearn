@@ -111,11 +111,11 @@ _MEMBER_MAX_VIDEO_SECONDS = 30 * 60
 
 _DEFAULT_VIDEO_WATERMARK = {
     "text": "LinguaLearn",
-    "position": {"x": 0.348, "y": 0.352},   # x34.8, y35.2 (%)
-    "size": {"w": 0.18, "h": 0.06},         # w18, h6 (%)
-    "rotation": -30,
-    "opacity": 0.35,                         # 35%
-    "font_size": 90,
+    "position": {"x": 0.33, "y": 0.16},     # 居中偏上（左上角锚点）
+    "size": {"w": 0.34, "h": 0.12},         # 放大水印显示区域
+    "rotation": 30,
+    "opacity": 0.20,                         # 20%
+    "font_size": 120,
 }
 
 _MEMBERSHIP_PLAN_SETS = {
@@ -230,7 +230,11 @@ def _probe_video_duration_seconds(path: Path) -> Optional[float]:
 
 def _normalize_stream_quality(value: str) -> str:
     v = (value or "auto").strip().lower()
-    return v if v in {"auto", "1080", "720", "360"} else "auto"
+    if v in {"auto", "source", "original"}:
+        return "auto"
+    if v.endswith("p"):
+        v = v[:-1]
+    return v if v in {"1080", "720", "360"} else "auto"
 
 
 def _probe_video_height(path: Path) -> Optional[int]:
@@ -267,7 +271,8 @@ def _ensure_stream_variant(job_id: str, source_path: Path, quality: str) -> Path
 
     out_dir = OUTPUT_DIR / job_id / "_stream_variants"
     out_dir.mkdir(parents=True, exist_ok=True)
-    variant_path = out_dir / f"{source_path.stem}_{target_h}p.mp4"
+    # bump variant version to invalidate old cache files with incompatible encoding params
+    variant_path = out_dir / f"{source_path.stem}_{target_h}p_v2.mp4"
 
     if variant_path.exists():
         try:
@@ -277,14 +282,23 @@ def _ensure_stream_variant(job_id: str, source_path: Path, quality: str) -> Path
             pass
 
     tmp_path = out_dir / f"{source_path.stem}_{target_h}p_{uuid.uuid4().hex[:8]}.tmp.mp4"
-    vf = f"scale=-2:{target_h}:force_original_aspect_ratio=decrease"
+    vf = (
+        f"scale=-2:{target_h}:"
+        "flags=lanczos:"
+        "force_original_aspect_ratio=decrease"
+    )
     try:
         subprocess.run(
             [
                 _FFMPEG_BIN, "-y",
                 "-i", str(source_path),
+                "-map", "0:v:0",
+                "-map", "0:a?",
                 "-vf", vf,
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-profile:v", "high",
+                "-level", "4.1",
+                "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "128k",
                 "-movflags", "+faststart",
                 str(tmp_path),
@@ -831,9 +845,12 @@ async def process_video_job(
                                           min_words=config.MIN_SENTENCE_WORDS,
                                           source_lang=source_lang)
             sentences  = splitter.split_text(text)
+            split_mapping = splitter.get_split_mapping()
             print(f"✂️ 句子分割完成，共 {len(sentences)} 句")
             print("⏰ 开始对齐时间戳...")
-            timestamps = transcriber.align_sentences_to_timestamps(audio_path, sentences, output_name)
+            timestamps = transcriber.align_sentences_to_timestamps(
+                audio_path, sentences, output_name, split_mapping=split_mapping
+            )
             print("✅ 时间戳对齐完成")
 
             # Step 3 – analyse
@@ -910,105 +927,172 @@ async def process_video_job(
 
             # 保存含时间戳的 segments.json，供视频预览页使用
             try:
-                # 构建与 video_processor 实际使用的 parts 完全一致的列表
-                _parts_cfg = None
-
-                # 优先级1：timeline_json 模式（与 video_processor.py 110-135 行逻辑一致）
-                if timeline_json and not new_parts_config:
-                    tl_parts = timeline_json.get("parts", [])
-                    tl_elements = timeline_json.get("elements", [])
-                    elem_type_map = {e["id"]: e["type"] for e in tl_elements}
-                    _parts_cfg = []
-                    for tp in tl_parts:
-                        vis = tp.get("elementVisibility", {})
-                        show_sub = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "subtitle")
-                        show_wb  = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "wordbox")
-                        show_eb  = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "exprbox")
-                        speed = float(tp.get("speed", 1.0))
-                        _parts_cfg.append({
-                            "repeat": tp.get("repeat", 1),
-                            "slow": speed != 1.0,
-                            "speed": speed,
-                            "show_subtitle": show_sub,
-                            "show_wordbox": show_wb,
-                            "show_exprbox": show_eb,
-                        })
-                    print(f"📋 segments.json 使用 timeline_json parts: {len(_parts_cfg)} 个")
-
-                # 优先级2：new_parts_config（Form 表单模式）
-                if not _parts_cfg and new_parts_config:
-                    _parts_cfg = new_parts_config
-
-                # 优先级3：旧 config 常量（兼容旧模式）
-                if not _parts_cfg:
-                    _parts_cfg = []
-                    if getattr(config, "PART1_REPEAT_COUNT", 0) > 0:
-                        _parts_cfg.append({
-                            "repeat": config.PART1_REPEAT_COUNT, "speed": 1.0, "slow": False,
-                            "show_subtitle": getattr(config, "PART1_SHOW_SUBTITLE", False),
-                            "show_wordbox":  getattr(config, "PART1_SHOW_WORD_BOX", False),
-                            "show_exprbox":  getattr(config, "PART1_SHOW_EXPRESSION_BOX", False),
-                        })
-                    if getattr(config, "PART2_REPEAT_COUNT", 0) > 0:
-                        _parts_cfg.append({
-                            "repeat": config.PART2_REPEAT_COUNT,
-                            "speed": getattr(config, "SPEED_SLOW", 0.75), "slow": True,
-                            "show_subtitle": getattr(config, "PART2_SHOW_SUBTITLE", True),
-                            "show_wordbox":  getattr(config, "PART2_SHOW_WORD_BOX", True),
-                            "show_exprbox":  getattr(config, "PART2_SHOW_EXPRESSION_BOX", True),
-                        })
-                    if getattr(config, "PART3_REPEAT_COUNT", 0) > 0:
-                        _parts_cfg.append({
-                            "repeat": config.PART3_REPEAT_COUNT, "speed": 1.0, "slow": False,
-                            "show_subtitle": getattr(config, "PART3_SHOW_SUBTITLE", True),
-                            "show_wordbox":  getattr(config, "PART3_SHOW_WORD_BOX", True),
-                            "show_exprbox":  getattr(config, "PART3_SHOW_EXPRESSION_BOX", True),
-                        })
-                    if not _parts_cfg:
-                        _parts_cfg = [
-                            {"repeat": 1, "speed": 1.0, "slow": False,
-                             "show_subtitle": False, "show_wordbox": False, "show_exprbox": False},
-                            {"repeat": 2, "speed": 0.75, "slow": True,
-                             "show_subtitle": True,  "show_wordbox": True,  "show_exprbox": True},
-                        ]
-
-                video_cursor = 0.0
-                segs_with_text = []
-                for i, (seg, sd) in enumerate(zip(segments_info, sentences_data)):
-                    s_start = seg["start"]; s_end = seg["end"]
-                    s_next = segments_info[i+1]["start"] if i+1 < len(segments_info) else s_end
-                    seg_video_start = video_cursor  # 此句在生成视频中的起始
-                    first_overlay_start = None      # 第一个有叠加内容（字幕/词框）的 part 起始
-                    for j, part in enumerate(_parts_cfg):
-                        spd = float(part.get("speed", 1.0))
-                        is_slow = (spd != 1.0) or part.get("slow", False)
-                        if part.get("slow", False) and spd == 1.0:
-                            spd = float(getattr(config, "SPEED_SLOW", 0.75))
-                        rpt = max(1, int(part.get("repeat", 1)))
-                        raw_dur = (s_end - s_start) if is_slow else (s_next - s_start)
-                        clip_dur = raw_dur / spd
-                        has_overlay = (
-                            part.get("show_subtitle", False) or
-                            part.get("show_wordbox", False) or
-                            part.get("show_exprbox", False)
+                saved_with_real_timing = False
+                real_timing = video_paths.get("sentence_timing") if isinstance(video_paths, dict) else None
+                if isinstance(real_timing, list) and len(real_timing) == len(segments_info):
+                    segs_with_text = []
+                    for seg, sd, st in zip(segments_info, sentences_data, real_timing):
+                        seg_video_start = float(st.get("seg_start", 0.0))
+                        seg_video_end = float(st.get("seg_end", seg_video_start))
+                        first_overlay_start = st.get("first_overlay_start")
+                        jump_target = (
+                            float(first_overlay_start)
+                            if first_overlay_start is not None
+                            else seg_video_start
                         )
-                        if has_overlay and first_overlay_start is None:
-                            first_overlay_start = video_cursor
-                        video_cursor += clip_dur * rpt
-                   
-                    jump_target = seg_video_start
-                    segs_with_text.append({
-                        "start": seg["start"],
-                        "end": seg["end"],
-                        "video_start": round(jump_target, 3),       # 跳转
-                        "seg_start": round(seg_video_start, 3),     # 高亮用：句子在视频起始
-                        "seg_end": round(video_cursor, 3),           # 高亮用：句子在视频结束
-                        "text": sd.get("original_text", ""),
-                    })
-                (job_out / "segments.json").write_text(
-                    json.dumps(segs_with_text, ensure_ascii=False, indent=2), encoding='utf-8'
-                )
-                print(f"✅ segments.json 已保存: {len(segs_with_text)} 条")
+                        segs_with_text.append({
+                            "start": seg["start"],
+                            "end": seg["end"],
+                            "video_start": round(jump_target, 3),   # 跳转（真实片段时间线）
+                            "seg_start": round(seg_video_start, 3),  # 高亮起点
+                            "seg_end": round(seg_video_end, 3),      # 高亮终点
+                            "text": sd.get("original_text", ""),
+                        })
+                    (job_out / "segments.json").write_text(
+                        json.dumps(segs_with_text, ensure_ascii=False, indent=2), encoding='utf-8'
+                    )
+                    print(f"✅ segments.json 已保存(真实时长): {len(segs_with_text)} 条")
+                    saved_with_real_timing = True
+
+                if not saved_with_real_timing:
+                    # 构建与 video_processor 实际使用的 parts 完全一致的列表
+                    _parts_cfg = None
+
+                    # 优先级1：timeline_json 模式（与 video_processor.py 110-135 行逻辑一致）
+                    if timeline_json and not new_parts_config:
+                        tl_parts = timeline_json.get("parts", [])
+                        tl_elements = timeline_json.get("elements", [])
+                        elem_type_map = {e["id"]: e["type"] for e in tl_elements}
+                        _parts_cfg = []
+                        for tp in tl_parts:
+                            vis = tp.get("elementVisibility", {})
+                            show_sub = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "subtitle")
+                            show_wb  = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "wordbox")
+                            show_eb  = any(vis.get(eid) for eid, etype in elem_type_map.items() if etype == "exprbox")
+                            speed = float(tp.get("speed", 1.0))
+                            _parts_cfg.append({
+                                "repeat": tp.get("repeat", 1),
+                                "slow": speed != 1.0,
+                                "speed": speed,
+                                "show_subtitle": show_sub,
+                                "show_wordbox": show_wb,
+                                "show_exprbox": show_eb,
+                            })
+                        print(f"📋 segments.json 使用 timeline_json parts: {len(_parts_cfg)} 个")
+
+                    # 优先级2：new_parts_config（Form 表单模式）
+                    if not _parts_cfg and new_parts_config:
+                        _parts_cfg = new_parts_config
+
+                    # 优先级3：旧 config 常量（兼容旧模式）
+                    if not _parts_cfg:
+                        _parts_cfg = []
+                        if getattr(config, "PART1_REPEAT_COUNT", 0) > 0:
+                            _parts_cfg.append({
+                                "repeat": config.PART1_REPEAT_COUNT, "speed": 1.0, "slow": False,
+                                "show_subtitle": getattr(config, "PART1_SHOW_SUBTITLE", False),
+                                "show_wordbox":  getattr(config, "PART1_SHOW_WORD_BOX", False),
+                                "show_exprbox":  getattr(config, "PART1_SHOW_EXPRESSION_BOX", False),
+                            })
+                        if getattr(config, "PART2_REPEAT_COUNT", 0) > 0:
+                            _parts_cfg.append({
+                                "repeat": config.PART2_REPEAT_COUNT,
+                                "speed": getattr(config, "SPEED_SLOW", 0.75), "slow": True,
+                                "show_subtitle": getattr(config, "PART2_SHOW_SUBTITLE", True),
+                                "show_wordbox":  getattr(config, "PART2_SHOW_WORD_BOX", True),
+                                "show_exprbox":  getattr(config, "PART2_SHOW_EXPRESSION_BOX", True),
+                            })
+                        if getattr(config, "PART3_REPEAT_COUNT", 0) > 0:
+                            _parts_cfg.append({
+                                "repeat": config.PART3_REPEAT_COUNT, "speed": 1.0, "slow": False,
+                                "show_subtitle": getattr(config, "PART3_SHOW_SUBTITLE", True),
+                                "show_wordbox":  getattr(config, "PART3_SHOW_WORD_BOX", True),
+                                "show_exprbox":  getattr(config, "PART3_SHOW_EXPRESSION_BOX", True),
+                            })
+                        if not _parts_cfg:
+                            _parts_cfg = [
+                                {"repeat": 1, "speed": 1.0, "slow": False,
+                                 "show_subtitle": False, "show_wordbox": False, "show_exprbox": False},
+                                {"repeat": 2, "speed": 0.75, "slow": True,
+                                 "show_subtitle": True,  "show_wordbox": True,  "show_exprbox": True},
+                            ]
+
+                    sentence_part_mode = False
+                    if timeline_json:
+                        bind_raw = str(
+                            timeline_json.get("partBinding")
+                            or timeline_json.get("part_binding")
+                            or timeline_json.get("sentencePartMode")
+                            or ""
+                        ).strip().lower()
+                        if bind_raw in {"sentence", "per_sentence", "per-sentence", "one_to_one", "1:1", "one-to-one"}:
+                            sentence_part_mode = True
+                        elif len(_parts_cfg) == len(segments_info) and len(_parts_cfg) > 0:
+                            all_repeat_once = all(max(1, int(p.get("repeat", 1))) == 1 for p in _parts_cfg)
+                            if all_repeat_once:
+                                sentence_part_mode = True
+
+                    video_cursor = 0.0
+                    segs_with_text = []
+                    for i, (seg, sd) in enumerate(zip(segments_info, sentences_data)):
+                        s_start = float(seg["start"]); s_end = float(seg["end"])
+                        s_next = float(segments_info[i+1]["start"]) if i+1 < len(segments_info) else s_end
+                        if i > 0 and i - 1 < len(segments_info):
+                            prev_end = float(segments_info[i - 1]["end"])
+                            if s_start < prev_end:
+                                s_start = prev_end
+                        if s_next < s_end:
+                            s_end = s_next
+                        if s_end <= s_start:
+                            s_end = s_start + 0.1
+                        seg_video_start = video_cursor  # 此句在生成视频中的起始
+                        first_overlay_start = None      # 第一个有叠加内容（字幕/词框）的 part 起始
+                        if sentence_part_mode:
+                            if i < len(_parts_cfg):
+                                part_iter = [(i, _parts_cfg[i])]
+                            else:
+                                part_iter = []
+                        else:
+                            part_iter = list(enumerate(_parts_cfg))
+
+                        for j, part in part_iter:
+                            spd = float(part.get("speed", 1.0))
+                            is_slow = (spd != 1.0) or part.get("slow", False)
+                            if part.get("slow", False) and spd == 1.0:
+                                spd = float(getattr(config, "SPEED_SLOW", 0.75))
+                            rpt = max(1, int(part.get("repeat", 1)))
+                            # 与渲染规则一致：
+                            # part1 用下一句 start，其余 part 用当前句 end
+                            is_part1 = (j == 0)
+                            part_end = s_next if (is_part1 and i + 1 < len(segments_info)) else s_end
+                            if part_end <= s_start:
+                                part_end = s_end
+                            raw_dur = max(0.1, part_end - s_start)
+                            clip_dur = raw_dur / spd
+                            has_overlay = (
+                                part.get("show_subtitle", False) or
+                                part.get("show_wordbox", False) or
+                                part.get("show_exprbox", False)
+                            )
+                            if has_overlay and first_overlay_start is None:
+                                first_overlay_start = video_cursor
+                            video_cursor += clip_dur * rpt
+                       
+                        # 智能跳转优先落到“该句第一次可见”的时间点；
+                        # 若该句所有 part 都无可见叠加内容，则退回句子在视频中的起始。
+                        jump_target = first_overlay_start if first_overlay_start is not None else seg_video_start
+                        segs_with_text.append({
+                            "start": seg["start"],
+                            "end": seg["end"],
+                            "video_start": round(jump_target, 3),       # 跳转
+                            "seg_start": round(seg_video_start, 3),     # 高亮用：句子在视频起始
+                            "seg_end": round(video_cursor, 3),           # 高亮用：句子在视频结束
+                            "text": sd.get("original_text", ""),
+                        })
+                    (job_out / "segments.json").write_text(
+                        json.dumps(segs_with_text, ensure_ascii=False, indent=2), encoding='utf-8'
+                    )
+                    print(f"✅ segments.json 已保存: {len(segs_with_text)} 条")
             except Exception as e:
                 print(f"⚠️ segments.json 保存失败: {e}")
 
@@ -1016,6 +1100,16 @@ async def process_video_job(
             final_full = job_out / "学习版.mp4"
             if full_video.exists():
                 shutil.move(str(full_video), str(final_full))
+
+            # 预生成可选清晰度（完成任务前先转好，观看页可立即切换）
+            if final_full.exists():
+                try:
+                    print("🎞️ 开始预生成 720p/360p 播放版本...")
+                    for q in ("720", "360"):
+                        vp = _ensure_stream_variant(job_id, final_full, q)
+                        print(f"  ✓ {q}p: {vp.name}")
+                except Exception as _sv_e:
+                    print(f"⚠️ 预生成清晰度失败（可回退点播转码）: {_sv_e}")
 
             # 尝试自动生成视频名称（若尚未命名）
             auto_name = None
@@ -2103,14 +2197,20 @@ async def stream_file(job_id: str, filename: str, quality: str = "auto"):
 
     stream_path = file_path
     q = _normalize_stream_quality(quality)
+    applied_quality = "auto"
     if q != "auto":
         try:
             stream_path = await asyncio.to_thread(_ensure_stream_variant, job_id, file_path, q)
+            applied_quality = q
         except Exception as e:
             print(f"⚠️ 生成 {q}p 流失败，回退原视频: {e}")
             stream_path = file_path
 
-    return FileResponse(path=str(stream_path), media_type="video/mp4")
+    headers = {
+        "Cache-Control": "no-store",
+        "X-Stream-Quality": applied_quality,
+    }
+    return FileResponse(path=str(stream_path), media_type="video/mp4", headers=headers)
 
 
 @app.get("/api/jobs/{job_id}/preview/{filename}")
@@ -2267,8 +2367,9 @@ async def get_job_segments(job_id: str):
     get_job_or_404(job_id)
     path = OUTPUT_DIR / job_id / "segments.json"
     if not path.exists():
-        return []
-    return json.loads(path.read_text(encoding='utf-8'))
+        return JSONResponse(content=[], headers={"Cache-Control": "no-store"})
+    data = json.loads(path.read_text(encoding='utf-8'))
+    return JSONResponse(content=data, headers={"Cache-Control": "no-store"})
 
 
 # ============================================================

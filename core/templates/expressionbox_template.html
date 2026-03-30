@@ -58,7 +58,7 @@
 
         .expr-src-row {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: {{arrow_gap}}px;
             overflow: hidden;
         }
@@ -78,13 +78,14 @@
             white-space: normal;
             word-wrap: break-word;
             overflow-wrap: break-word;
+            flex: 1;
+            max-width: 100%;
             overflow: hidden;
-            text-overflow: ellipsis;
             line-height: {{line_height_src}};
             background-color: {{text_highlight_color}};
             border-radius: 3px;
             padding: 2px 4px;
-            display: inline-block;
+            display: block;
         }
 
         .expr-chinese {

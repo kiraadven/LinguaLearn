@@ -230,7 +230,7 @@ class SentenceSplitter:
         if not long_sentences:
             for i in range(len(nltk_sentences)):
                 self.split_mapping[i] = i
-            return [self._clean_sentence(s) for s in nltk_sentences]
+            return self._postprocess_latin_sentences([self._clean_sentence(s) for s in nltk_sentences])
 
         numbered_text = ""
         for idx, sent in enumerate(long_sentences, 1):
@@ -261,13 +261,13 @@ class SentenceSplitter:
                     self.split_mapping[output_idx] = i
                     output_idx += 1
 
-            return result
+            return self._postprocess_latin_sentences(result)
 
         except Exception as e:
             print(f"分句时出错: {e}")
             for i in range(len(nltk_sentences)):
                 self.split_mapping[i] = i
-            return [self._clean_sentence(s) for s in nltk_sentences]
+            return self._postprocess_latin_sentences([self._clean_sentence(s) for s in nltk_sentences])
 
     def get_split_mapping(self) -> dict:
         return self.split_mapping
@@ -309,6 +309,56 @@ class SentenceSplitter:
         )
 
         return response.choices[0].message.content
+
+    def _split_ellipsis_bridge(self, sentence: str) -> List[str]:
+        """
+        修复类似 “... Overnight, ...” 的桥接句误合并问题。
+        当省略号后是明显的新句开头（大写字母）时拆分。
+        """
+        s = (sentence or "").strip()
+        if not s or "..." not in s:
+            return [s] if s else []
+
+        # e.g. "Ten gunshots ... Overnight, ..."
+        parts = re.split(r'(?<=\.\.\.)\s+(?=[A-Z][a-z])', s)
+        parts = [p.strip() for p in parts if p and p.strip()]
+        if len(parts) <= 1:
+            return [s]
+
+        # 防止误拆：每段至少 3 个词
+        for p in parts:
+            wc = len(re.findall(r"\b\w+\b", p))
+            if wc < 3:
+                return [s]
+
+        return parts
+
+    def _postprocess_latin_sentences(self, sentences: List[str]) -> List[str]:
+        """
+        对拉丁语系分句做轻量后处理，避免明显的误合并。
+        同步维护 split_mapping。
+        """
+        if self.is_cjk:
+            return sentences
+
+        new_sentences: List[str] = []
+        new_mapping = {}
+
+        for out_idx, sent in enumerate(sentences):
+            origin_idx = self.split_mapping.get(out_idx, out_idx)
+            sub_parts = self._split_ellipsis_bridge(sent)
+            if not sub_parts:
+                sub_parts = [sent]
+
+            for p in sub_parts:
+                cleaned = self._clean_sentence(p)
+                if not cleaned:
+                    continue
+                new_mapping[len(new_sentences)] = origin_idx
+                new_sentences.append(cleaned)
+
+        self.split_mapping = new_mapping
+        return new_sentences
 
     def _clean_sentence(self, sentence: str) -> str:
         if not sentence:

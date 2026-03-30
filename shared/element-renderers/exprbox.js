@@ -7,6 +7,7 @@
  * canvas height so they stay readable regardless of box size.
  */
 import { getFontFamily } from '../font-registry.js'
+import { estimateTextLayout, isCJK } from '../text-layout.js'
 
 export function createExprboxNodes(element, content, containerSize) {
   const { width: cw, height: ch } = containerSize
@@ -58,12 +59,31 @@ export function createExprboxNodes(element, content, containerSize) {
   const exprFontSize  = Math.max(14, ch * 0.040) * fontScale
   const transSize     = Math.max(12, ch * 0.033) * fontScale
 
-  // Fixed single-line row height (no wrapping → no overlap)
-  const rowH = exprFontSize + transSize + 14
+  const exprLineHeight = 1.22
+  const transLineHeight = 1.18
+  const minRowPad = 4
   let curY = padding
 
   expressions.forEach((item) => {
-    if (curY + rowH > h - 4) return   // small buffer for clip boundary; no longer requires a full padding gap at bottom
+    const exprText = item.english || item.expression || ''
+    const transTextRaw = item.chinese || item.translation || ''
+    const transText = transTextRaw ? `› ${transTextRaw}` : ''
+
+    // Measure wrapped heights first so Chinese always starts AFTER English block.
+    const exprLayout = estimateTextLayout(exprText, exprFontSize, innerW)
+    const exprLines = Math.max(1, Math.min(3, exprLayout.lineCount))
+    const exprH = exprLines * exprFontSize * exprLineHeight
+
+    let transH = 0
+    let transLines = 0
+    if (transText) {
+      const transLayout = estimateTextLayout(transText, transSize, innerW - 4)
+      transLines = Math.max(1, Math.min(3, transLayout.lineCount))
+      transH = transLines * transSize * transLineHeight
+    }
+
+    const rowH = exprH + (transH > 0 ? (minRowPad + transH) : 0)
+    if (curY + rowH > h - 4) return   // small buffer for clip boundary
 
     // Expression (bold, single line with ellipsis to prevent overlap)
     nodes.push({
@@ -71,33 +91,33 @@ export function createExprboxNodes(element, content, containerSize) {
       config: {
         x: padding, y: curY,
         width: innerW,
-        text: item.english || item.expression || '',
+        text: exprText,
         fontSize: exprFontSize,
         fontFamily,
         fontStyle: 'bold',
         fill: style.expressionColor || style.accentColor || '#f472b6',
-        wrap: 'none',
-        ellipsis: true,
+        wrap: isCJK(exprText) ? 'char' : 'word',
+        lineHeight: exprLineHeight,
       },
     })
-    curY += exprFontSize + 4
+    curY += exprH + minRowPad
 
-    // Translation (single line with ellipsis)
-    if (item.chinese || item.translation) {
+    // Translation block starts below English wrapped block to avoid overlap.
+    if (transText) {
       nodes.push({
         type: 'Text',
         config: {
           x: padding + 4, y: curY,
           width: innerW - 4,
-          text: `› ${item.chinese || item.translation || ''}`,
+          text: transText,
           fontSize: transSize,
           fontFamily,
           fill: style.translationColor || '#94a3b8',
-          wrap: 'none',
-          ellipsis: true,
+          wrap: isCJK(transTextRaw) ? 'char' : 'word',
+          lineHeight: transLineHeight,
         },
       })
-      curY += transSize + 4
+      curY += transH
     }
 
     // Gap between expressions

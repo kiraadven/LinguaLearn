@@ -159,9 +159,39 @@ class VideoProcessor:
         if not parts_config:
             parts_config = self._legacy_parts_config()
 
+        # one-sentence-one-part 模式：每个句子只绑定同索引 part，而不是句子×part 全组合
+        sentence_part_mode = False
+        if use_konva and timeline_json:
+            bind_raw = str(
+                timeline_json.get("partBinding")
+                or timeline_json.get("part_binding")
+                or timeline_json.get("sentencePartMode")
+                or ""
+            ).strip().lower()
+            if bind_raw in {"sentence", "per_sentence", "per-sentence", "one_to_one", "1:1", "one-to-one"}:
+                sentence_part_mode = True
+            else:
+                # 自动判定：part 数量与句子数量一致且 repeat 全为 1，默认按一一绑定处理
+                if len(parts_config) == len(sentences_data) and len(parts_config) > 0:
+                    all_repeat_once = all(max(1, int(p.get("repeat", 1))) == 1 for p in parts_config)
+                    if all_repeat_once:
+                        sentence_part_mode = True
+
+        # Part 时间切片策略（固定规则）：
+        # - part1：句子结束时间取下一句 start（保证连贯）
+        # - 其余 part：句子结束时间取当前句 end（保证精确）
+
         # 计算总 clip 数（用于进度）
-        total_clips = len(sentences_data) * sum(p.get("repeat", 1) for p in parts_config)
+        if sentence_part_mode:
+            total_clips = sum(
+                max(1, int(parts_config[i].get("repeat", 1)))
+                for i in range(min(len(parts_config), len(sentences_data)))
+            )
+        else:
+            total_clips = len(sentences_data) * sum(p.get("repeat", 1) for p in parts_config)
         done_clips  = 0
+        timeline_cursor = 0.0
+        sentence_timing: List[Dict] = []
 
         # 临时目录
         job_tmp = Path(config.TEMP_DIR) / f"vp_{uuid.uuid4().hex[:8]}"
@@ -171,7 +201,7 @@ class VideoProcessor:
         mode_name = 'Konva (konva-node)' if use_konva else ('PNG overlay' if use_png_overlay else 'ASS字幕')
         print(f"[VideoProcessor] 🎬 开始处理 {len(sentences_data)} 句话，"
               f"{len(parts_config)} 个 Part，共约 {total_clips} 个片段，"
-              f"渲染模式={mode_name}")
+              f"渲染模式={mode_name}，sentence_part_mode={sentence_part_mode}")
 
         try:
             # ── Konva 模式：批量预渲染所有句子的 PNG（一次 Node.js 调用）──
@@ -198,9 +228,19 @@ class VideoProcessor:
                     return {"cancelled": True}
 
                 seg      = segs[i] if i < len(segs) else {}
-                start    = seg.get("start", 0.0)
-                end      = seg.get("end",   start + 5.0)
-                next_start = segs[i + 1].get("start", end) if i + 1 < len(segs) else end
+                start    = float(seg.get("start", 0.0))
+                end      = float(seg.get("end",   start + 5.0))
+                next_start = float(segs[i + 1].get("start", end)) if i + 1 < len(segs) else end
+
+                # 边界修正：防止分段异常造成重叠或负时长
+                if i > 0 and i - 1 < len(segs):
+                    prev_end = float(segs[i - 1].get("end", start))
+                    if start < prev_end:
+                        start = prev_end
+                if next_start < end:
+                    end = next_start
+                if end <= start:
+                    end = start + 0.1
 
                 # ── 提前为本句生成 PNG（每句只生成一次，多个 Part 复用）──
                 # Konva new format: {part_id: {element_id: (png_path, x_px, y_px)}}
@@ -261,8 +301,18 @@ class VideoProcessor:
 
                 # ASS 模式缓存（降级路径）
                 ass_cache: Dict[tuple, str] = {}
+                seg_video_start = timeline_cursor
+                first_overlay_start = None
 
-                for part in parts_config:
+                if sentence_part_mode:
+                    if i >= len(parts_config):
+                        print(f"[VideoProcessor] ⚠️ 句子 {i+1} 无对应 Part，跳过")
+                        continue
+                    part_iter = [(i, parts_config[i])]
+                else:
+                    part_iter = list(enumerate(parts_config))
+
+                for pidx, part in part_iter:
                     if cancelled_fn and cancelled_fn():
                         return {"cancelled": True}
 
@@ -276,17 +326,21 @@ class VideoProcessor:
                     show_wb   = part.get("show_wordbox", False)
                     show_eb   = part.get("show_exprbox", False)
 
-                    # Part 使用的时间段
-                    seg_end  = end if is_slow else next_start
-                    raw_dur  = seg_end - start
+                    # Part 使用的时间段：
+                    # part1 用下一句 start，其余 part 用当前句 end
+                    is_part1 = (pidx == 0)
+                    seg_end = next_start if (is_part1 and i + 1 < len(segs)) else end
+                    if seg_end <= start:
+                        seg_end = end
+                    raw_dur = max(0.1, seg_end - start)
 
                     # ── 1. 提取原始片段（-c copy 快速模式）──
-                    raw_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_raw.mp4")
+                    raw_path = str(job_tmp / f"s{i:04d}_p{pidx}_raw.mp4")
                     self._extract_segment(video_path, start, seg_end, raw_path)
 
                     # ── 2. 变速（如需）──
                     if is_slow:
-                        slow_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_slow.mp4")
+                        slow_path = str(job_tmp / f"s{i:04d}_p{pidx}_slow.mp4")
                         self._apply_slowdown(raw_path, speed, slow_path)
                         base_clip = slow_path
                         clip_dur  = raw_dur / speed
@@ -317,7 +371,6 @@ class VideoProcessor:
                             else:
                                 # Fallback: align by part order if no explicit timeline part id.
                                 part_dict_keys = [k for k, v in sent_pngs.items() if isinstance(v, dict)]
-                                pidx = parts_config.index(part)
                                 fallback_key = part_dict_keys[pidx] if pidx < len(part_dict_keys) else None
                                 part_pngs = sent_pngs.get(fallback_key, {}) if fallback_key else {}
                             for elem_id, png_info in part_pngs.items():
@@ -325,7 +378,9 @@ class VideoProcessor:
                                     overlays.append(png_info)
 
                         if overlays:
-                            burned_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_burned.mp4")
+                            if first_overlay_start is None and (show_sub or show_wb or show_eb):
+                                first_overlay_start = timeline_cursor
+                            burned_path = str(job_tmp / f"s{i:04d}_p{pidx}_burned.mp4")
                             self._render_with_overlays(
                                 base_clip, overlays, burned_path,
                                 frame_w if need_rescale else None,
@@ -334,7 +389,7 @@ class VideoProcessor:
                             final_clip = burned_path
                         else:
                             if need_rescale:
-                                norm_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_norm.mp4")
+                                norm_path = str(job_tmp / f"s{i:04d}_p{pidx}_norm.mp4")
                                 self._normalize_resolution(base_clip, frame_w, frame_h, norm_path)
                                 final_clip = norm_path
                             else:
@@ -351,7 +406,9 @@ class VideoProcessor:
                             overlays.append(sent_pngs['exprbox'])
 
                         if overlays:
-                            burned_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_burned.mp4")
+                            if first_overlay_start is None and (show_sub or show_wb or show_eb):
+                                first_overlay_start = timeline_cursor
+                            burned_path = str(job_tmp / f"s{i:04d}_p{pidx}_burned.mp4")
                             self._render_with_overlays(
                                 base_clip, overlays, burned_path,
                                 frame_w if need_rescale else None,
@@ -360,7 +417,7 @@ class VideoProcessor:
                             final_clip = burned_path
                         else:
                             if need_rescale:
-                                norm_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_norm.mp4")
+                                norm_path = str(job_tmp / f"s{i:04d}_p{pidx}_norm.mp4")
                                 self._normalize_resolution(base_clip, frame_w, frame_h, norm_path)
                                 final_clip = norm_path
                             else:
@@ -383,12 +440,14 @@ class VideoProcessor:
                                 show_exprbox     = show_eb,
                                 animation        = animation,
                             )
-                            ass_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}.ass")
+                            ass_path = str(job_tmp / f"s{i:04d}_p{pidx}.ass")
                             ass_gen.write_to_file(ass_content, ass_path)
                             ass_cache[show_key] = ass_path
 
                         if need_overlay:
-                            burned_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_burned.mp4")
+                            if first_overlay_start is None and (show_sub or show_wb or show_eb):
+                                first_overlay_start = timeline_cursor
+                            burned_path = str(job_tmp / f"s{i:04d}_p{pidx}_burned.mp4")
                             self._burn_ass(
                                 base_clip, ass_cache[show_key], burned_path,
                                 frame_w if need_rescale else None,
@@ -397,15 +456,19 @@ class VideoProcessor:
                             final_clip = burned_path
                         else:
                             if need_rescale:
-                                norm_path = str(job_tmp / f"s{i:04d}_p{parts_config.index(part)}_norm.mp4")
+                                norm_path = str(job_tmp / f"s{i:04d}_p{pidx}_norm.mp4")
                                 self._normalize_resolution(base_clip, frame_w, frame_h, norm_path)
                                 final_clip = norm_path
                             else:
                                 final_clip = base_clip
 
+                    # 使用最终片段真实时长，避免估算累计误差造成跳转滞后
+                    actual_clip_dur = self._probe_duration_seconds(final_clip) or clip_dur
+
                     # ── 4. 按 repeat 次数加入拼接列表 ──
                     for _ in range(repeat):
                         all_clip_paths.append(final_clip)
+                    timeline_cursor += actual_clip_dur * repeat
 
                     done_clips += repeat
                     if progress_callback:
@@ -414,6 +477,11 @@ class VideoProcessor:
                             "current": i + 1, "total": len(sentences_data), "pct": pct
                         })
 
+                sentence_timing.append({
+                    "seg_start": seg_video_start,
+                    "seg_end": timeline_cursor,
+                    "first_overlay_start": first_overlay_start,
+                })
                 print(f"  ✓ 句子 {i+1}/{len(sentences_data)}")
 
             if cancelled_fn and cancelled_fn():
@@ -441,11 +509,11 @@ class VideoProcessor:
                 if (not use_konva) or (not has_timeline_watermark):
                     watermark_cfg = forced_watermark or {
                         "text": "LinguaLearn",
-                        "position": {"x": 0.348, "y": 0.352},
-                        "size": {"w": 0.18, "h": 0.06},
-                        "rotation": -30,
+                        "position": {"x": 0.33, "y": 0.16},
+                        "size": {"w": 0.34, "h": 0.12},
+                        "rotation": 30,
                         "opacity": 0.35,
-                        "font_size": 90,
+                        "font_size": 120,
                     }
             print(
                 f"[VideoProcessor] 💧 watermark route: tier={membership_tier}, "
@@ -470,7 +538,7 @@ class VideoProcessor:
                 progress_callback("write", {"pct": 100})
 
             print("[VideoProcessor] ✅ 视频处理完成")
-            return {"full": full_output_path}
+            return {"full": full_output_path, "sentence_timing": sentence_timing}
 
         finally:
             # 清理临时文件
@@ -482,15 +550,23 @@ class VideoProcessor:
 
     @staticmethod
     def _extract_segment(src: str, start: float, end: float, out: str) -> None:
-        """提取片段（-c copy，毫秒级，无重编码）"""
+        """
+        精确提取片段。
+
+        说明：
+        - 之前使用 `-ss before -i + -c copy`，会按关键帧切，导致片段起点可能落在更早位置，
+          体感就是“下一句开头重复上一句后半段”。
+        - 这里改为精确切片（解码后再编码），确保句子边界与时间戳一致。
+        """
         duration = max(0.1, end - start)
         subprocess.run([
             _FFMPEG, "-y",
+            "-i",  src,
             "-ss", f"{start:.3f}",
             "-t",  f"{duration:.3f}",
-            "-i",  src,
-            "-c",  "copy",
-            "-avoid_negative_ts", "make_zero",
+            "-c:v", "libx264", "-preset", "superfast", "-crf", "23",
+            "-c:a", "aac", "-ar", "44100",
+            "-movflags", "+faststart",
             out,
         ], check=True, capture_output=True)
 
@@ -623,6 +699,21 @@ class VideoProcessor:
             return None, None
 
     @staticmethod
+    def _probe_duration_seconds(video_path: str) -> Optional[float]:
+        """读取媒体时长（秒）。"""
+        try:
+            result = subprocess.run([
+                _FFPROBE, "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path,
+            ], capture_output=True, text=True, check=True)
+            v = (result.stdout or "").strip()
+            return float(v) if v else None
+        except Exception:
+            return None
+
+    @staticmethod
     def _build_atempo_chain(speed: float) -> str:
         """构建 atempo 过滤链（atempo 范围 0.5–2.0，链式处理极端速度）"""
         filters = []
@@ -662,8 +753,8 @@ class VideoProcessor:
             wm_text = str(watermark_cfg.get("text", "LinguaLearn")).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
             wm_opacity = float(watermark_cfg.get("opacity", 0.35))
             wm_size = int(watermark_cfg.get("font_size", max(16, int(min(frame_w, frame_h) * 0.04))))
-            x_pct = float((watermark_cfg.get("position") or {}).get("x", 0.348))
-            y_pct = float((watermark_cfg.get("position") or {}).get("y", 0.352))
+            x_pct = float((watermark_cfg.get("position") or {}).get("x", 0.33))
+            y_pct = float((watermark_cfg.get("position") or {}).get("y", 0.16))
             wm_x = int(frame_w * x_pct)
             wm_y = int(frame_h * y_pct)
             # drawtext 不支持直接旋转；Konva 模式下默认走时间线水印（支持旋转）

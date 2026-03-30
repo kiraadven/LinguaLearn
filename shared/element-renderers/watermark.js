@@ -6,6 +6,26 @@
  */
 import { getFontFamily } from '../font-registry.js'
 
+function estimateCharWidthFactor(text) {
+  if (!text) return 0.56
+  const cjkRe = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/
+  return cjkRe.test(text) ? 1.0 : 0.56
+}
+
+function fitFontSizeToBox(text, requestedFontSize, boxW, boxH) {
+  const safeText = String(text || '')
+  const req = Math.max(1, Number(requestedFontSize || 1))
+  const widthFactor = estimateCharWidthFactor(safeText)
+  const textLen = Math.max(1, safeText.length)
+
+  // width ≈ fontSize * widthFactor * textLen
+  const maxByWidth = Math.max(8, (boxW - 4) / (widthFactor * textLen))
+  // lineHeight = 1.3 * fontSize
+  const maxByHeight = Math.max(8, (boxH - 4) / 1.3)
+
+  return Math.max(8, Math.min(req, maxByWidth, maxByHeight))
+}
+
 export function createWatermarkNodes(element, _content, containerSize) {
   const { width: cw, height: ch } = containerSize
   const style = element.style || {}
@@ -17,7 +37,7 @@ export function createWatermarkNodes(element, _content, containerSize) {
 
   const fontFamily = getFontFamily(style.fontFamily || 'system')
   const text = style.text || 'LinguaLearn'
-  const fontSize = style.fontSize || Math.max(12, ch * 0.02)
+  const requestedFontSize = style.fontSize || Math.max(12, ch * 0.02)
   const color = style.color || '#ffffff'
   const strokeColor = style.strokeColor || 'rgba(0,0,0,0.3)'
   const strokeWidth = style.strokeWidth || 0
@@ -25,6 +45,7 @@ export function createWatermarkNodes(element, _content, containerSize) {
   // Strict box size from timeline preset (percentage of canvas).
   const w = Math.max(1, size.w * cw)
   const h = Math.max(1, size.h * ch)
+  const fontSize = fitFontSizeToBox(text, requestedFontSize, w, h)
 
   const nodes = []
 
@@ -43,7 +64,7 @@ export function createWatermarkNodes(element, _content, containerSize) {
       align: 'center',
       verticalAlign: 'middle',
       wrap: 'none',
-      ellipsis: true,
+      ellipsis: false,
     },
   })
 

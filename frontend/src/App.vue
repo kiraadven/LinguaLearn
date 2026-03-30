@@ -9,15 +9,16 @@
   <!-- Nav -->
   <nav class="nav">
     <span class="nav-logo" @click="$router.push('/')">🎓 LinguaLearn</span>
-    <button class="nav-btn" :class="{active:$route.path==='/'}" @click="$router.push('/')">首页</button>
-    <button class="nav-btn" :class="{active:$route.path==='/create'}" @click="goCreate">生成视频</button>
-    <button class="nav-btn" :class="{active:$route.path==='/results'}" @click="$router.push('/results')">学习结果</button>
-    <button class="nav-btn" :class="{active:$route.path==='/quiz'}" @click="goQuiz">成果自测</button>
+    <button class="nav-btn" :class="{active:$route.path==='/'}" @click="$router.push('/')">{{ t.nav_home }}</button>
+    <button class="nav-btn" :class="{active:$route.path==='/create'}" @click="goCreate">{{ t.nav_create }}</button>
+    <button class="nav-btn" :class="{active:$route.path==='/results'}" @click="$router.push('/results')">{{ t.nav_results }}</button>
+    <button class="nav-btn" :class="{active:$route.path==='/quiz'}" @click="goQuiz">{{ t.nav_quiz }}</button>
     <div class="nav-spacer"></div>
     <div style="display:flex;align-items:center;gap:10px">
+      <button class="nav-btn" @click="openLanguagePicker">{{ t.nav_language_settings }}</button>
       <button class="nav-vip-btn" @click="openMembership">
         <img src="/premium-badge.svg" alt="VIP" class="vip-mini">
-        会员
+        {{ isMember ? t.nav_manage_membership : t.nav_upgrade_membership }}
       </button>
       <template v-if="user">
         <div class="nav-avatar" @click="$router.push('/profile')" :title="user.name||user.email">
@@ -27,7 +28,7 @@
         </div>
       </template>
       <template v-else>
-        <button class="nav-login-btn" @click="showAuth=true">登录 / 注册</button>
+        <button class="nav-login-btn" @click="showAuth=true">{{ t.nav_login_register }}</button>
       </template>
     </div>
   </nav>
@@ -46,43 +47,73 @@
     <div v-if="showAuth" class="modal-overlay" @click.self="showAuth=false">
       <div class="modal-box">
         <button class="modal-close" @click="showAuth=false">✕</button>
-        <div style="font-size:22px;font-weight:800;margin-bottom:4px;color:var(--text)">欢迎回来</div>
-        <div style="font-size:13px;color:var(--text3);margin-bottom:24px">登录或注册你的账号</div>
+        <div style="font-size:22px;font-weight:800;margin-bottom:4px;color:var(--text)">{{ t.auth_welcome }}</div>
+        <div style="font-size:13px;color:var(--text3);margin-bottom:24px">{{ t.auth_login_or_register_desc }}</div>
         <div class="auth-tabs">
-          <button :class="['auth-tab',{active:authTab==='login'}]" @click="authTab='login'">登录</button>
-          <button :class="['auth-tab',{active:authTab==='reg'}]" @click="authTab='reg'">注册</button>
+          <button :class="['auth-tab',{active:authTab==='login'}]" @click="authTab='login'">{{ t.auth_login }}</button>
+          <button :class="['auth-tab',{active:authTab==='reg'}]" @click="authTab='reg'">{{ t.auth_register }}</button>
         </div>
         <!-- Login -->
         <div v-if="authTab==='login'">
-          <label class="label">邮箱</label>
+          <label class="label">{{ t.auth_email }}</label>
           <input class="input" v-model="loginEmail" placeholder="you@example.com" type="email" style="margin-bottom:12px">
-          <label class="label">密码</label>
-          <input class="input" v-model="loginPw" placeholder="密码" type="password" style="margin-bottom:16px" @keyup.enter="doLogin">
+          <label class="label">{{ t.auth_password }}</label>
+          <input class="input" v-model="loginPw" :placeholder="t.auth_password" type="password" style="margin-bottom:16px" @keyup.enter="doLogin">
           <div v-if="loginErr" style="font-size:13px;color:var(--err);margin-bottom:12px">{{ loginErr }}</div>
           <button class="btn-primary" style="width:100%" :disabled="loginLoading" @click="doLogin">
-            {{ loginLoading ? '登录中...' : '登录' }}
+            {{ loginLoading ? t.auth_logging_in : t.auth_login_btn }}
           </button>
         </div>
         <!-- Register -->
         <div v-else>
-          <label class="label">邮箱</label>
+          <label class="label">{{ t.auth_email }}</label>
           <input class="input" v-model="regEmail" placeholder="you@example.com" type="email" style="margin-bottom:12px">
-          <label class="label">昵称</label>
-          <input class="input" v-model="regName" placeholder="你的昵称" style="margin-bottom:12px">
-          <label class="label">密码</label>
-          <input class="input" v-model="regPw" placeholder="至少6位" type="password" style="margin-bottom:12px">
-          <label class="label">验证码</label>
+          <label class="label">{{ t.auth_nickname }}</label>
+          <input class="input" v-model="regName" :placeholder="t.auth_nickname" style="margin-bottom:12px">
+          <label class="label">{{ t.auth_password }}</label>
+          <input class="input" v-model="regPw" :placeholder="t.auth_password_hint" type="password" style="margin-bottom:12px">
+          <label class="label">{{ t.auth_code }}</label>
           <div style="display:flex;gap:8px;margin-bottom:16px">
-            <input class="input" v-model="regCode" placeholder="6位验证码" style="flex:1;margin-bottom:0">
+            <input class="input" v-model="regCode" :placeholder="t.auth_code_hint" style="flex:1;margin-bottom:0">
             <button class="btn-ghost" style="padding:10px 14px;white-space:nowrap" :disabled="codeSent" @click="doSendCode">
-              {{ codeSent ? `${codeCountdown}s` : '获取验证码' }}
+              {{ codeSent ? `${codeCountdown}s` : t.auth_get_code }}
             </button>
           </div>
           <div v-if="regErr" style="font-size:13px;color:var(--err);margin-bottom:12px">{{ regErr }}</div>
           <button class="btn-primary" style="width:100%" :disabled="regLoading" @click="doRegister">
-            {{ regLoading ? '注册中...' : '创建账号' }}
+            {{ regLoading ? t.auth_registering : t.auth_create_account }}
           </button>
         </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Initial language setup -->
+  <Teleport to="body">
+    <div v-if="showLanguagePicker" class="modal-overlay">
+      <div class="modal-box">
+        <button v-if="hasSavedLanguagePrefs" class="modal-close" @click="showLanguagePicker=false">✕</button>
+        <div style="font-size:22px;font-weight:800;margin-bottom:6px;color:var(--text)">{{ t.lang_pref_title }}</div>
+        <div style="font-size:13px;color:var(--text3);margin-bottom:20px">{{ t.lang_pref_desc }}</div>
+
+        <label class="label">{{ t.lang_pref_native }}</label>
+        <select class="input" v-model="familiarLang" style="margin-bottom:14px">
+          <option v-for="lang in familiarLanguageOptions" :key="`familiar-${lang.code}`" :value="lang.code">
+            {{ lang.flag }} {{ lang.native_name }}
+          </option>
+        </select>
+
+        <label class="label">{{ t.lang_pref_learning }}</label>
+        <select class="input" v-model="learningLang" style="margin-bottom:16px">
+          <option v-for="lang in learningLanguageOptions" :key="`learning-${lang.code}`" :value="lang.code">
+            {{ lang.flag }} {{ lang.native_name }}
+          </option>
+        </select>
+
+        <div v-if="languagePrefError" style="font-size:13px;color:var(--err);margin-bottom:12px">{{ languagePrefError }}</div>
+        <button class="btn-primary" style="width:100%" @click="saveLanguagePreferences">
+          {{ t.lang_pref_confirm }}
+        </button>
       </div>
     </div>
   </Teleport>
@@ -103,23 +134,125 @@
 </template>
 
 <script setup>
-import { ref, provide, onMounted, watch } from 'vue'
+import { ref, computed, provide, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from './composables/useAuth.js'
+import { apiFetch } from './composables/useApi.js'
+import { useI18n } from './i18n.js'
 import { useToast } from './composables/useToast.js'
 import MembershipModal from './components/MembershipModal.vue'
 
 const router = useRouter()
 const { user, isLoggedIn, checkAuth, login, register, sendCode, refreshMembership } = useAuth()
 const { toasts, toast } = useToast()
+const { uiLang, t, setLang, SUPPORTED_LANGS } = useI18n()
+
+const FALLBACK_LANGS = [
+  { code: 'en', native_name: 'English', flag: '🇺🇸' },
+  { code: 'zh-Hans', native_name: '中文（简体）', flag: '🇨🇳' },
+  { code: 'zh-Hant', native_name: '中文（繁體）', flag: '🇭🇰' },
+  { code: 'ja', native_name: '日本語', flag: '🇯🇵' },
+  { code: 'ko', native_name: '한국어', flag: '🇰🇷' },
+  { code: 'de', native_name: 'Deutsch', flag: '🇩🇪' },
+  { code: 'fr', native_name: 'Français', flag: '🇫🇷' },
+  { code: 'es', native_name: 'Español', flag: '🇪🇸' },
+  { code: 'ru', native_name: 'Русский', flag: '🇷🇺' },
+]
 
 const showAuth = ref(false)
 const showMembership = ref(false)
 const authTab  = ref('login')
 const isMember = ref(false)
+const languageOptions = ref(FALLBACK_LANGS)
+const showLanguagePicker = ref(false)
+const hasSavedLanguagePrefs = ref(false)
+const familiarLang = ref('zh-Hans')
+const learningLang = ref('en')
+const languagePrefError = ref('')
+
+const familiarLanguageOptions = computed(() =>
+  languageOptions.value.filter(lang => SUPPORTED_LANGS.includes(lang.code))
+)
+
+const learningLanguageOptions = computed(() => languageOptions.value)
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
+
+function detectPreferredLanguage() {
+  if (typeof navigator === 'undefined') return 'zh-Hans'
+  const candidates = [navigator.language, ...(navigator.languages || [])]
+  for (const candidate of candidates) {
+    const raw = String(candidate || '').toLowerCase()
+    if (raw.startsWith('zh')) {
+      if (raw.includes('tw') || raw.includes('hk') || raw.includes('mo') || raw.includes('hant')) {
+        return 'zh-Hant'
+      }
+      return 'zh-Hans'
+    }
+    const code = raw.split('-')[0]
+    if (SUPPORTED_LANGS.includes(code)) return code
+  }
+  return 'zh-Hans'
+}
+
+function defaultLearningLanguage(familiar) {
+  return familiar === 'en' ? 'zh-Hans' : 'en'
+}
+
+function getLearningLanguageSet() {
+  const byApi = languageOptions.value.map(item => item.code).filter(Boolean)
+  const byFallback = FALLBACK_LANGS.map(item => item.code)
+  return new Set([...byFallback, ...byApi])
+}
+
+async function loadLanguageOptions() {
+  try {
+    const data = await apiFetch('/api/languages')
+    if (Array.isArray(data.languages) && data.languages.length) {
+      languageOptions.value = data.languages
+    }
+  } catch {}
+}
+
+function initLanguagePreferences() {
+  const storedFamiliar = localStorage.getItem('ll_familiar_lang')
+  const storedLearning = localStorage.getItem('ll_learning_lang')
+  const familiarValid = storedFamiliar && SUPPORTED_LANGS.includes(storedFamiliar)
+  const learningValid = storedLearning && getLearningLanguageSet().has(storedLearning)
+
+  familiarLang.value = familiarValid ? storedFamiliar : detectPreferredLanguage()
+  learningLang.value = learningValid ? storedLearning : defaultLearningLanguage(familiarLang.value)
+  if (learningLang.value === familiarLang.value) {
+    learningLang.value = defaultLearningLanguage(familiarLang.value)
+  }
+
+  setLang(familiarLang.value)
+  hasSavedLanguagePrefs.value = Boolean(familiarValid && learningValid && storedFamiliar !== storedLearning)
+  showLanguagePicker.value = !hasSavedLanguagePrefs.value
+}
+
+function saveLanguagePreferences() {
+  languagePrefError.value = ''
+  if (familiarLang.value === learningLang.value) {
+    languagePrefError.value = tr('lang_pref_error_same', 'These two languages must be different.')
+    return
+  }
+  localStorage.setItem('ll_familiar_lang', familiarLang.value)
+  localStorage.setItem('ll_learning_lang', learningLang.value)
+  setLang(familiarLang.value)
+  hasSavedLanguagePrefs.value = true
+  showLanguagePicker.value = false
+}
+
+function openLanguagePicker() {
+  showLanguagePicker.value = true
+}
 
 provide('auth',  { user, isLoggedIn, checkAuth })
 provide('toast', toast)
+provide('languagePrefs', { familiarLang, learningLang })
 provide('openAuth', () => { showAuth.value = true })
 provide('openMembership', () => {
   if (!isLoggedIn.value) { showAuth.value = true; return }
@@ -127,18 +260,31 @@ provide('openMembership', () => {
 })
 
 onMounted(async () => {
+  await loadLanguageOptions()
+  initLanguagePreferences()
   await checkAuth()
   isMember.value = user.value?.membership?.tier === 'member'
   if (location.hash.includes('membership=success')) {
     try {
       await refreshMembership()
-      toast('支付成功，会员状态已刷新', 'ok')
+      toast(tr('payment_success_refreshed', 'Payment successful, membership refreshed'), 'ok')
     } catch {}
   }
 })
 watch(user, () => {
   isMember.value = user.value?.membership?.tier === 'member'
 }, { deep: true })
+watch(uiLang, (lang) => {
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute('lang', lang)
+  }
+}, { immediate: true })
+watch(familiarLang, () => {
+  languagePrefError.value = ''
+})
+watch(learningLang, () => {
+  languagePrefError.value = ''
+})
 
 // Login state
 const loginEmail = ref(''); const loginPw = ref('')
@@ -146,13 +292,13 @@ const loginErr   = ref(''); const loginLoading = ref(false)
 
 async function doLogin() {
   loginErr.value = ''
-  if (!loginEmail.value || !loginPw.value) { loginErr.value = '请填写邮箱和密码'; return }
+  if (!loginEmail.value || !loginPw.value) { loginErr.value = tr('auth_fill_email_password', 'Please enter email and password'); return }
   loginLoading.value = true
   try {
     await login(loginEmail.value, loginPw.value)
     isMember.value = user.value?.membership?.tier === 'member'
     showAuth.value = false
-    toast('登录成功 🎉', 'ok')
+    toast(tr('auth_login_success', 'Logged in successfully 🎉'), 'ok')
   } catch(e) { loginErr.value = e.message }
   finally { loginLoading.value = false }
 }
@@ -163,7 +309,7 @@ const regErr = ref(''); const regLoading = ref(false)
 const codeSent = ref(false); const codeCountdown = ref(60)
 
 async function doSendCode() {
-  if (!regEmail.value) { regErr.value = '请先输入邮箱'; return }
+  if (!regEmail.value) { regErr.value = tr('auth_fill_email_first', 'Please enter email first'); return }
   try {
     await sendCode(regEmail.value)
     codeSent.value = true
@@ -172,21 +318,21 @@ async function doSendCode() {
       codeCountdown.value--
       if (codeCountdown.value <= 0) { clearInterval(iv); codeSent.value = false }
     }, 1000)
-    toast('验证码已发送', 'ok')
+    toast(tr('auth_code_sent_ok', 'Verification code sent'), 'ok')
   } catch(e) { regErr.value = e.message }
 }
 
 async function doRegister() {
   regErr.value = ''
   if (!regEmail.value || !regName.value || !regPw.value || !regCode.value) {
-    regErr.value = '请填写所有字段'; return
+    regErr.value = tr('auth_fill_email_password', 'Please fill all required fields'); return
   }
   regLoading.value = true
   try {
     await register(regEmail.value, regName.value, regPw.value, regCode.value)
     isMember.value = user.value?.membership?.tier === 'member'
     showAuth.value = false
-    toast('注册成功！欢迎 🎉', 'ok')
+    toast(tr('auth_register_success', 'Registration successful 🎉'), 'ok')
   } catch(e) { regErr.value = e.message }
   finally { regLoading.value = false }
 }

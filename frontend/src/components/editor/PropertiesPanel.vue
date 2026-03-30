@@ -1,10 +1,10 @@
 <template>
   <div class="props-sidebar">
-    <div class="sidebar-hdr">{{ selectedElement ? typeLabel(selectedElement.type) + ' 属性' : '元素属性' }}</div>
+    <div class="sidebar-hdr">{{ selectedElement ? `${typeLabel(selectedElement.type)} ${tr('props_properties', 'Properties')}` : tr('props_element_properties', 'Element Properties') }}</div>
 
     <!-- No selection hint -->
     <div v-if="!selectedElement" class="no-selection">
-      点击画布中的元素<br>以编辑位置 / 大小 / 样式
+      {{ tr('props_no_selection_1', 'Click an element on canvas') }}<br>{{ tr('props_no_selection_2', 'to edit position / size / style') }}
     </div>
 
     <!-- Properties form -->
@@ -26,14 +26,14 @@
                  min="-200" max="300" step="1">
         </div>
         <div>
-          <label class="label">宽 %</label>
+          <label class="label">{{ tr('props_width_pct', 'Width %') }}</label>
           <input type="number" class="input input-sm"
                  :value="pct(selectedElement.size.w)"
                  @change="updateSize('w', $event.target.value)"
                  min="1" max="300" step="1">
         </div>
         <div>
-          <label class="label">高 %</label>
+          <label class="label">{{ tr('props_height_pct', 'Height %') }}</label>
           <input type="number" class="input input-sm"
                  :value="pct(selectedElement.size.h)"
                  @change="updateSize('h', $event.target.value)"
@@ -45,18 +45,18 @@
       <template v-if="selectedElement.type === 'watermark'">
         <template v-if="isLockedWatermark">
           <div class="wm-lock-tip" style="margin-top:8px">
-            固定位置：x34.8%，y35.2%，宽18%，高6%，旋转 -30°，透明度 35%，字号 90px。
+            {{ tr('props_watermark_locked_tip', 'Fixed for free plan.') }}
           </div>
         </template>
         <template v-else>
-          <label class="label" style="margin-top:8px">旋转：{{ (selectedElement.rotation || 0).toFixed(0) }}°</label>
+          <label class="label" style="margin-top:8px">{{ tr('props_rotation', 'Rotation') }}：{{ (selectedElement.rotation || 0).toFixed(0) }}°</label>
           <input type="range" class="slider"
                  :value="selectedElement.rotation || 0"
                  @input="onPatchElement(selectedElement.id, { rotation: Number($event.target.value) })"
                  min="-180" max="180" step="1" style="margin-bottom:6px">
 
           <!-- Watermark opacity -->
-          <label class="label">透明度：{{ ((selectedElement.opacity ?? 0.5) * 100).toFixed(0) }}%</label>
+          <label class="label">{{ tr('props_opacity', 'Opacity') }}：{{ ((selectedElement.opacity ?? 0.5) * 100).toFixed(0) }}%</label>
           <input type="range" class="slider"
                  :value="selectedElement.opacity ?? 0.5"
                  @input="onPatchElement(selectedElement.id, { opacity: Number($event.target.value) })"
@@ -64,15 +64,15 @@
 
           <!-- Watermark text & color -->
           <div style="margin-bottom:8px">
-            <label class="label">水印文字</label>
+            <label class="label">{{ tr('props_watermark_text', 'Watermark Text') }}</label>
             <input type="text" class="input"
                    :value="selectedElement.style.text"
                    @change="onPatchStyle(selectedElement.id, { text: $event.target.value })"
                    placeholder="LinguaLearn">
           </div>
-          <ColorPicker label="文字色" :value="selectedElement.style.color || '#ffffff'"
+          <ColorPicker :label="tr('props_text_color', 'Text Color')" :value="selectedElement.style.color || '#ffffff'"
                        @update="onPatchStyle(selectedElement.id, { color: $event })" />
-          <label class="label">字号：{{ selectedElement.style.fontSize || 16 }}px</label>
+          <label class="label">{{ tr('props_font_size', 'Font Size') }}：{{ selectedElement.style.fontSize || 16 }}px</label>
           <input type="range" class="slider"
                  :value="selectedElement.style.fontSize || 16"
                  @input="onPatchStyle(selectedElement.id, { fontSize: Number($event.target.value) })"
@@ -83,27 +83,27 @@
       <!-- Content box (subtitle / wordbox / exprbox) properties -->
       <template v-else>
         <!-- Background opacity (separate bgOpacity property) -->
-        <label class="label" style="margin-top:8px">背景透明度：{{ bgAlphaPct }}%</label>
+        <label class="label" style="margin-top:8px">{{ tr('props_bg_opacity', 'Background Opacity') }}：{{ bgAlphaPct }}%</label>
         <input type="range" class="slider"
                :value="bgAlpha"
                @input="onPatchStyle(selectedElement.id, { bgOpacity: Number($event.target.value) })"
                min="0" max="1" step="0.05" style="margin-bottom:6px">
 
         <!-- Font scale -->
-        <label class="label">字号倍率：{{ (selectedElement.style.fontScale || 1).toFixed(2) }}x</label>
+        <label class="label">{{ tr('props_font_scale', 'Font Scale') }}：{{ (selectedElement.style.fontScale || 1).toFixed(2) }}x</label>
         <input type="range" class="slider"
                :value="selectedElement.style.fontScale || 1"
                @input="onPatchStyle(selectedElement.id, { fontScale: Number($event.target.value) })"
                min="0.1" max="5.0" step="0.05" style="margin-bottom:10px">
 
         <template v-if="selectedElement.type === 'subtitle'">
-          <label class="label">源语言行间距：{{ subtitleSrcLineHeightVal.toFixed(1) }}x</label>
+          <label class="label">{{ tr('props_source_line_height', 'Source Line Height') }}：{{ subtitleSrcLineHeightVal.toFixed(1) }}x</label>
           <input type="range" class="slider"
                  :value="subtitleSrcLineHeightVal"
                  @input="onSourceLineSpacingInput($event.target.value)"
                  min="0.5" max="6.0" step="0.1" style="margin-bottom:8px">
 
-          <label class="label">目标语言行间距：{{ subtitleTgtLineHeightVal.toFixed(1) }}x</label>
+          <label class="label">{{ tr('props_target_line_height', 'Target Line Height') }}：{{ subtitleTgtLineHeightVal.toFixed(1) }}x</label>
           <input type="range" class="slider"
                  :value="subtitleTgtLineHeightVal"
                  @input="onTargetLineSpacingInput($event.target.value)"
@@ -111,7 +111,7 @@
         </template>
 
         <template v-else>
-          <label class="label">单词间距：{{ wordSpacingVal.toFixed(2) }}x</label>
+          <label class="label">{{ tr('props_word_spacing', 'Word Spacing') }}：{{ wordSpacingVal.toFixed(2) }}x</label>
           <input type="range" class="slider"
                  :value="wordSpacingVal"
                  @input="onWordSpacingInput($event.target.value)"
@@ -119,18 +119,18 @@
         </template>
 
         <!-- Animation picker (per element) -->
-        <div class="anim-label">动画效果</div>
+        <div class="anim-label">{{ tr('props_animation', 'Animation') }}</div>
         <div class="anim-grid">
           <button v-for="a in ANIMATIONS" :key="a.type"
                   :class="['anim-btn', { active: currentAnimType === a.type }]"
                   @click="onPickAnimation(a.type)">
-            {{ a.label }}
+            {{ tr(a.labelKey, a.fallback) }}
           </button>
         </div>
 
         <!-- Animation duration (per element) -->
         <div v-if="currentAnimType !== 'none'" style="margin-top:8px">
-          <label class="label">动画时长：{{ currentAnimDuration }}ms</label>
+          <label class="label">{{ tr('props_animation_duration', 'Animation Duration') }}：{{ currentAnimDuration }}ms</label>
           <input type="range" class="slider"
                  :value="currentAnimDuration"
                  @input="onSetAnimDuration(Number($event.target.value))"
@@ -148,7 +148,7 @@
 
       <!-- Delete button -->
       <button v-if="!isLockedWatermark" class="remove-btn" @click="$emit('remove', selectedElement.id)">
-        🗑️ 从画布移除此元素
+        🗑️ {{ tr('props_remove_element', 'Remove from Canvas') }}
       </button>
     </div>
   </div>
@@ -158,6 +158,7 @@
 import { computed } from 'vue'
 import ColorPicker from './ColorPicker.vue'
 import WordListPanel from './WordListPanel.vue'
+import { useI18n } from '../../i18n.js'
 
 const props = defineProps({
   selectedElement: { type: Object, default: null },
@@ -171,24 +172,33 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update', 'updateStyle', 'setAnimation', 'previewAnimation', 'remove'])
+const { t } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 const ANIMATIONS = [
-  { type: 'fade',       label: '淡入' },
-  { type: 'slide_up',   label: '上滑' },
-  { type: 'slide_left', label: '左滑' },
-  { type: 'slide_right',label: '右滑' },
-  { type: 'pop',        label: '弹出' },
-  { type: 'none',       label: '无' },
+  { type: 'fade',       labelKey: 'anim_fade', fallback: 'Fade' },
+  { type: 'slide_up',   labelKey: 'anim_slide_up', fallback: 'Slide Up' },
+  { type: 'slide_left', labelKey: 'anim_slide_left', fallback: 'Slide Left' },
+  { type: 'slide_right',labelKey: 'anim_slide_right', fallback: 'Slide Right' },
+  { type: 'pop',        labelKey: 'anim_pop', fallback: 'Pop' },
+  { type: 'none',       labelKey: 'anim_none', fallback: 'None' },
 ]
 
 const TYPE_LABELS = {
-  subtitle: '字幕',
-  wordbox: '词框',
-  exprbox: '表达框',
-  watermark: '水印',
+  subtitle: { key: 'create_el_subtitle', fallback: 'Subtitle' },
+  wordbox: { key: 'create_el_wordbox', fallback: 'Word Box' },
+  exprbox: { key: 'create_el_exprbox', fallback: 'Expression Box' },
+  watermark: { key: 'create_el_watermark', fallback: 'Watermark' },
 }
 
-function typeLabel(type) { return TYPE_LABELS[type] || type }
+function typeLabel(type) {
+  const item = TYPE_LABELS[type]
+  if (!item) return type
+  return tr(item.key, item.fallback)
+}
 function pct(v) { return Math.round((v || 0) * 1000) / 10 }
 const isLockedWatermark = computed(() =>
   props.selectedElement?.type === 'watermark' && props.watermarkLocked

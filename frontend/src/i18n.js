@@ -1,12 +1,33 @@
 import { ref, computed } from 'vue'
 
-const SUPPORTED_LANGS = ['en', 'zh', 'ja', 'ko', 'de', 'fr', 'es', 'ru']
+const SUPPORTED_LANGS = ['en', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'de', 'fr', 'es', 'ru']
+
+function normalizeUILangCode(lang) {
+  const v = String(lang || '').trim()
+  if (!v) return ''
+  const low = v.toLowerCase()
+  if (low === 'zh') return 'zh-Hans'
+  if (low === 'zh-hans' || low === 'zh-cn' || low === 'zh-sg') return 'zh-Hans'
+  if (low === 'zh-hant' || low === 'zh-tw' || low === 'zh-hk' || low === 'zh-mo') return 'zh-Hant'
+  return v
+}
+
+function translationDictLang(uiLangCode) {
+  if (uiLangCode === 'zh-Hans' || uiLangCode === 'zh-Hant') return 'zh'
+  return uiLangCode
+}
+
+function resolveInitialUILang() {
+  if (typeof localStorage === 'undefined') return 'zh-Hans'
+  const explicit = normalizeUILangCode(localStorage.getItem('ll_ui_lang'))
+  if (explicit && SUPPORTED_LANGS.includes(explicit)) return explicit
+  const familiar = normalizeUILangCode(localStorage.getItem('ll_familiar_lang'))
+  if (familiar && SUPPORTED_LANGS.includes(familiar)) return familiar
+  return 'zh-Hans'
+}
 
 // Module-level singleton
-const uiLang = ref(() => {
-  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('ll_ui_lang') : null
-  return stored && SUPPORTED_LANGS.includes(stored) ? stored : 'zh'
-}())
+const uiLang = ref(resolveInitialUILang())
 
 // All translations (8 languages x all UI strings)
 const TRANSLATIONS = {
@@ -1148,17 +1169,169 @@ const TRANSLATIONS = {
   },
 }
 
+const EXTRA_TRANSLATIONS = {
+  en: {
+    nav_quiz: 'Quiz',
+    nav_membership: 'Membership',
+    nav_manage_membership: 'Manage Membership',
+    nav_upgrade_membership: 'Upgrade Membership',
+    nav_login_register: 'Login / Register',
+    nav_language_settings: 'Language',
+
+    auth_login_or_register_desc: 'Login or register your account',
+    auth_fill_email_password: 'Please enter email and password',
+    auth_fill_email_first: 'Please enter email first',
+    auth_logging_in: 'Signing in...',
+    auth_registering: 'Signing up...',
+    auth_password_hint: 'At least 6 characters',
+    auth_code_hint: '6-digit code',
+    auth_code_sent_ok: 'Verification code sent',
+    auth_login_success: 'Logged in successfully 🎉',
+    auth_register_success: 'Registration successful 🎉',
+    payment_success_refreshed: 'Payment successful, membership refreshed',
+
+    lang_pref_title: 'Choose Your Languages',
+    lang_pref_desc: 'Select your most familiar language and the language you want to learn.',
+    lang_pref_native: 'Most Familiar Language',
+    lang_pref_learning: 'Language to Learn',
+    lang_pref_confirm: 'Save & Continue',
+    lang_pref_error_same: 'These two languages must be different.',
+
+    create_login_required: 'Please log in first',
+    create_member_tier_member: 'Current plan: Member',
+    create_member_tier_free: 'Current plan: Free',
+    create_member_today_usage: 'Today generated',
+    create_member_daily_limit: 'max',
+    create_member_max_minutes: 'single video max',
+    create_minute: 'min',
+    create_count_unit: '',
+    create_select_preset: 'Select preset',
+    create_load: 'Load',
+    create_delete: 'Delete',
+    create_click_or_drag: 'Click or drag a video file here',
+    create_video_formats: 'MP4, MOV, AVI and more',
+    create_remove: 'Remove',
+    create_unlimited: 'Unlimited',
+    create_per_sentence: '/sentence',
+    create_layout_help: 'Select and drag elements, or add new elements from the toolbar',
+    create_style_help: 'Choose a visual subtitle style template',
+    create_name_desc: 'Name this learning video for easier lookup. Leave empty for auto naming.',
+    create_preset_desc: 'Save current layout, styles and parameters for one-click reuse.',
+    create_save_preset_btn: 'Save Preset',
+    create_input_preset_name: 'Please enter a preset name',
+    create_select_preset_first: 'Please select a preset first',
+    create_preset_save_failed: 'Save failed',
+    create_preset_load_failed: 'Load failed',
+    create_preset_deleted: 'Deleted',
+    create_preset_delete_failed: 'Delete failed',
+    create_select_video_first: 'Please select a video file first',
+    create_src_tgt_diff: 'Source and target languages must be different',
+    create_need_part: 'Please add at least one Part',
+    create_submit_failed: 'Submit failed',
+    create_waiting: 'Waiting...',
+    create_task_submitted: 'Task submitted 🚀',
+    create_task_failed: 'Processing failed',
+    create_task_cancelled: 'Task cancelled',
+    create_confirm_cancel: 'Cancel this task?',
+    create_canvas_not_ready: 'Canvas is not initialized yet',
+    create_no_preview_elements: 'No elements available for preview',
+    create_watermark_member_only: 'Custom watermark is for members only',
+    create_watermark_no_custom: 'Non-members cannot customize watermark',
+    create_watermark_default_locked: 'Default watermark can only be removed by members',
+    create_watermark_member_only_short: 'Default watermark can only be edited by members',
+  },
+  zh: {
+    nav_quiz: '成果自测',
+    nav_membership: '会员',
+    nav_manage_membership: '管理会员',
+    nav_upgrade_membership: '开通会员',
+    nav_login_register: '登录 / 注册',
+    nav_language_settings: '语言',
+
+    auth_login_or_register_desc: '登录或注册你的账号',
+    auth_fill_email_password: '请填写邮箱和密码',
+    auth_fill_email_first: '请先输入邮箱',
+    auth_logging_in: '登录中...',
+    auth_registering: '注册中...',
+    auth_password_hint: '至少6位',
+    auth_code_hint: '6位验证码',
+    auth_code_sent_ok: '验证码已发送',
+    auth_login_success: '登录成功 🎉',
+    auth_register_success: '注册成功！欢迎 🎉',
+    payment_success_refreshed: '支付成功，会员状态已刷新',
+
+    lang_pref_title: '选择学习语言',
+    lang_pref_desc: '请选择你最熟悉的语言和你想学习的语言。',
+    lang_pref_native: '最熟悉的语言',
+    lang_pref_learning: '想学习的语言',
+    lang_pref_confirm: '保存并继续',
+    lang_pref_error_same: '两种语言不能相同。',
+
+    create_login_required: '请先登录',
+    create_member_tier_member: '当前为会员',
+    create_member_tier_free: '当前为非会员',
+    create_member_today_usage: '今日已生成',
+    create_member_daily_limit: '最多',
+    create_member_max_minutes: '单视频最长',
+    create_minute: '分钟',
+    create_count_unit: '个',
+    create_select_preset: '选择预设',
+    create_load: '加载',
+    create_delete: '删除',
+    create_click_or_drag: '点击或拖拽视频文件',
+    create_video_formats: 'MP4、MOV、AVI 等格式',
+    create_remove: '移除',
+    create_unlimited: '不限制',
+    create_per_sentence: '个/句',
+    create_layout_help: '点击元素选中后拖拽定位，或从工具栏添加新元素',
+    create_style_help: '选择视频字幕的视觉风格模版',
+    create_name_desc: '给这个学习视频起个名字，便于之后查找。留空时 AI 将自动生成名称。',
+    create_preset_desc: '输入一个好记的名称，后续可一键加载这套布局、样式和参数配置。',
+    create_save_preset_btn: '保存预设',
+    create_input_preset_name: '请输入预设名称',
+    create_select_preset_first: '请先选择预设',
+    create_preset_save_failed: '保存失败',
+    create_preset_load_failed: '加载失败',
+    create_preset_deleted: '已删除',
+    create_preset_delete_failed: '删除失败',
+    create_select_video_first: '请先选择视频文件',
+    create_src_tgt_diff: '源语言和目标语言不能相同',
+    create_need_part: '请至少添加一个 Part',
+    create_submit_failed: '提交失败',
+    create_waiting: '等待处理...',
+    create_task_submitted: '任务已提交 🚀',
+    create_task_failed: '处理失败',
+    create_task_cancelled: '任务已取消',
+    create_confirm_cancel: '确定取消？',
+    create_canvas_not_ready: '画布尚未初始化',
+    create_no_preview_elements: '没有可预览的元素',
+    create_watermark_member_only: '开通会员后可自定义水印；非会员成片会自动添加默认 LinguaLearn 水印',
+    create_watermark_no_custom: '非会员不可自定义水印',
+    create_watermark_default_locked: '默认 LinguaLearn 水印仅会员可删除',
+    create_watermark_member_only_short: '默认水印仅会员可编辑',
+  },
+}
+
 export function useI18n() {
   function setLang(lang) {
-    if (SUPPORTED_LANGS.includes(lang)) {
-      uiLang.value = lang
+    const normalized = normalizeUILangCode(lang)
+    if (SUPPORTED_LANGS.includes(normalized)) {
+      uiLang.value = normalized
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('ll_ui_lang', lang)
+        localStorage.setItem('ll_ui_lang', normalized)
       }
     }
   }
 
-  const t = computed(() => TRANSLATIONS[uiLang.value] || TRANSLATIONS['en'])
+  const t = computed(() => {
+    const dictLang = translationDictLang(uiLang.value)
+    return ({
+    ...(TRANSLATIONS['en'] || {}),
+    ...(EXTRA_TRANSLATIONS['en'] || {}),
+    ...(TRANSLATIONS[dictLang] || {}),
+    ...(EXTRA_TRANSLATIONS[dictLang] || {}),
+  })
+  })
 
   return { uiLang, t, setLang, SUPPORTED_LANGS }
 }

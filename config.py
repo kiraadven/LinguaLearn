@@ -32,17 +32,31 @@ WHISPER_MODEL_SIZE = os.getenv('WHISPER_MODEL_SIZE', 'small')
 
 # Whisper 支持的语言映射
 WHISPER_LANGUAGE_MAP = {
-    'en': 'en', 'zh': 'zh', 'ja': 'ja',
+    'en': 'en', 'zh': 'zh', 'zh-Hans': 'zh', 'zh-Hant': 'zh', 'ja': 'ja',
     'ko': 'ko', 'de': 'de', 'fr': 'fr', 'es': 'es', 'ru': 'ru',
 }
 
 # CJK 语言集合（用于文本断行和音标系统判断）
-CJK_LANGUAGES = {'zh', 'ja', 'ko'}
+CJK_LANGUAGES = {'zh', 'zh-Hans', 'zh-Hant', 'ja', 'ko'}
+
+# 语言规范化：用于把变体语言码归一到主语言码
+LANGUAGE_CODE_ALIASES = {
+    'zh-Hans': 'zh',
+    'zh-Hant': 'zh',
+}
+
+# 中文脚本偏好：用于控制转录输出简体/繁体
+ZH_SCRIPT_PREFERENCE = {
+    'zh': 'hans',       # 兼容旧值，默认简体
+    'zh-Hans': 'hans',
+    'zh-Hant': 'hant',
+}
 
 # 支持的语言及其本地名称（供 API 和前端语言选择器使用）
 LANGUAGE_NATIVE_NAMES = {
     'en': 'English',
-    'zh': '中文',
+    'zh-Hans': '中文（简体）',
+    'zh-Hant': '中文（繁體）',
     'ja': '日本語',
     'ko': '한국어',
     'de': 'Deutsch',
@@ -55,6 +69,8 @@ LANGUAGE_NATIVE_NAMES = {
 LANGUAGE_FLAGS = {
     'en': '🇺🇸',
     'zh': '🇨🇳',
+    'zh-Hans': '🇨🇳',
+    'zh-Hant': '🇭🇰',
     'ja': '🇯🇵',
     'ko': '🇰🇷',
     'de': '🇩🇪',

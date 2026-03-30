@@ -6,6 +6,11 @@ from typing import List, Dict, Optional, Tuple
 from moviepy.editor import VideoFileClip
 import config
 
+try:
+    from opencc import OpenCC  # Optional: better Simplified/Traditional conversion quality
+except Exception:
+    OpenCC = None
+
 # 尝试导入 tqdm 用于进度条
 try:
     from tqdm import tqdm
@@ -50,15 +55,43 @@ def _normalize_token(token: str, is_cjk: bool = False) -> str:
     normalized = "".join(out).strip("'")
     return normalized
 
+
+_BASIC_T2S_MAP = {
+    "學": "学", "習": "习", "體": "体", "這": "这", "個": "个", "語": "语", "轉": "转", "錄": "录",
+    "視": "视", "頻": "频", "標": "标", "題": "题", "詞": "词", "彙": "汇", "總": "总", "結": "结",
+    "時": "时", "間": "间", "點": "点", "對": "对", "齊": "齐", "與": "与", "為": "为", "後": "后",
+    "開": "开", "發": "发", "現": "现", "測": "测", "試": "试", "請": "请", "將": "将", "寫": "写",
+    "讀": "读", "聽": "听", "說": "说", "還": "还", "麼": "么", "們": "们", "從": "从", "於": "于",
+    "網": "网", "頁": "页", "數": "数", "據": "据", "類": "类", "變": "变", "長": "长", "門": "门",
+    "國": "国", "電": "电", "腦": "脑", "臺": "台", "灣": "湾", "華": "华", "畫": "画", "進": "进",
+    "優": "优", "質": "质", "聲": "声", "處": "处", "檔": "档", "簡": "简", "貓": "猫", "龍": "龙",
+}
+_BASIC_S2T_MAP = {v: k for k, v in _BASIC_T2S_MAP.items()}
+
 class AudioTranscriber:
     def __init__(self, source_lang: str = None):
         """初始化音频转文字器（仅使用本地 Whisper 模型）"""
         self.model_size = config.WHISPER_MODEL_SIZE
         self.source_lang = source_lang or getattr(config, 'SOURCE_LANGUAGE', 'en')
+
+        lang_aliases = getattr(config, 'LANGUAGE_CODE_ALIASES', {})
+        self.source_lang_base = lang_aliases.get(self.source_lang, self.source_lang)
+
         # 映射到 Whisper 支持的语言代码
         whisper_map = getattr(config, 'WHISPER_LANGUAGE_MAP', {})
-        self.whisper_lang = whisper_map.get(self.source_lang, self.source_lang)
-        self.is_cjk = self.source_lang in getattr(config, 'CJK_LANGUAGES', {'zh', 'ja', 'ko'})
+        self.whisper_lang = whisper_map.get(self.source_lang, whisper_map.get(self.source_lang_base, self.source_lang_base))
+        cjk_langs = getattr(config, 'CJK_LANGUAGES', {'zh', 'ja', 'ko'})
+        self.is_cjk = self.source_lang in cjk_langs or self.source_lang_base in cjk_langs
+
+        # 中文脚本偏好（简体/繁体）
+        zh_script_pref = getattr(config, 'ZH_SCRIPT_PREFERENCE', {})
+        self.zh_script = zh_script_pref.get(self.source_lang, zh_script_pref.get(self.source_lang_base))
+        self._zh_converter = None
+        if self.zh_script in {'hans', 'hant'} and OpenCC is not None:
+            try:
+                self._zh_converter = OpenCC('t2s' if self.zh_script == 'hans' else 's2t')
+            except Exception:
+                self._zh_converter = None
 
         import whisper
         self.whisper_model = whisper.load_model(self.model_size)
@@ -70,6 +103,18 @@ class AudioTranscriber:
         self._last_audio_path: str = None
         self._last_text: str = None
         self._last_word_items: List[Dict] = None
+
+    def _convert_zh_script_text(self, text: str) -> str:
+        """按中文脚本偏好转换文本（优先 OpenCC，回退到基础字符映射）"""
+        if not text or self.zh_script not in {'hans', 'hant'}:
+            return text
+        if self._zh_converter is not None:
+            try:
+                return self._zh_converter.convert(text)
+            except Exception:
+                pass
+        table = _BASIC_T2S_MAP if self.zh_script == 'hans' else _BASIC_S2T_MAP
+        return "".join(table.get(ch, ch) for ch in text)
 
     def extract_audio_from_video(self, video_path: str) -> str:
         """从视频中提取音频"""
@@ -109,21 +154,30 @@ class AudioTranscriber:
         print("正在使用本地 Whisper 模型转录音频（单词级时间戳）...")
 
         try:
-            result = self.whisper_model.transcribe(
-                audio_path,
-                language=self.whisper_lang,
-                verbose=False,
-                task="transcribe",
-                word_timestamps=True
-            )
+            transcribe_kwargs = {
+                "language": self.whisper_lang,
+                "verbose": False,
+                "task": "transcribe",
+                "word_timestamps": True,
+            }
+            if self.zh_script == "hans":
+                transcribe_kwargs["initial_prompt"] = "请使用简体中文输出转录文本。"
+            elif self.zh_script == "hant":
+                transcribe_kwargs["initial_prompt"] = "請使用繁體中文輸出轉錄文本。"
 
-            text = result.get("text", "").strip()
+            result = self.whisper_model.transcribe(audio_path, **transcribe_kwargs)
+
+            text = self._convert_zh_script_text(result.get("text", "").strip())
             segments = result.get("segments", []) or []
 
             word_items: List[Dict] = []
 
             for seg in segments:
+                if isinstance(seg, dict) and seg.get("text"):
+                    seg["text"] = self._convert_zh_script_text(seg["text"])
                 for w in seg.get("words", []) or []:
+                    if isinstance(w, dict) and w.get("word"):
+                        w["word"] = self._convert_zh_script_text(w["word"])
                     word = (w.get("word") or "").strip()
                     if not word:
                         continue

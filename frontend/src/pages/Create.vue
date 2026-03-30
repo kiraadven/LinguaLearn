@@ -1,14 +1,14 @@
 <template>
   <div class="create-page page-inner">
     <div class="page-header">
-      <h1>生成学习视频</h1>
-      <p>上传视频，配置布局与样式，AI 自动生成逐句精听视频</p>
+      <h1>{{ t.create_title }}</h1>
+      <p>{{ t.create_subtitle }}</p>
     </div>
 
     <div v-if="!isLoggedIn" class="empty-state">
       <div style="font-size:64px">🔒</div>
-      <p style="font-size:18px;font-weight:700">请先登录</p>
-      <button class="btn-primary" @click="openAuth()">登录 / 注册</button>
+      <p style="font-size:18px;font-weight:700">{{ t.create_login_required }}</p>
+      <button class="btn-primary" @click="openAuth()">{{ t.nav_login_register }}</button>
     </div>
 
     <div v-else>
@@ -17,39 +17,39 @@
           <img src="/premium-badge.svg" alt="VIP" class="member-tip-logo">
           <div>
             <div class="member-tip-title">
-              {{ isMember ? '当前为会员' : '当前为非会员' }}
+              {{ isMember ? t.create_member_tier_member : t.create_member_tier_free }}
             </div>
             <div class="member-tip-sub" v-if="user?.membership">
-              今日已生成 {{ user.membership.usage?.videos_generated_today ?? 0 }} 个
+              {{ t.create_member_today_usage }} {{ user.membership.usage?.videos_generated_today ?? 0 }} {{ t.create_count_unit }}
               <template v-if="user.membership.limits?.daily_video_limit !== null">
-                / 最多 {{ user.membership.limits?.daily_video_limit }} 个
+                / {{ t.create_member_daily_limit }} {{ user.membership.limits?.daily_video_limit }} {{ t.create_count_unit }}
               </template>
-              ，单视频最长 {{ Math.floor((user.membership.limits?.max_video_seconds || 300) / 60) }} 分钟
+              ，{{ t.create_member_max_minutes }} {{ Math.floor((user.membership.limits?.max_video_seconds || 300) / 60) }} {{ t.create_minute }}
             </div>
           </div>
         </div>
         <button class="btn-ghost" style="font-size:12px;padding:7px 12px" @click="openMembership()">
-          {{ isMember ? '管理会员' : '开通会员' }}
+          {{ isMember ? t.nav_manage_membership : t.nav_upgrade_membership }}
         </button>
       </div>
 
       <!-- Preset bar -->
       <div class="preset-bar" v-if="presets.length>0">
         <select class="input" v-model="selectedPresetId" style="flex:1;max-width:240px;margin-bottom:0;font-size:13px">
-          <option value="">— 选择预设 —</option>
+          <option value="">— {{ t.create_select_preset }} —</option>
           <option v-for="p in presets" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
-        <button class="btn-ghost" style="padding:7px 12px;font-size:12px" @click="applyPreset">加载</button>
-        <button class="btn-ghost" style="padding:7px 10px;font-size:12px;color:var(--err);border-color:rgba(248,113,113,.3)" @click="deletePreset">删除</button>
+        <button class="btn-ghost" style="padding:7px 12px;font-size:12px" @click="applyPreset">{{ t.create_load }}</button>
+        <button class="btn-ghost" style="padding:7px 10px;font-size:12px;color:var(--err);border-color:rgba(248,113,113,.3)" @click="deletePreset">{{ t.create_delete }}</button>
       </div>
 
       <div v-if="!jobRunning || jobDone">
         <!-- ── SECTION 1: Basic Config ── -->
-        <div class="section-label">基础配置</div>
+        <div class="section-label">{{ t.create_basic_config }}</div>
         <div class="config-grid">
           <!-- Upload -->
           <div class="card config-card">
-            <div class="card-title">📁 上传视频</div>
+            <div class="card-title">📁 {{ t.create_video_upload }}</div>
             <div :class="['upload-zone',{over:dragOver}]"
                  @click="$refs.fileInput.click()"
                  @dragover.prevent="dragOver=true"
@@ -58,8 +58,8 @@
               <input ref="fileInput" type="file" accept="video/*" style="display:none" @change="onFileChange">
               <div v-if="!selectedFile" style="text-align:center">
                 <div style="font-size:44px;margin-bottom:10px">📹</div>
-                <div style="font-weight:600;margin-bottom:4px">点击或拖拽视频文件</div>
-                <div style="font-size:12px;color:var(--text3)">MP4、MOV、AVI 等格式</div>
+                <div style="font-weight:600;margin-bottom:4px">{{ t.create_click_or_drag }}</div>
+                <div style="font-size:12px;color:var(--text3)">{{ t.create_video_formats }}</div>
               </div>
               <div v-else style="width:100%">
                 <video v-if="videoPreviewUrl" :src="videoPreviewUrl" controls muted playsinline
@@ -72,7 +72,7 @@
                     <div style="font-size:11px;color:var(--text3)">{{ fmtSize(selectedFile.size) }}</div>
                   </div>
                   <button style="font-size:12px;color:var(--err);background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:6px;padding:4px 8px;cursor:pointer"
-                    @click.stop="clearFile">✕ 移除</button>
+                    @click.stop="clearFile">✕ {{ t.create_remove }}</button>
                 </div>
               </div>
             </div>
@@ -80,35 +80,35 @@
 
           <!-- Language -->
           <div class="card config-card">
-            <div class="card-title">🌐 语言 & 分辨率</div>
-            <label class="label">源语言（视频语言）</label>
-            <select class="input" v-model="srcLang" @change="timeline.sourceLang=srcLang" style="margin-bottom:12px">
+            <div class="card-title">🌐 {{ t.create_lang_resolution }}</div>
+            <label class="label">{{ t.create_source_lang }}</label>
+            <select class="input" v-model="srcLang" @change="tl.timeline.sourceLang=srcLang" style="margin-bottom:12px">
               <option v-for="l in langs" :key="l.code" :value="l.code">{{ l.flag }} {{ l.native_name }}</option>
             </select>
-            <label class="label">目标语言（你的母语）</label>
-            <select class="input" v-model="tgtLang" @change="timeline.targetLang=tgtLang" style="margin-bottom:12px">
+            <label class="label">{{ t.create_target_lang }}</label>
+            <select class="input" v-model="tgtLang" @change="tl.timeline.targetLang=tgtLang" style="margin-bottom:12px">
               <option v-for="l in langs" :key="l.code" :value="l.code">{{ l.flag }} {{ l.native_name }}</option>
             </select>
-            <label class="label">视频分辨率</label>
+            <label class="label">{{ t.create_resolution }}</label>
             <select class="input" v-model="resolution" @change="onResolutionChange">
-              <option value="1080p">1080p（推荐，更清晰）</option>
-              <option value="720p">720p（更快，省空间）</option>
+              <option value="1080p">{{ t.create_resolution_1080p }}</option>
+              <option value="720p">{{ t.create_resolution_720p }}</option>
             </select>
           </div>
 
           <!-- Words -->
           <div class="card config-card">
-            <div class="card-title">📚 词汇 & 表达</div>
-            <label class="label">关键词：{{ numWords===0?'不限制':numWords+' 个/句' }}</label>
+            <div class="card-title">📚 {{ t.create_vocab_expr }}</div>
+            <label class="label">{{ t.create_max_words }}：{{ numWords===0?t.create_unlimited:`${numWords} ${t.create_per_sentence}` }}</label>
             <input type="range" class="slider" v-model.number="numWords" @input="tl.timeline.numWords=numWords" min="0" max="12" style="margin-bottom:20px">
-            <label class="label">实用表达：{{ numExprs===0?'不限制':numExprs+' 个/句' }}</label>
+            <label class="label">{{ t.create_max_exprs }}：{{ numExprs===0?t.create_unlimited:`${numExprs} ${t.create_per_sentence}` }}</label>
             <input type="range" class="slider" v-model.number="numExprs" @input="tl.timeline.numExprs=numExprs" min="0" max="8">
           </div>
         </div>
 
         <!-- ── SECTION 2: Canvas Layout Editor (Konva) ── -->
-        <div class="section-label">布局编辑器
-          <span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:8px">点击元素选中后拖拽定位，或从工具栏添加新元素</span>
+        <div class="section-label">{{ t.create_layout }}
+          <span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:8px">{{ t.create_layout_help }}</span>
         </div>
         <div class="card canvas-card">
           <div class="canvas-editor-wrap">
@@ -171,8 +171,8 @@
         </div>
 
         <!-- ── SECTION 3: Style Theme ── -->
-        <div class="section-label">字幕样式主题
-          <span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:8px">选择视频字幕的视觉风格模版</span>
+        <div class="section-label">{{ t.create_style_theme }}
+          <span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:8px">{{ t.create_style_help }}</span>
         </div>
         <div class="card style-card">
           <StyleThemePanel
@@ -186,13 +186,13 @@
         <!-- ── SUBMIT ── -->
         <div class="submit-row">
           <button class="btn-primary" style="font-size:15px;padding:14px 40px" :disabled="submitting" @click="submit">
-            {{ submitting?'提交中...':'🚀 开始生成学习视频' }}
+            {{ submitting ? t.create_submit_loading : `🚀 ${t.create_submit}` }}
           </button>
           <div class="preset-save-wrap">
             <button class="btn-ghost" style="padding:13px 18px;font-size:13px" @click="openPresetSaveDialog">
-              💾 保存为预设
+              💾 {{ t.create_save_preset }}
             </button>
-            <div class="preset-save-tip">保存当前布局和样式，下次一键复用，省去重复调参时间。</div>
+            <div class="preset-save-tip">{{ t.create_preset_desc }}</div>
           </div>
         </div>
       </div>
@@ -202,13 +202,13 @@
         <div v-if="showNameDialog" class="modal-overlay" @click.self="onNameCancel" style="z-index:300">
           <div class="modal-box" style="max-width:420px">
             <button class="modal-close" @click="onNameCancel">✕</button>
-            <div style="font-size:20px;font-weight:800;margin-bottom:6px;color:var(--text)">为视频命名</div>
-            <div style="font-size:13px;color:var(--text3);margin-bottom:20px">给这个学习视频起个名字，便于之后查找。留空时 AI 将自动生成名称。</div>
-            <label class="label">视频名称（选填）</label>
-            <input class="input" v-model="videoName" placeholder="例如：TED演讲·科技改变未来" @keyup.enter="onNameConfirm" style="margin-bottom:20px">
+            <div style="font-size:20px;font-weight:800;margin-bottom:6px;color:var(--text)">{{ t.create_naming_title }}</div>
+            <div style="font-size:13px;color:var(--text3);margin-bottom:20px">{{ t.create_name_desc }}</div>
+            <label class="label">{{ t.create_naming_placeholder }}</label>
+            <input class="input" v-model="videoName" :placeholder="t.create_naming_placeholder" @keyup.enter="onNameConfirm" style="margin-bottom:20px">
             <div style="display:flex;gap:10px">
-              <button class="btn-primary" style="flex:1;padding:12px" @click="onNameConfirm">确认开始生成 →</button>
-              <button class="btn-ghost" style="padding:12px 20px" @click="onNameCancel">取消</button>
+              <button class="btn-primary" style="flex:1;padding:12px" @click="onNameConfirm">{{ t.create_confirm_start }}</button>
+              <button class="btn-ghost" style="padding:12px 20px" @click="onNameCancel">{{ t.create_cancel }}</button>
             </div>
           </div>
         </div>
@@ -219,22 +219,22 @@
         <div v-if="showPresetNameDialog" class="modal-overlay" @click.self="onPresetSaveCancel" style="z-index:301">
           <div class="modal-box" style="max-width:440px">
             <button class="modal-close" @click="onPresetSaveCancel">✕</button>
-            <div style="font-size:20px;font-weight:800;margin-bottom:6px;color:var(--text)">保存为预设</div>
+            <div style="font-size:20px;font-weight:800;margin-bottom:6px;color:var(--text)">{{ t.create_save_preset }}</div>
             <div style="font-size:13px;color:var(--text3);margin-bottom:18px">
-              输入一个好记的名称，后续可一键加载这套布局、样式和参数配置。
+              {{ t.create_preset_desc }}
             </div>
-            <label class="label">预设名称</label>
+            <label class="label">{{ t.create_preset_name }}</label>
             <input
               ref="presetNameInput"
               class="input"
               v-model="presetName"
-              placeholder="例如：英文精听·通勤模板"
+              :placeholder="t.create_preset_name"
               @keyup.enter="savePreset"
               style="margin-bottom:18px"
             >
             <div style="display:flex;gap:10px">
-              <button class="btn-primary" style="flex:1;padding:12px" @click="savePreset">保存预设</button>
-              <button class="btn-ghost" style="padding:12px 20px" @click="onPresetSaveCancel">取消</button>
+              <button class="btn-primary" style="flex:1;padding:12px" @click="savePreset">{{ t.create_save_preset_btn }}</button>
+              <button class="btn-ghost" style="padding:12px 20px" @click="onPresetSaveCancel">{{ t.create_cancel }}</button>
             </div>
           </div>
         </div>
@@ -245,7 +245,7 @@
 
       <!-- Progress -->
       <div v-if="jobRunning && !jobDone" class="card progress-card">
-        <div class="card-title">⚡ 处理进度</div>
+        <div class="card-title">{{ t.create_progress }}</div>
         <div class="step-bar">
           <template v-for="i in 5" :key="i">
             <div :class="['step-dot', i<currentStep?'done':i===currentStep?'active':'']">{{ i }}</div>
@@ -254,22 +254,22 @@
         </div>
         <div class="cur-step"><span class="pulse-dot"></span><span>{{ stepName }}</span></div>
         <div v-if="currentStep>=5" style="margin-top:14px">
-          <PBar label="片段渲染" :pct="clipsPct" color="linear-gradient(90deg,var(--accent),var(--accent2))"/>
-          <PBar label="视频写入" :pct="writePct" color="linear-gradient(90deg,var(--accent3),var(--accent4))" style="margin-top:10px"/>
+          <PBar :label="t.create_segment_render" :pct="clipsPct" color="linear-gradient(90deg,var(--accent),var(--accent2))"/>
+          <PBar :label="t.create_video_write" :pct="writePct" color="linear-gradient(90deg,var(--accent3),var(--accent4))" style="margin-top:10px"/>
         </div>
         <div class="log-box" ref="logBox">
           <div v-for="(l,i) in logs" :key="i" :class="['log-line',logClass(l)]">{{ l }}</div>
         </div>
         <div style="margin-top:14px">
-          <button class="btn-ghost" style="padding:8px 18px;font-size:13px;color:var(--err);border-color:rgba(248,113,113,.3)" @click="cancelJob">取消任务</button>
+          <button class="btn-ghost" style="padding:8px 18px;font-size:13px;color:var(--err);border-color:rgba(248,113,113,.3)" @click="cancelJob">{{ t.create_cancel_job }}</button>
         </div>
       </div>
 
       <!-- Done -->
       <div v-if="jobDone" class="card" style="padding:36px;text-align:center;margin-top:20px">
         <div style="font-size:52px;margin-bottom:12px">🎉</div>
-        <div style="font-size:18px;font-weight:700;margin-bottom:8px">视频生成完成！</div>
-        <button class="btn-primary" @click="$router.push('/results')">查看学习结果 →</button>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px">{{ t.create_done }}</div>
+        <button class="btn-primary" @click="$router.push('/results')">{{ t.create_view_results }}</button>
       </div>
     </div>
   </div>
@@ -279,6 +279,7 @@
 import { ref, computed, inject, onMounted, nextTick, watch } from 'vue'
 import { useAuth } from '../composables/useAuth.js'
 import { apiFetch } from '../composables/useApi.js'
+import { useI18n } from '../i18n.js'
 import { useTimeline } from '../composables/useTimeline.js'
 import { useKonvaEditor } from '../composables/useKonvaEditor.js'
 import { useAnimationPreview } from '../composables/useAnimationPreview.js'
@@ -293,9 +294,29 @@ import ToolbarPanel from '../components/editor/ToolbarPanel.vue'
 import WatermarkDialog from '../components/editor/WatermarkDialog.vue'
 
 const { isLoggedIn, user, refreshMembership } = useAuth()
-const openAuth = inject('openAuth')
+const { t } = useI18n()
+const openAuth = inject('openAuth', () => {})
 const openMembership = inject('openMembership', () => {})
+const languagePrefs = inject('languagePrefs', null)
 const toast    = inject('toast')
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
+
+function localPref(key) {
+  try {
+    return localStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
+
+const familiarFromPref = languagePrefs?.familiarLang?.value || localPref('ll_familiar_lang') || 'zh-Hans'
+const learningFromPref = languagePrefs?.learningLang?.value || localPref('ll_learning_lang') || (familiarFromPref === 'en' ? 'zh-Hans' : 'en')
+const initialLearning = learningFromPref === familiarFromPref
+  ? (familiarFromPref === 'en' ? 'zh-Hans' : 'en')
+  : learningFromPref
 
 // ── Inline sub-component ──
 const PBar = {
@@ -329,17 +350,17 @@ const selectedFile = ref(null)
 const videoPreviewUrl = ref('')
 const dragOver     = ref(false)
 const langs        = ref([])
-const srcLang      = ref('en')
-const tgtLang      = ref('zh')
+const srcLang      = ref(initialLearning)
+const tgtLang      = ref(familiarFromPref)
 const resolution   = ref('1080p')
 const numWords     = ref(6)
 const numExprs     = ref(4)
 
 // Sync basic config → timeline
-watch(srcLang, v => { tl.timeline.sourceLang = v })
-watch(tgtLang, v => { tl.timeline.targetLang = v })
-watch(numWords, v => { tl.timeline.numWords = v })
-watch(numExprs, v => { tl.timeline.numExprs = v })
+watch(srcLang, v => { tl.timeline.sourceLang = v }, { immediate: true })
+watch(tgtLang, v => { tl.timeline.targetLang = v }, { immediate: true })
+watch(numWords, v => { tl.timeline.numWords = v }, { immediate: true })
+watch(numExprs, v => { tl.timeline.numExprs = v }, { immediate: true })
 
 // Clear selection when switching parts so transformer doesn't persist on hidden elements
 watch(currentPartId, () => editor.clearSelection())
@@ -375,7 +396,7 @@ function onAddElement(type) {
   if (type === 'watermark') {
     if (!isMember.value) {
       ensureFreeDefaultWatermark()
-      toast('开通会员后可自定义水印；非会员成片会自动添加默认 LinguaLearn 水印', 'warn')
+      toast(tr('create_watermark_member_only', 'Custom watermark is for members only'), 'warn')
       openMembership()
       return
     }
@@ -402,7 +423,7 @@ function onAddElement(type) {
 function onAddWatermark(config) {
   if (!isMember.value) {
     ensureFreeDefaultWatermark()
-    toast('非会员不可自定义水印', 'warn')
+    toast(tr('create_watermark_no_custom', 'Non-members cannot customize watermark'), 'warn')
     openMembership()
     return
   }
@@ -425,7 +446,7 @@ function onAddWatermark(config) {
 
 function onRemoveElement(elementId) {
   if (isLockedWatermarkId(elementId)) {
-    toast('默认 LinguaLearn 水印仅会员可删除', 'warn')
+    toast(tr('create_watermark_default_locked', 'Default watermark can only be removed by members'), 'warn')
     openMembership()
     return
   }
@@ -479,7 +500,7 @@ function onUpdateElementStyle(id, style) {
 function patchCurrentPartElement(id, patch) {
   if (isLockedWatermarkId(id)) {
     ensureFreeDefaultWatermark()
-    toast('默认水印仅会员可编辑', 'warn')
+    toast(tr('create_watermark_member_only_short', 'Default watermark can only be edited by members'), 'warn')
     return
   }
   const partId = currentPartId.value || tl.timeline.parts[0]?.id
@@ -522,7 +543,7 @@ function onResolutionChange() {
 async function onPreviewAnimation(elementId) {
   const stageComp = editor.stageRef.value
   const stage = stageComp?.getStage?.() || stageComp
-  if (!stage) { toast('画布尚未初始化', 'warn'); return }
+  if (!stage) { toast(tr('create_canvas_not_ready', 'Canvas is not initialized yet'), 'warn'); return }
 
   const Konva = (await import('konva')).default
 
@@ -545,7 +566,7 @@ async function onPreviewAnimation(elementId) {
     }
   }
 
-  if (elementNodes.length === 0) { toast('没有可预览的元素', 'warn'); return }
+  if (elementNodes.length === 0) { toast(tr('create_no_preview_elements', 'No elements available for preview'), 'warn'); return }
 
   animPreview.resetNodes(elementNodes)
   await animPreview.playEnterAnimation(elementNodes, Konva)
@@ -577,7 +598,7 @@ async function loadPresets() {
 
 async function savePreset() {
   const name = presetName.value.trim()
-  if (!name) { toast('请输入预设名称','warn'); return }
+  if (!name) { toast(tr('create_input_preset_name', 'Please enter a preset name'),'warn'); return }
   const cfg = tl.toJSON() // Save entire timeline JSON as preset
   const fd = new FormData()
   fd.append('name', name)
@@ -585,17 +606,17 @@ async function savePreset() {
   try {
     await fetch('/api/config/presets', { method:'POST',
       headers:{ Authorization:'Bearer '+localStorage.getItem('ll_token') }, body:fd })
-    toast(`预设「${name}」已保存`, 'ok')
+    toast(`${tr('create_save_preset', 'Save as Preset')} "${name}"`, 'ok')
     presetName.value = ''
     showPresetNameDialog.value = false
     await loadPresets()
-  } catch(e) { toast('保存失败','err') }
+  } catch(e) { toast(tr('create_preset_save_failed', 'Save failed'),'err') }
 }
 
 function applyPreset() {
   const id = parseInt(selectedPresetId.value)
   const p = presets.value.find(p=>p.id===id)
-  if (!p) { toast('请先选择预设','warn'); return }
+  if (!p) { toast(tr('create_select_preset_first', 'Please select a preset first'),'warn'); return }
   try {
     const cfg = JSON.parse(p.config_json)
     // Detect format: if cfg.version exists, it's new timeline format
@@ -612,20 +633,20 @@ function applyPreset() {
     numWords.value = tl.timeline.numWords
     numExprs.value = tl.timeline.numExprs
     ensureFreeDefaultWatermark()
-    toast(`已加载「${p.name}」`,'ok')
-  } catch { toast('加载失败','err') }
+    toast(`${tr('create_load', 'Load')} "${p.name}"`,'ok')
+  } catch { toast(tr('create_preset_load_failed', 'Load failed'),'err') }
 }
 
 async function deletePreset() {
   const id = parseInt(selectedPresetId.value)
-  if (!id) { toast('请先选择预设','warn'); return }
+  if (!id) { toast(tr('create_select_preset_first', 'Please select a preset first'),'warn'); return }
   const p = presets.value.find(p=>p.id===id)
-  if (!confirm(`确定删除「${p?.name}」？`)) return
+  if (!confirm(`${tr('create_delete', 'Delete')} "${p?.name}"?`)) return
   try {
     await fetch(`/api/config/presets/${id}`, { method:'DELETE',
       headers:{ Authorization:'Bearer '+localStorage.getItem('ll_token') } })
-    selectedPresetId.value = ''; toast('已删除','ok'); await loadPresets()
-  } catch { toast('删除失败','err') }
+    selectedPresetId.value = ''; toast(tr('create_preset_deleted', 'Deleted'),'ok'); await loadPresets()
+  } catch { toast(tr('create_preset_delete_failed', 'Delete failed'),'err') }
 }
 
 // ── Submit & Progress ──
@@ -634,7 +655,7 @@ const jobDone     = ref(false)
 const submitting  = ref(false)
 const currentJobId= ref(null)
 const currentStep = ref(0)
-const stepName    = ref('准备中...')
+const stepName    = ref(tr('create_preparing', 'Preparing...'))
 const clipsPct    = ref(0)
 const writePct    = ref(0)
 const logs        = ref([])
@@ -644,9 +665,9 @@ const videoName   = ref('')
 let ws = null
 
 async function submit() {
-  if (!selectedFile.value) { toast('请先选择视频文件','warn'); return }
-  if (srcLang.value===tgtLang.value) { toast('源语言和目标语言不能相同','warn'); return }
-  if (tl.timeline.parts.length===0) { toast('请至少添加一个 Part','warn'); return }
+  if (!selectedFile.value) { toast(tr('create_select_video_first', 'Please select a video file first'),'warn'); return }
+  if (srcLang.value===tgtLang.value) { toast(tr('create_src_tgt_diff', 'Source and target languages must be different'),'warn'); return }
+  if (tl.timeline.parts.length===0) { toast(tr('create_need_part', 'Please add at least one Part'),'warn'); return }
   videoName.value = ''
   showNameDialog.value = true
 }
@@ -678,7 +699,7 @@ async function doSubmit(name) {
     if (!r.ok) {
       const msg = Array.isArray(d.detail)
         ? d.detail.map(e => e.msg || JSON.stringify(e)).join('; ')
-        : (d.detail || '提交失败')
+        : (d.detail || tr('create_submit_failed', 'Submit failed'))
       throw new Error(msg)
     }
     jobId = d.job_id
@@ -690,8 +711,8 @@ async function doSubmit(name) {
     currentJobId.value = jobId
     jobRunning.value = true; jobDone.value = false
     currentStep.value = 0; clipsPct.value = 0; writePct.value = 0
-    logs.value = []; stepName.value = '等待处理...'
-    toast('任务已提交 🚀','ok')
+    logs.value = []; stepName.value = tr('create_waiting', 'Waiting...')
+    toast(tr('create_task_submitted', 'Task submitted 🚀'),'ok')
   } catch(e) { console.error('doSubmit error:', e); toast(e.message,'err') }
   finally { submitting.value = false }
 
@@ -716,9 +737,9 @@ function connectWS(jobId) {
       case 'step':  currentStep.value=msg.data.step; stepName.value=msg.data.name; break
       case 'video_clips': clipsPct.value=msg.data.pct||0; break
       case 'video_write': writePct.value=msg.data.pct||0; break
-      case 'done':  clipsPct.value=100; writePct.value=100; jobDone.value=true; toast('视频生成完成！🎉','ok'); break
-      case 'error': toast('处理失败: '+msg.data,'err'); jobRunning.value=false; break
-      case 'cancelled': toast('任务已取消','warn'); jobRunning.value=false; break
+      case 'done':  clipsPct.value=100; writePct.value=100; jobDone.value=true; toast(`${tr('create_done', 'Video generated!')} 🎉`,'ok'); break
+      case 'error': toast(`${tr('create_task_failed', 'Processing failed')}: ${msg.data}`,'err'); jobRunning.value=false; break
+      case 'cancelled': toast(tr('create_task_cancelled', 'Task cancelled'),'warn'); jobRunning.value=false; break
     }
   }
   ws.onerror = () => pollJob(jobId)
@@ -738,7 +759,7 @@ function pollJob(jobId) {
 }
 
 async function cancelJob() {
-  if (!currentJobId.value||!confirm('确定取消？')) return
+  if (!currentJobId.value||!confirm(tr('create_confirm_cancel', 'Cancel this task?'))) return
   await fetch(`/api/jobs/${currentJobId.value}`, {
     method:'DELETE', headers:{Authorization:'Bearer '+localStorage.getItem('ll_token')}
   }).catch(()=>{})
@@ -775,12 +796,24 @@ onMounted(async () => {
     if (d.languages?.length) langs.value=d.languages
   } catch {}
   if (!langs.value.length) langs.value=[
-    {code:'en',native_name:'English',flag:'🇺🇸'},{code:'zh',native_name:'中文',flag:'🇨🇳'},
+    {code:'en',native_name:'English',flag:'🇺🇸'},
+    {code:'zh-Hans',native_name:'中文（简体）',flag:'🇨🇳'},
+    {code:'zh-Hant',native_name:'中文（繁體）',flag:'🇭🇰'},
     {code:'ja',native_name:'日本語',flag:'🇯🇵'},{code:'ko',native_name:'한국어',flag:'🇰🇷'},
     {code:'de',native_name:'Deutsch',flag:'🇩🇪'},{code:'fr',native_name:'Français',flag:'🇫🇷'},
     {code:'es',native_name:'Español',flag:'🇪🇸'},{code:'ru',native_name:'Русский',flag:'🇷🇺'},
   ]
   await loadPresets()
+})
+
+watch(() => languagePrefs?.familiarLang?.value, (val) => {
+  if (!val || selectedFile.value || jobRunning.value) return
+  tgtLang.value = val
+})
+
+watch(() => languagePrefs?.learningLang?.value, (val) => {
+  if (!val || selectedFile.value || jobRunning.value) return
+  srcLang.value = val
 })
 
 watch(() => user.value?.membership?.tier, () => {

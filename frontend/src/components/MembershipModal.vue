@@ -6,22 +6,22 @@
         <div class="mm-head">
           <img src="/premium-badge.svg" alt="Premium" class="mm-logo">
           <div>
-            <div class="mm-title">LinguaLearn 会员中心</div>
-            <div class="mm-sub">解锁无默认水印、长视频、无限生成、尊贵标识</div>
+            <div class="mm-title">{{ tr('mm_title', 'LinguaLearn Membership') }}</div>
+            <div class="mm-sub">{{ tr('mm_sub', 'Unlock no default watermark, longer videos, unlimited generation, and premium badge') }}</div>
           </div>
         </div>
 
         <div class="mm-status" v-if="status">
           <span :class="['tag', status.tier === 'member' ? 'tag-ok' : 'tag-free']">
-            {{ status.tier === 'member' ? '会员' : '非会员' }}
+            {{ status.tier === 'member' ? tr('mm_member', 'Member') : tr('mm_free', 'Free') }}
           </span>
           <span class="mm-status-text">
-            今日已生成 {{ status.usage?.videos_generated_today ?? 0 }} 个视频
+            {{ tr('mm_today_generated', 'Today generated') }} {{ status.usage?.videos_generated_today ?? 0 }} {{ tr('mm_videos', 'videos') }}
           </span>
         </div>
 
         <div class="mm-provider">
-          <button :class="['pv-btn', {active: provider==='alipay'}]" @click="provider='alipay'">支付宝</button>
+          <button :class="['pv-btn', {active: provider==='alipay'}]" @click="provider='alipay'">{{ tr('mm_alipay', 'Alipay') }}</button>
           <button :class="['pv-btn', {active: provider==='stripe'}]" @click="provider='stripe'">Stripe</button>
         </div>
 
@@ -35,20 +35,20 @@
           >
             <div class="mm-plan-name">
               {{ p.label }}
-              <span v-if="p.trial_once" class="trial-tag">限1次</span>
+              <span v-if="p.trial_once" class="trial-tag">{{ tr('mm_trial_once', '1-time only') }}</span>
             </div>
             <div class="mm-plan-price">{{ p.currency === 'CNY' ? '¥' : '$' }}{{ p.price }}</div>
             <div class="mm-plan-meta">
-              {{ p.auto_renew ? '自动续费' : '一次性' }} · {{ p.period }}
+              {{ p.auto_renew ? tr('mm_auto_renew', 'Auto renew') : tr('mm_one_time', 'One-time') }} · {{ p.period }}
             </div>
-            <div v-if="!p.available" class="mm-plan-unavail">已使用</div>
+            <div v-if="!p.available" class="mm-plan-unavail">{{ tr('mm_used', 'Used') }}</div>
           </button>
         </div>
 
         <div class="mm-features">
-          <div>非会员：每日最多 5 个视频，单个视频最长 5 分钟，默认 LinguaLearn 水印不可删除。</div>
-          <div>会员：每日无限生成，单个视频最长 30 分钟，可自定义/删除视频与文稿水印。</div>
-          <div>会员专属：解锁尊贵标识。</div>
+          <div>{{ tr('mm_feature_free', 'Free: up to 5 videos/day, max 5 minutes each, default LinguaLearn watermark cannot be removed.') }}</div>
+          <div>{{ tr('mm_feature_member', 'Member: unlimited daily generation, max 30 minutes each, customizable/removable video and document watermark.') }}</div>
+          <div>{{ tr('mm_feature_badge', 'Member exclusive: premium identity badge.') }}</div>
         </div>
       </div>
     </div>
@@ -58,6 +58,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { apiFetch } from '../composables/useApi.js'
+import { useI18n } from '../i18n.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -68,6 +69,11 @@ const status = ref(null)
 const plans = ref([])
 const provider = ref('alipay')
 const loadingCode = ref('')
+const { t } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 watch(() => props.visible, async (v) => {
   if (!v) return
@@ -92,11 +98,11 @@ async function checkout(plan) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan_code: plan.code }),
     })
-    if (!d.checkout_url) throw new Error('未获取到支付链接')
+    if (!d.checkout_url) throw new Error(tr('mm_no_checkout_url', 'No checkout URL returned'))
     emit('refreshed')
     window.location.href = d.checkout_url
   } catch (e) {
-    alert(e.message || '创建支付失败')
+    alert(e.message || tr('mm_checkout_failed', 'Failed to create payment'))
   } finally {
     loadingCode.value = ''
   }

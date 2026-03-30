@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from typing import List, Dict
 from openai import OpenAI
 import config
@@ -23,6 +24,7 @@ class WordAnalyzer:
         self.base_url = base_url or config.OPENAI_BASE_URL
         self.source_lang = source_lang or getattr(config, 'SOURCE_LANGUAGE', 'en')
         self.target_lang = target_lang or getattr(config, 'TARGET_LANGUAGE', 'zh')
+        self.is_source_cjk = self.source_lang in getattr(config, 'CJK_LANGUAGES', {'zh', 'ja', 'ko'})
 
         if not self.api_key:
             raise ValueError("请在.env文件中设置OPENAI_API_KEY")
@@ -36,7 +38,16 @@ class WordAnalyzer:
         """获取语言的显示名称"""
         display_in = display_in or self.target_lang
         display_names = getattr(config, 'LANGUAGE_DISPLAY_NAMES', {})
-        return display_names.get(lang_code, {}).get(display_in, lang_code)
+        aliases = getattr(config, 'LANGUAGE_CODE_ALIASES', {})
+        canonical = aliases.get(lang_code, lang_code)
+        native_names = getattr(config, 'LANGUAGE_NATIVE_NAMES', {})
+        return (
+            display_names.get(lang_code, {}).get(display_in)
+            or display_names.get(canonical, {}).get(display_in)
+            or native_names.get(lang_code)
+            or native_names.get(canonical)
+            or lang_code
+        )
 
     def _get_phonetic_desc(self) -> str:
         """获取源语言的音标/注音系统描述"""
@@ -53,12 +64,15 @@ class WordAnalyzer:
         # 根据目标语言选择回复语言指令
         reply_instructions = {
             'zh': f'请用{tgt_name}回答所有翻译和解释部分。',
+            'zh-Hans': '请使用简体中文回答所有翻译和解释部分。',
+            'zh-Hant': '請使用繁體中文回答所有翻譯和解釋部分。',
             'en': f'Please provide all translations and explanations in English.',
             'ja': f'翻訳と説明はすべて日本語で提供してください。',
             'ko': f'모든 번역과 설명은 한국어로 제공해 주세요.',
             'de': f'Bitte alle Übersetzungen und Erklärungen auf Deutsch angeben.',
             'fr': f'Veuillez fournir toutes les traductions et explications en français.',
             'es': f'Por favor proporcione todas las traducciones y explicaciones en español.',
+            'ru': f'Пожалуйста, дайте все переводы и пояснения на русском языке.',
         }
         reply_instruction = reply_instructions.get(self.target_lang, f'Please respond in {tgt_name}.')
 
@@ -169,8 +183,23 @@ class WordAnalyzer:
 
             # 删除难度为1的表达，并限制总数上限
             expressions = [expr for expr in result['useful_expressions'] if expr.get('difficulty', 0) != 1]
-            # 过滤掉词数少于2个或多于8个的表达
-            expressions = [expr for expr in expressions if 2 <= len(expr.get('english', '').split()) <= 8]
+            for expr in expressions:
+                if 'english' not in expr and 'expression' in expr:
+                    expr['english'] = expr.get('expression', '')
+                if 'chinese' not in expr and 'translation' in expr:
+                    expr['chinese'] = expr.get('translation', '')
+
+            # 过滤表达长度：拉丁语系按词数，CJK 按字符数（避免被 split() 误判成 1 词）
+            if self.is_source_cjk:
+                expressions = [
+                    expr for expr in expressions
+                    if 2 <= len(re.sub(r'\s+', '', (expr.get('english', '') or ''))) <= 24
+                ]
+            else:
+                expressions = [
+                    expr for expr in expressions
+                    if 2 <= len((expr.get('english', '') or '').split()) <= 8
+                ]
             if len(expressions) > 8:
                 expressions = sorted(expressions, key=lambda x: x.get('difficulty', 0), reverse=True)[:8]
             result['useful_expressions'] = expressions

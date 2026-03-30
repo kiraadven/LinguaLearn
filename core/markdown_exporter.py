@@ -32,8 +32,22 @@ class MarkdownExporter:
 
         # 语言显示名称
         display_names = getattr(config, 'LANGUAGE_DISPLAY_NAMES', {})
-        self.src_name = display_names.get(self.source_lang, {}).get(self.target_lang, self.source_lang)
-        self.tgt_name = getattr(config, 'LANGUAGE_NATIVE_NAMES', {}).get(self.target_lang, self.target_lang)
+        aliases = getattr(config, 'LANGUAGE_CODE_ALIASES', {})
+        src_canonical = aliases.get(self.source_lang, self.source_lang)
+        tgt_canonical = aliases.get(self.target_lang, self.target_lang)
+        native_names = getattr(config, 'LANGUAGE_NATIVE_NAMES', {})
+        self.src_name = (
+            display_names.get(self.source_lang, {}).get(self.target_lang)
+            or display_names.get(src_canonical, {}).get(tgt_canonical)
+            or native_names.get(self.source_lang)
+            or native_names.get(src_canonical)
+            or self.source_lang
+        )
+        self.tgt_name = (
+            native_names.get(self.target_lang)
+            or native_names.get(tgt_canonical)
+            or self.target_lang
+        )
 
         # 初始化 OpenAI 客户端
         self.api_key = config.OPENAI_API_KEY
@@ -71,6 +85,54 @@ class MarkdownExporter:
                 'intro_note': f'说明这个视频的主题，涵盖主要内容要点，语言简洁明了，适合{self.src_name}学习者阅读',
                 'word_hint_col1': '词汇1', 'word_hint_col2': '词汇2', 'word_hint_col3': '词汇3',
                 'expr_hint_col1': '表达1', 'expr_hint_col2': '表达2',
+            },
+            'zh-Hans': {
+                'title': '语言学习文字稿',
+                'intro': '内容简介',
+                'original': f'{self.src_name}原文',
+                'sentence': '句子',
+                'source_text': f'📝 {self.src_name}原文',
+                'translation': f'🌐 {self.tgt_name}翻译',
+                'keywords': '📚 重难点词汇',
+                'expressions': '💬 有用表达',
+                'word_table': '📖 词汇汇总表',
+                'word_col1': '词汇', 'word_col2': '发音', 'word_col3': f'{self.tgt_name}释义',
+                'dictation': '✍️ 词汇听写练习',
+                'dictation_intro': '**根据翻译提示，写出对应的词汇：**',
+                'expr_table': '📝 表达汇总表',
+                'expr_col1': f'{self.src_name}表达', 'expr_col2': f'{self.tgt_name}释义',
+                'expr_dictation': '✍️ 表达默写练习',
+                'expr_dictation_intro': f'**根据{self.tgt_name}提示，写出对应的{self.src_name}表达：**',
+                'footer': '本文档由LinguaLearn制作完成',
+                'footer2': '坚持每天学习，语言进步！',
+                'intro_prompt': f'请阅读以下{self.src_name}学习视频的文字稿内容，然后生成一段简洁的{self.tgt_name}概括性介绍（100-200字）：',
+                'intro_note': f'说明这个视频的主题，涵盖主要内容要点，语言简洁明了，适合{self.src_name}学习者阅读',
+                'word_hint_col1': '词汇1', 'word_hint_col2': '词汇2', 'word_hint_col3': '词汇3',
+                'expr_hint_col1': '表达1', 'expr_hint_col2': '表达2',
+            },
+            'zh-Hant': {
+                'title': '語言學習文字稿',
+                'intro': '內容簡介',
+                'original': f'{self.src_name}原文',
+                'sentence': '句子',
+                'source_text': f'📝 {self.src_name}原文',
+                'translation': f'🌐 {self.tgt_name}翻譯',
+                'keywords': '📚 重難點詞彙',
+                'expressions': '💬 有用表達',
+                'word_table': '📖 詞彙彙總表',
+                'word_col1': '詞彙', 'word_col2': '發音', 'word_col3': f'{self.tgt_name}釋義',
+                'dictation': '✍️ 詞彙聽寫練習',
+                'dictation_intro': '**根據翻譯提示，寫出對應的詞彙：**',
+                'expr_table': '📝 表達彙總表',
+                'expr_col1': f'{self.src_name}表達', 'expr_col2': f'{self.tgt_name}釋義',
+                'expr_dictation': '✍️ 表達默寫練習',
+                'expr_dictation_intro': f'**根據{self.tgt_name}提示，寫出對應的{self.src_name}表達：**',
+                'footer': '本文檔由LinguaLearn製作完成',
+                'footer2': '堅持每天學習，語言進步！',
+                'intro_prompt': f'請閱讀以下{self.src_name}學習視頻的文字稿內容，然後生成一段簡潔的{self.tgt_name}概括性介紹（100-200字）：',
+                'intro_note': f'說明這個視頻的主題，涵蓋主要內容要點，語言簡潔明瞭，適合{self.src_name}學習者閱讀',
+                'word_hint_col1': '詞彙1', 'word_hint_col2': '詞彙2', 'word_hint_col3': '詞彙3',
+                'expr_hint_col1': '表達1', 'expr_hint_col2': '表達2',
             },
             'en': {
                 'title': 'Language Learning Transcript',

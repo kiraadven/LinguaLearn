@@ -51,7 +51,16 @@ class SentenceSplitter:
     def _build_split_prompt(self) -> str:
         """根据源语言构建分句提示词"""
         lang_names = getattr(config, 'LANGUAGE_DISPLAY_NAMES', {})
-        src_name = lang_names.get(self.source_lang, {}).get(self.target_lang, self.source_lang)
+        aliases = getattr(config, 'LANGUAGE_CODE_ALIASES', {})
+        canonical = aliases.get(self.source_lang, self.source_lang)
+        native_names = getattr(config, 'LANGUAGE_NATIVE_NAMES', {})
+        src_name = (
+            lang_names.get(self.source_lang, {}).get(self.target_lang)
+            or lang_names.get(canonical, {}).get(self.target_lang)
+            or native_names.get(self.source_lang)
+            or native_names.get(canonical)
+            or self.source_lang
+        )
 
         if self.is_cjk:
             # CJK语言分句提示词

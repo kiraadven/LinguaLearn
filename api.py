@@ -1869,7 +1869,7 @@ async def create_job(
     request:            Request,
     video:              UploadFile = File(...),
     source_lang:        str   = Form("en"),
-    target_lang:        str   = Form("zh"),
+    target_lang:        str   = Form("zh-Hans"),
     resolution:         str   = Form("1080p"),
     part1_repeat:       int   = Form(1),
     part2_repeat:       int   = Form(2),
@@ -1938,6 +1938,12 @@ async def create_job(
         except Exception as e:
             print(f"⚠️ timeline_json 解析失败: {e}, 回退到旧模式")
             timeline_dict = None
+
+    # timeline 覆盖后再次校验语言参数，确保支持任意合法组合
+    if source_lang not in valid_langs or target_lang not in valid_langs:
+        raise HTTPException(400, "不支持的语言代码")
+    if source_lang == target_lang:
+        raise HTTPException(400, "源语言和目标语言不能相同")
 
     # ===== 从 parts_list 提取框的布局信息 =====
     # 将新的 parts/boxes 系统中的框位置（0-100%）转换为 VideoProcessor 期望的格式（0-1小数）
@@ -2424,7 +2430,7 @@ async def upload_sticker(image: UploadFile = File(...)):
 
 
 @app.get("/api/dictionary/{word}")
-async def lookup_dictionary(word: str, target_lang: str = "zh"):
+async def lookup_dictionary(word: str, target_lang: str = "zh-Hans"):
     """查询英文单词释义（Free Dictionary API v2），可选翻译到目标语言"""
     import urllib.request
     import urllib.error
@@ -2477,7 +2483,9 @@ async def lookup_dictionary(word: str, target_lang: str = "zh"):
         }
 
         # 翻译释义到目标语言（非英文时）
-        if target_lang and target_lang != "en" and meanings:
+        lang_aliases = getattr(config, "LANGUAGE_CODE_ALIASES", {})
+        normalized_tl = lang_aliases.get(target_lang, target_lang)
+        if normalized_tl and normalized_tl != "en" and meanings:
             try:
                 translated = await _translate_definitions(word, meanings, target_lang)
                 if translated:
@@ -2505,7 +2513,8 @@ async def _translate_definitions(word: str, meanings: list, target_lang: str) ->
         return _translation_cache[cache_key]
 
     lang_names = {
-        "zh": "中文", "ja": "日本語", "ko": "한국어",
+        "zh": "中文", "zh-Hans": "简体中文", "zh-Hant": "繁體中文",
+        "ja": "日本語", "ko": "한국어",
         "de": "Deutsch", "fr": "français", "es": "español", "ru": "русский"
     }
     lang_name = lang_names.get(target_lang, target_lang)
@@ -2584,21 +2593,24 @@ async def get_quiz_data(job_id: str, debug: bool = False):
     expressions = []
 
     # 各语言词汇/表达汇总表的完整标题（避免与内容简介标题混淆）
-    _tl = result.get("target_lang", "zh")
+    _tl = result.get("target_lang", "zh-Hans")
+    _tl_norm = getattr(config, "LANGUAGE_CODE_ALIASES", {}).get(_tl, _tl)
     _VOCAB_HEADERS = {
-        'zh': '## 📖 词汇汇总表', 'en': '## 📖 Vocabulary Summary',
+        'zh': '## 📖 词汇汇总表', 'zh-Hans': '## 📖 词汇汇总表', 'zh-Hant': '## 📖 詞彙彙總表',
+        'en': '## 📖 Vocabulary Summary',
         'ja': '## 📖 語彙まとめ',  'ko': '## 📖 어휘 정리',
         'de': '## 📖 Vokabeln Zusammenfassung', 'fr': '## 📖 Résumé du vocabulaire',
         'es': '## 📖 Resumen de vocabulario',   'ru': '## 📖 Итоговый словарь',
     }
     _EXPR_HEADERS = {
-        'zh': '## 📝 表达汇总表', 'en': '## 📝 Expressions Summary',
+        'zh': '## 📝 表达汇总表', 'zh-Hans': '## 📝 表达汇总表', 'zh-Hant': '## 📝 表達彙總表',
+        'en': '## 📝 Expressions Summary',
         'ja': '## 📝 表現まとめ',  'ko': '## 📝 표현 정리',
         'de': '## 📝 Ausdrücke Zusammenfassung', 'fr': '## 📝 Résumé des expressions',
         'es': '## 📝 Resumen de expresiones',    'ru': '## 📝 Итоговые выражения',
     }
-    _vocab_header = _VOCAB_HEADERS.get(_tl, '## 📖 词汇汇总表')
-    _expr_header  = _EXPR_HEADERS.get(_tl, '## 📝 表达汇总表')
+    _vocab_header = _VOCAB_HEADERS.get(_tl, _VOCAB_HEADERS.get(_tl_norm, '## 📖 词汇汇总表'))
+    _expr_header  = _EXPR_HEADERS.get(_tl, _EXPR_HEADERS.get(_tl_norm, '## 📝 表达汇总表'))
 
     def extract_markdown_table(content, section_header):
         """从Markdown中提取指定section的表格"""
@@ -2654,7 +2666,7 @@ async def get_quiz_data(job_id: str, debug: bool = False):
         "words": words,
         "expressions": expressions,
         "source_lang": result.get("source_lang", "en"),
-        "target_lang": result.get("target_lang", "zh"),
+        "target_lang": result.get("target_lang", "zh-Hans"),
         "job_name": j.get("name") or j.get("video_filename") or job_id[:12],
     }
 

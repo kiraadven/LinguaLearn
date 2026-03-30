@@ -1,33 +1,33 @@
 <template>
   <div class="results-page page-inner">
     <div class="page-header">
-      <h1>学习结果</h1>
-      <p>查看历史任务，点击进入详细学习页面</p>
+      <h1>{{ t.results_title }}</h1>
+      <p>{{ t.results_subtitle }}</p>
     </div>
 
     <div v-if="!isLoggedIn" class="empty-state">
       <div class="empty-icon">🔒</div>
-      <p class="empty-title">请先登录</p>
-      <button class="btn-primary" @click="openAuth()">登录 / 注册</button>
+      <p class="empty-title">{{ t.create_login_required || t.auth_login }}</p>
+      <button class="btn-primary" @click="openAuth()">{{ t.nav_login_register || (t.auth_login + ' / ' + t.auth_register) }}</button>
     </div>
     <div v-else-if="loading" class="empty-state">
       <div style="font-size:32px;animation:spin 1s linear infinite">⟳</div>
-      <p class="empty-sub" style="margin-top:12px">加载中...</p>
+      <p class="empty-sub" style="margin-top:12px">{{ t.results_loading }}</p>
     </div>
     <div v-else-if="jobs.length===0" class="empty-state">
       <div class="empty-icon">📭</div>
-      <p class="empty-title">暂无任务记录</p>
-      <p class="empty-sub">先去「生成视频」页面上传视频</p>
-      <button class="btn-primary" @click="$router.push('/create')">去生成视频</button>
+      <p class="empty-title">{{ t.results_empty }}</p>
+      <p class="empty-sub">{{ t.results_go_create }}</p>
+      <button class="btn-primary" @click="$router.push('/create')">{{ t.nav_create }}</button>
     </div>
     <div v-else>
       <!-- Filter bar -->
       <div class="filter-bar">
-        <button v-for="f in filters" :key="f.val"
+        <button v-for="f in filterItems" :key="f.val"
           :class="['filter-btn', {active: jobFilter===f.val}]"
           @click="jobFilter=f.val">{{ f.label }}
         </button>
-        <button class="filter-btn" @click="loadJobs" title="刷新" style="margin-left:auto">⟳ 刷新</button>
+        <button class="filter-btn" @click="loadJobs" :title="t.results_loading" style="margin-left:auto">⟳ {{ t.results_loading }}</button>
       </div>
 
       <!-- Job list -->
@@ -54,16 +54,16 @@
           <!-- Actions row -->
           <div class="job-card-actions">
             <template v-if="renamingId===j.id">
-              <input class="input rename-input" v-model="renameVal" placeholder="新名称..." @keyup.enter="confirmRename(j)" @keyup.escape="renamingId=null">
+              <input class="input rename-input" v-model="renameVal" :placeholder="t.results_rename" @keyup.enter="confirmRename(j)" @keyup.escape="renamingId=null">
               <button class="act-btn ok-btn" @click="confirmRename(j)">✓</button>
               <button class="act-btn" @click="renamingId=null">✕</button>
             </template>
             <template v-else>
-              <button class="act-btn" @click.stop="startRename(j)" title="重命名">✏️</button>
-              <button class="act-btn del-btn" @click.stop="deleteJob(j)" title="删除">🗑️</button>
+              <button class="act-btn" @click.stop="startRename(j)" :title="t.results_rename">✏️</button>
+              <button class="act-btn del-btn" @click.stop="deleteJob(j)" :title="t.results_delete">🗑️</button>
               <a v-if="j.status==='done' && j.result?.full_video"
                  :href="`/api/jobs/${j.id}/download/${encodeURIComponent(j.result.full_video)}`"
-                 download class="act-btn dl-act" title="下载视频">⬇</a>
+                 download class="act-btn dl-act" :title="t.results_download">⬇</a>
             </template>
           </div>
         </div>
@@ -77,11 +77,13 @@ import { ref, computed, inject, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth.js'
 import { apiFetch } from '../composables/useApi.js'
+import { useI18n } from '../i18n.js'
 
 const { isLoggedIn } = useAuth()
 const openAuth = inject('openAuth')
 const toast    = inject('toast')
 const router   = useRouter()
+const { t, uiLang } = useI18n()
 
 const jobs      = ref([])
 const loading   = ref(false)
@@ -89,12 +91,12 @@ const jobFilter = ref('all')
 const renamingId = ref(null)
 const renameVal  = ref('')
 
-const filters = [
-  {val:'all',label:'全部'},
-  {val:'done',label:'完成'},
-  {val:'running',label:'处理中'},
-  {val:'error',label:'失败'},
-]
+const filterItems = computed(() => ([
+  {val:'all', label: t.value.results_all},
+  {val:'done', label: t.value.results_done},
+  {val:'running', label: t.value.results_processing},
+  {val:'error', label: t.value.results_failed},
+]))
 
 const filteredJobs = computed(() => {
   if (jobFilter.value === 'all') return jobs.value
@@ -108,7 +110,7 @@ async function loadJobs() {
     const d = await apiFetch('/api/jobs')
     jobs.value = (d.jobs || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   } catch(e) {
-    toast('加载失败: ' + e.message, 'err')
+    toast(`${t.value.results_load_failed}: ${e.message}`, 'err')
   } finally {
     loading.value = false
   }
@@ -130,14 +132,14 @@ async function confirmRename(j) {
       body: fd
     })
     j.name = name
-    toast('已重命名', 'ok')
-  } catch { toast('重命名失败', 'err') }
+    toast(t.value.results_renamed, 'ok')
+  } catch { toast(t.value.results_rename_failed, 'err') }
   renamingId.value = null
 }
 
 async function deleteJob(j) {
   const label = j.name || j.video_filename || j.id.slice(0, 12)
-  if (!confirm(`确定删除「${label}」？此操作不可恢复。`)) return
+  if (!confirm(`${t.value.results_delete_confirm}\n${label}`)) return
   try {
     const r = await fetch(`/api/jobs/${j.id}`, {
       method: 'DELETE',
@@ -145,17 +147,23 @@ async function deleteJob(j) {
     })
     if (!r.ok) throw new Error()
     jobs.value = jobs.value.filter(x => x.id !== j.id)
-    toast('已删除', 'ok')
-  } catch { toast('删除失败', 'err') }
+    toast(t.value.results_deleted, 'ok')
+  } catch { toast(t.value.results_delete_failed, 'err') }
 }
 
 function statusLabel(s) {
-  return {done:'✓ 完成', running:'⚙ 处理中', error:'✗ 失败', queued:'⏳ 排队', cancelled:'取消'}[s] || s
+  return {
+    done: t.value.results_status_done,
+    running: t.value.results_status_running,
+    error: t.value.results_status_failed,
+    queued: t.value.results_status_queued,
+    cancelled: t.value.create_cancel,
+  }[s] || s
 }
 function statusDotClass(s) {
   return {done:'dot-ok', running:'dot-run', error:'dot-err', queued:'dot-wait', cancelled:'dot-wait'}[s] || 'dot-wait'
 }
-function fmtDate(s) { return s ? new Date(s).toLocaleDateString('zh-CN') : '—' }
+function fmtDate(s) { return s ? new Date(s).toLocaleDateString(uiLang.value || 'en-US') : '—' }
 
 function onJobCardClick(j) {
   if (j.status === 'done' || j.status === 'running' || j.status === 'queued') {

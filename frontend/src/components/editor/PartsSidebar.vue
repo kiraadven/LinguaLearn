@@ -1,6 +1,6 @@
 <template>
   <div class="parts-sidebar">
-    <div class="sidebar-hdr">Part 列表</div>
+    <div class="sidebar-hdr">{{ tr('create_part_list', 'Part List') }}</div>
 
     <div v-for="(p, i) in parts" :key="p.id"
          :class="['part-chip', { active: currentPartIdx === i, dragging: dragPartId === p.id, 'drag-over': dragOverPartId === p.id && dragPartId !== p.id }]"
@@ -15,22 +15,22 @@
       <!-- Header row: title + action buttons -->
       <div style="display:flex;align-items:flex-start;justify-content:space-between">
         <div class="part-chip-title" style="display:flex;align-items:center;gap:6px">
-          <span class="drag-handle" title="拖动排序">⋮⋮</span>
+          <span class="drag-handle" :title="tr('parts_drag_sort', 'Drag to reorder')">⋮⋮</span>
           Part {{ i + 1 }}
           <span style="font-size:10px;color:var(--text3);font-weight:400">
-            {{ visibleCount(p) }} 元素
+            {{ visibleCount(p) }} {{ tr('parts_elements', 'elements') }}
           </span>
         </div>
         <div style="display:flex;gap:2px;flex-shrink:0">
-          <button class="part-action-btn" @click.stop="$emit('copyPart', p.id)" title="复制">⿻</button>
-          <button v-if="parts.length > 1" class="del-part" @click.stop="$emit('removePart', p.id)" title="删除">✕</button>
+          <button class="part-action-btn" @click.stop="$emit('copyPart', p.id)" :title="tr('parts_copy', 'Copy')">⿻</button>
+          <button v-if="parts.length > 1" class="del-part" @click.stop="$emit('removePart', p.id)" :title="tr('parts_delete', 'Delete')">✕</button>
         </div>
       </div>
 
       <!-- Repeat control -->
       <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;align-items:center">
         <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:3px;cursor:pointer">
-          重复
+          {{ tr('create_repeat', 'Repeat') }}
           <input type="number" class="input" v-model.number="p.repeat" min="1" max="5"
                  style="width:40px;padding:3px 6px;font-size:11px;margin-bottom:0;text-align:center"
                  @click.stop>
@@ -40,7 +40,7 @@
       <!-- Speed slider -->
       <div style="margin-top:6px" @click.stop>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
-          <span style="font-size:11px;color:var(--text2)">速度</span>
+          <span style="font-size:11px;color:var(--text2)">{{ tr('create_speed', 'Speed') }}</span>
           <span style="font-size:11px;font-weight:700;color:var(--accent)">{{ Number(p.speed || 1).toFixed(2) }}×</span>
         </div>
         <input type="range" v-model.number="p.speed" min="0.25" max="2.0" step="0.05"
@@ -66,13 +66,14 @@
     </div>
 
     <button class="add-part" @click="$emit('addPart')" :disabled="parts.length >= 4">
-      + 添加 Part
+      {{ tr('create_add_part', '+ Add Part') }}
     </button>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
+import { useI18n } from '../../i18n.js'
 
 const props = defineProps({
   parts: { type: Array, required: true },
@@ -81,6 +82,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['selectPart', 'addPart', 'copyPart', 'removePart', 'toggleVisibility', 'movePart'])
+const { t } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 const dragPartId = ref(null)
 const dragOverPartId = ref(null)
@@ -117,10 +123,10 @@ const TYPE_COLORS = {
   watermark: '#94a3b8',
 }
 const TYPE_LABELS = {
-  subtitle: '字幕',
-  wordbox: '词框',
-  exprbox: '表达框',
-  watermark: '水印',
+  subtitle: 'create_el_subtitle',
+  wordbox: 'create_el_wordbox',
+  exprbox: 'create_el_exprbox',
+  watermark: 'create_el_watermark',
 }
 
 function elementColor(type) {
@@ -128,7 +134,7 @@ function elementColor(type) {
 }
 
 function elementLabel(el) {
-  return TYPE_LABELS[el.type] || el.type
+  return tr(TYPE_LABELS[el.type], el.type)
 }
 
 function visibleCount(part) {

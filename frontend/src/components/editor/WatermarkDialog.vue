@@ -2,36 +2,36 @@
   <Teleport to="body">
     <div v-if="visible" class="dialog-overlay" @click.self="$emit('close')">
       <div class="dialog-box">
-        <div class="dialog-title">💧 添加水印</div>
+        <div class="dialog-title">💧 {{ tr('watermark_add', 'Add Watermark') }}</div>
 
         <div class="form-group">
-          <label class="label">水印文字</label>
+          <label class="label">{{ tr('props_watermark_text', 'Watermark Text') }}</label>
           <input type="text" class="input" v-model="text" placeholder="LinguaLearn" @keydown.enter="confirm">
         </div>
 
         <div class="form-group">
-          <label class="label">字号: {{ fontSize }}px</label>
+          <label class="label">{{ tr('props_font_size', 'Font Size') }}: {{ fontSize }}px</label>
           <input type="range" class="slider" v-model.number="fontSize" min="8" max="160" step="1">
         </div>
 
         <div class="form-group">
-          <label class="label">透明度: {{ Math.round(opacity * 100) }}%</label>
+          <label class="label">{{ tr('props_opacity', 'Opacity') }}: {{ Math.round(opacity * 100) }}%</label>
           <input type="range" class="slider" v-model.number="opacity" min="0.05" max="1" step="0.05">
         </div>
 
         <div class="form-group">
-          <label class="label">旋转: {{ rotation }}°</label>
+          <label class="label">{{ tr('props_rotation', 'Rotation') }}: {{ rotation }}°</label>
           <input type="range" class="slider" v-model.number="rotation" min="-180" max="180" step="5">
         </div>
 
         <div class="form-group">
-          <label class="label">颜色</label>
+          <label class="label">{{ tr('create_color', 'Color') }}</label>
           <input type="color" v-model="color" style="width:40px;height:28px;border:none;cursor:pointer">
         </div>
 
         <div class="dialog-actions">
-          <button class="btn-cancel" @click="$emit('close')">取消</button>
-          <button class="btn-confirm" @click="confirm">确认添加</button>
+          <button class="btn-cancel" @click="$emit('close')">{{ tr('create_cancel', 'Cancel') }}</button>
+          <button class="btn-confirm" @click="confirm">{{ tr('watermark_confirm_add', 'Add') }}</button>
         </div>
       </div>
     </div>
@@ -40,6 +40,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useI18n } from '../../i18n.js'
 
 defineProps({
   visible: { type: Boolean, default: false },
@@ -52,6 +53,11 @@ const fontSize = ref(20)
 const opacity = ref(0.3)
 const rotation = ref(-30)
 const color = ref('#ffffff')
+const { t } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 function confirm() {
   emit('add', {

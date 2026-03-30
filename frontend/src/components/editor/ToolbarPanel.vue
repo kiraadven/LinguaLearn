@@ -1,7 +1,7 @@
 <template>
   <div class="toolbar-panel">
     <!-- Drag chips for adding elements -->
-    <div style="font-size:11px;color:var(--text3);margin-right:8px">添加元素：</div>
+    <div style="font-size:11px;color:var(--text3);margin-right:8px">{{ tr('toolbar_add_elements', 'Add Elements:') }}</div>
     <button v-for="item in elementTypes" :key="item.type"
             class="add-chip"
             :style="{ background: item.bgChip, border: `1.5px solid ${item.color}`, color: item.color }"
@@ -12,20 +12,21 @@
     <!-- Zoom controls -->
     <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
       <!-- Animation preview button -->
-      <button class="zoom-btn" @click="$emit('previewAnimation')" title="预览入场动画" :disabled="isAnimating">
+      <button class="zoom-btn" @click="$emit('previewAnimation')" :title="tr('toolbar_preview_animation', 'Preview Enter Animation')" :disabled="isAnimating">
         ▶
       </button>
       <div style="width:1px;height:16px;background:rgba(255,255,255,.1);margin:0 4px" />
       <button class="zoom-btn" @click="$emit('zoomOut')">−</button>
       <span style="font-size:11px;color:var(--text3);min-width:36px;text-align:center">{{ Math.round(zoom * 100) }}%</span>
       <button class="zoom-btn" @click="$emit('zoomIn')">+</button>
-      <button class="zoom-btn" @click="$emit('zoomReset')" title="重置缩放">⟳</button>
+      <button class="zoom-btn" @click="$emit('zoomReset')" :title="tr('toolbar_reset_zoom', 'Reset Zoom')">⟳</button>
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from '../../i18n.js'
 
 defineEmits(['addElement', 'zoomIn', 'zoomOut', 'zoomReset', 'previewAnimation'])
 
@@ -34,14 +35,19 @@ const props = defineProps({
   isAnimating: { type: Boolean, default: false },
   isMember: { type: Boolean, default: false },
 })
+const { t } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 const elementTypes = computed(() => ([
-  { type: 'subtitle', label: '字幕', icon: '📝', color: '#a78bfa', bgChip: 'rgba(167,139,250,.1)' },
-  { type: 'wordbox', label: '词框', icon: '📖', color: '#38bdf8', bgChip: 'rgba(56,189,248,.1)' },
-  { type: 'exprbox', label: '表达框', icon: '💬', color: '#f472b6', bgChip: 'rgba(244,114,182,.1)' },
+  { type: 'subtitle', label: tr('create_el_subtitle', 'Subtitle'), icon: '📝', color: '#a78bfa', bgChip: 'rgba(167,139,250,.1)' },
+  { type: 'wordbox', label: tr('create_el_wordbox', 'Word Box'), icon: '📖', color: '#38bdf8', bgChip: 'rgba(56,189,248,.1)' },
+  { type: 'exprbox', label: tr('create_el_exprbox', 'Expression Box'), icon: '💬', color: '#f472b6', bgChip: 'rgba(244,114,182,.1)' },
   {
     type: 'watermark',
-    label: props.isMember ? '水印' : '开通会员自定义水印',
+    label: props.isMember ? tr('create_el_watermark', 'Watermark') : tr('toolbar_member_watermark', 'Upgrade to customize watermark'),
     icon: '💧',
     color: '#94a3b8',
     bgChip: 'rgba(148,163,184,.1)',

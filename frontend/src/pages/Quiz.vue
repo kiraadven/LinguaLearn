@@ -3,24 +3,24 @@
     <!-- Phase 1: Job selection -->
     <template v-if="phase === 'select'">
       <div class="page-header">
-        <h1>学习成果自测</h1>
-        <p>选择一个已完成的视频，开始默写测试</p>
+        <h1>{{ tr('quiz_title', 'Quiz Your Learning Results') }}</h1>
+        <p>{{ tr('quiz_subtitle', 'Choose a completed video and start dictation practice') }}</p>
       </div>
 
       <div v-if="!isLoggedIn" class="empty-state">
         <div class="empty-icon">🔒</div>
-        <p class="empty-title">请先登录</p>
-        <button class="btn-primary" @click="openAuth()">登录 / 注册</button>
+        <p class="empty-title">{{ tr('create_login_required', 'Please log in first') }}</p>
+        <button class="btn-primary" @click="openAuth()">{{ tr('nav_login_register', 'Login / Register') }}</button>
       </div>
       <div v-else-if="jobsLoading" class="empty-state">
         <div style="font-size:32px;animation:spin 1s linear infinite">⟳</div>
-        <p style="margin-top:12px;color:var(--text3)">加载中...</p>
+        <p style="margin-top:12px;color:var(--text3)">{{ tr('results_loading', 'Loading...') }}</p>
       </div>
       <div v-else-if="doneJobs.length === 0" class="empty-state">
         <div class="empty-icon">📭</div>
-        <p class="empty-title">暂无已完成的视频</p>
-        <p class="empty-sub">先去生成视频页面创建学习内容</p>
-        <button class="btn-primary" @click="$router.push('/create')">去生成视频</button>
+        <p class="empty-title">{{ tr('quiz_no_completed_videos', 'No completed videos yet') }}</p>
+        <p class="empty-sub">{{ tr('quiz_no_completed_hint', 'Create your first learning video first') }}</p>
+        <button class="btn-primary" @click="$router.push('/create')">{{ tr('nav_create', 'Create Video') }}</button>
       </div>
       <div v-else class="job-grid">
         <div v-for="j in doneJobs" :key="j.id" class="quiz-job-card" @click="selectJob(j)">
@@ -39,8 +39,8 @@
       <!-- Review book section -->
       <div v-if="isLoggedIn && reviewWords.length > 0" class="review-section" ref="reviewSectionRef">
         <div class="review-section-hdr">
-          <h2>复习单词本 <span class="review-count">{{ reviewWords.length }}</span></h2>
-          <button class="btn-flashcard" @click="startFlashcard">🃏 闪卡复习</button>
+          <h2>{{ tr('quiz_review_book', 'Review Book') }} <span class="review-count">{{ reviewWords.length }}</span></h2>
+          <button class="btn-flashcard" @click="startFlashcard">🃏 {{ tr('quiz_flashcard_review', 'Flashcard Review') }}</button>
         </div>
         <div class="review-grid">
           <div v-for="w in reviewWords" :key="w.id" class="review-card" :class="{mastered: w.mastered}">
@@ -55,8 +55,8 @@
             </div>
             <div class="rc-meaning">{{ w.meaning }}</div>
             <div class="rc-actions">
-              <button v-if="!w.mastered" class="rc-btn ok" @click="markMastered(w)" title="标记已掌握">✓</button>
-              <button class="rc-btn del" @click="removeReviewWord(w)" title="删除">✕</button>
+              <button v-if="!w.mastered" class="rc-btn ok" @click="markMastered(w)" :title="tr('quiz_mark_mastered', 'Mark mastered')">✓</button>
+              <button class="rc-btn del" @click="removeReviewWord(w)" :title="tr('results_delete', 'Delete')">✕</button>
             </div>
           </div>
         </div>
@@ -71,16 +71,16 @@
                @mouseenter="cancelDictHide"
                @mouseleave="scheduleDictHide">
             <div v-if="dictTooltip.loading" class="dt-loading">
-              <span class="dt-spin">⟳</span> 查询中…
+              <span class="dt-spin">⟳</span> {{ tr('dict_loading', 'Loading...') }}
             </div>
             <div v-else-if="dictTooltip.notFound" class="dt-not-found">
-              未找到 "{{ dictTooltip.word }}"
+              {{ tr('dict_not_found', 'Not found') }} "{{ dictTooltip.word }}"
             </div>
             <template v-else-if="dictTooltip.data">
               <div class="dt-head">
                 <span class="dt-word">{{ dictTooltip.data.word }}</span>
                 <span v-if="dictTooltip.data.phonetic" class="dt-phonetic">{{ dictTooltip.data.phonetic }}</span>
-                <button v-if="dictTooltip.data.audio" class="dt-audio" @click="playDictAudio" title="播放发音">🔊</button>
+                <button v-if="dictTooltip.data.audio" class="dt-audio" @click="playDictAudio" :title="tr('dict_play_audio', 'Play pronunciation')">🔊</button>
               </div>
               <div v-for="(m, i) in dictTooltip.data.meanings" :key="i" class="dt-meaning">
                 <span v-if="m.pos" class="dt-pos">{{ m.pos }}</span>
@@ -88,7 +88,7 @@
                 <p v-if="dictTooltip.data.translated_meanings?.[i]" class="dt-def-trans">{{ dictTooltip.data.translated_meanings[i] }}</p>
                 <p v-if="m.example" class="dt-ex">"{{ m.example }}"</p>
                 <p v-if="m.synonyms?.length" class="dt-syns">
-                  同义: <span v-for="s in m.synonyms" :key="s" class="dt-syn">{{ s }}</span>
+                  {{ tr('dict_synonyms', 'Synonyms') }}: <span v-for="s in m.synonyms" :key="s" class="dt-syn">{{ s }}</span>
                 </p>
               </div>
             </template>
@@ -102,7 +102,7 @@
           <div class="flashcard-modal">
             <div class="fc-header">
               <span class="fc-progress">{{ fcIndex + 1 }} / {{ fcWords.length }}</span>
-              <span class="fc-title">🃏 闪卡复习</span>
+              <span class="fc-title">🃏 {{ tr('quiz_flashcard_review', 'Flashcard Review') }}</span>
               <button class="fc-close" @click="flashcardActive=false">✕</button>
             </div>
 
@@ -112,9 +112,9 @@
 
             <div :class="['fc-card', {flipped: fcFlipped}]" @click="fcFlipped=!fcFlipped">
               <div class="fc-front">
-                <div class="fc-label">{{ fcCurrentWord?.word_type === 'expression' ? '表达' : '单词' }}</div>
+                <div class="fc-label">{{ fcCurrentWord?.word_type === 'expression' ? tr('quiz_type_expression', 'Expression') : tr('quiz_type_word', 'Word') }}</div>
                 <div class="fc-word">{{ fcCurrentWord?.word }}</div>
-                <div class="fc-hint">点击翻转查看释义</div>
+                <div class="fc-hint">{{ tr('quiz_flip_hint', 'Tap to flip and see meaning') }}</div>
               </div>
               <div class="fc-back">
                 <div class="fc-meaning-big">{{ fcCurrentWord?.meaning }}</div>
@@ -123,16 +123,16 @@
             </div>
 
             <div class="fc-actions">
-              <button class="fc-btn fc-prev" @click="fcPrev" :disabled="fcIndex === 0">← 上一个</button>
+              <button class="fc-btn fc-prev" @click="fcPrev" :disabled="fcIndex === 0">← {{ tr('quiz_prev', 'Previous') }}</button>
               <div class="fc-center-btns">
-                <button v-if="!fcCurrentWord?.mastered" class="fc-btn fc-mastered" @click="fcMarkMastered">✓ 已掌握</button>
-                <button v-else class="fc-btn fc-unmastered" @click="fcUnmarkMastered">↩ 取消掌握</button>
+                <button v-if="!fcCurrentWord?.mastered" class="fc-btn fc-mastered" @click="fcMarkMastered">✓ {{ tr('quiz_mastered', 'Mastered') }}</button>
+                <button v-else class="fc-btn fc-unmastered" @click="fcUnmarkMastered">↩ {{ tr('quiz_unmaster', 'Unmark') }}</button>
               </div>
-              <button class="fc-btn fc-next" @click="fcNext" :disabled="fcIndex === fcWords.length - 1">下一个 →</button>
+              <button class="fc-btn fc-next" @click="fcNext" :disabled="fcIndex === fcWords.length - 1">{{ tr('quiz_next', 'Next') }} →</button>
             </div>
 
             <div class="fc-stats">
-              已掌握 <strong>{{ fcMasteredCount }}</strong> / {{ fcWords.length }}
+              {{ tr('quiz_mastered_count', 'Mastered') }} <strong>{{ fcMasteredCount }}</strong> / {{ fcWords.length }}
             </div>
           </div>
         </div>
@@ -142,7 +142,7 @@
     <!-- Phase 2: Quiz in progress -->
     <template v-if="phase === 'quiz'">
       <div class="quiz-header">
-        <button class="back-btn" @click="exitQuiz">← 退出</button>
+        <button class="back-btn" @click="exitQuiz">← {{ tr('quiz_exit', 'Exit') }}</button>
         <div class="quiz-title">{{ quizJobName }}</div>
         <div class="quiz-lang-badge">{{ quizSourceLang }} → {{ quizTargetLang }}</div>
       </div>
@@ -155,7 +155,7 @@
 
       <!-- Question card -->
       <div class="question-card" :class="feedbackClass">
-        <div class="q-type-badge">{{ currentItem?.type === 'word' ? '词汇' : '表达' }}</div>
+        <div class="q-type-badge">{{ currentItem?.type === 'word' ? tr('quiz_type_word', 'Word') : tr('quiz_type_expression', 'Expression') }}</div>
         <div class="q-meaning">{{ currentItem?.meaning }}</div>
         <!-- Underline typing area — click to focus the hidden input -->
         <div class="q-hint" @click="focusInput">
@@ -173,16 +173,16 @@
                @input="autoSkipSpaces"
                :disabled="showingFeedback" />
         <div class="q-submit-row">
-          <button class="q-submit" @click="checkAnswer" :disabled="showingFeedback || !userAnswer.trim()">确认</button>
+          <button class="q-submit" @click="checkAnswer" :disabled="showingFeedback || !userAnswer.trim()">{{ tr('quiz_confirm', 'Confirm') }}</button>
         </div>
         <!-- Feedback -->
         <Transition name="fb">
           <div v-if="showingFeedback" :class="['feedback', feedbackClass]">
             <template v-if="lastCorrect">
-              <span class="fb-icon">✓</span> 正确！
+              <span class="fb-icon">✓</span> {{ tr('quiz_correct', 'Correct!') }}
             </template>
             <template v-else>
-              <span class="fb-icon">✗</span> 正确答案: <strong>{{ currentItem?.word }}</strong>
+              <span class="fb-icon">✗</span> {{ tr('quiz_correct_answer', 'Correct answer') }}: <strong>{{ currentItem?.word }}</strong>
             </template>
           </div>
         </Transition>
@@ -194,38 +194,38 @@
       <div class="score-page">
         <div class="score-circle" :class="scoreGrade">
           <div class="score-num">{{ score }}</div>
-          <div class="score-label">分</div>
+          <div class="score-label">{{ tr('quiz_score_unit', 'pts') }}</div>
         </div>
         <div class="score-slogan">{{ scoreSlogan }}</div>
         <div class="score-stats">
-          <div class="stat"><span class="stat-num correct-color">{{ correctCount }}</span><span class="stat-label">正确</span></div>
-          <div class="stat"><span class="stat-num wrong-color">{{ wrongCount }}</span><span class="stat-label">错误</span></div>
-          <div class="stat"><span class="stat-num">{{ quizItems.length }}</span><span class="stat-label">总题数</span></div>
+          <div class="stat"><span class="stat-num correct-color">{{ correctCount }}</span><span class="stat-label">{{ tr('quiz_correct_count', 'Correct') }}</span></div>
+          <div class="stat"><span class="stat-num wrong-color">{{ wrongCount }}</span><span class="stat-label">{{ tr('quiz_wrong_count', 'Wrong') }}</span></div>
+          <div class="stat"><span class="stat-num">{{ quizItems.length }}</span><span class="stat-label">{{ tr('quiz_total_count', 'Total') }}</span></div>
         </div>
 
         <div class="score-actions">
-          <button class="btn-primary" @click="retryQuiz">重新测试</button>
-          <button class="btn-ghost" @click="phase = 'select'; loadReviewWords()">返回选择</button>
+          <button class="btn-primary" @click="retryQuiz">{{ tr('quiz_retry', 'Retry') }}</button>
+          <button class="btn-ghost" @click="phase = 'select'; loadReviewWords()">{{ tr('quiz_back_to_select', 'Back to Selection') }}</button>
         </div>
 
         <!-- Full word dictation summary table — always visible -->
         <div class="summary-wrap">
           <div class="summary-title">
             <span class="summary-icon">📋</span>
-            本次默写汇总
-            <span class="summary-badge">{{ answers.length }} 题</span>
-            <span v-if="wrongItems.length > 0" class="summary-badge err-badge">{{ wrongItems.length }} 错误</span>
+            {{ tr('quiz_summary_title', 'Quiz Summary') }}
+            <span class="summary-badge">{{ answers.length }} {{ tr('quiz_questions', 'questions') }}</span>
+            <span v-if="wrongItems.length > 0" class="summary-badge err-badge">{{ wrongItems.length }} {{ tr('quiz_wrong_count', 'wrong') }}</span>
           </div>
           <div class="summary-table-scroll">
             <table class="summary-table">
               <thead>
                 <tr>
                   <th class="col-num">#</th>
-                  <th class="col-type">类型</th>
-                  <th class="col-meaning">含义 / 释义</th>
-                  <th class="col-answer">正确答案</th>
-                  <th class="col-user">你的答案</th>
-                  <th class="col-result">结果</th>
+                  <th class="col-type">{{ tr('quiz_col_type', 'Type') }}</th>
+                  <th class="col-meaning">{{ tr('quiz_col_meaning', 'Meaning') }}</th>
+                  <th class="col-answer">{{ tr('quiz_col_answer', 'Correct Answer') }}</th>
+                  <th class="col-user">{{ tr('quiz_col_user_answer', 'Your Answer') }}</th>
+                  <th class="col-result">{{ tr('quiz_col_result', 'Result') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -233,14 +233,14 @@
                   <td class="col-num">{{ i + 1 }}</td>
                   <td class="col-type">
                     <span :class="['type-badge', a.type === 'word' ? 'type-word' : 'type-expr']">
-                      {{ a.type === 'word' ? '词汇' : '表达' }}
+                      {{ a.type === 'word' ? tr('quiz_type_word', 'Word') : tr('quiz_type_expression', 'Expression') }}
                     </span>
                   </td>
                   <td class="col-meaning">{{ a.meaning }}</td>
                   <td class="col-answer">{{ a.word }}</td>
                   <td class="col-user">
                     <span v-if="a.correct" class="user-correct">{{ a.userAnswer }}</span>
-                    <span v-else class="user-wrong">{{ a.userAnswer || '（未作答）' }}</span>
+                    <span v-else class="user-wrong">{{ a.userAnswer || tr('quiz_no_answer', '(No answer)') }}</span>
                   </td>
                   <td class="col-result">
                     <span :class="['result-icon', a.correct ? 'r-ok' : 'r-err']">
@@ -261,19 +261,25 @@
 import { ref, computed, inject, watch, nextTick } from 'vue'
 import { useAuth } from '../composables/useAuth.js'
 import { apiFetch } from '../composables/useApi.js'
+import { useI18n } from '../i18n.js'
 
 const { isLoggedIn } = useAuth()
 const openAuth = inject('openAuth')
 const toast = inject('toast')
+const { t, uiLang } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 // ── Constants ──
-const SCORE_SLOGANS = {
-  perfect: '太棒了！满分通过，你是学霸！',
-  excellent: '非常优秀！继续保持！',
-  good: '做得不错！离满分就差一点了！',
-  pass: '及格了！再努力一下会更好！',
-  fail: '别灰心！多复习几遍一定能掌握！',
-}
+const SCORE_SLOGANS = computed(() => ({
+  perfect: tr('quiz_slogan_perfect', 'Perfect score! Excellent work!'),
+  excellent: tr('quiz_slogan_excellent', 'Excellent work, keep it up!'),
+  good: tr('quiz_slogan_good', 'Great job! You are close to perfect!'),
+  pass: tr('quiz_slogan_pass', 'You passed! Keep practicing and improve more!'),
+  fail: tr('quiz_slogan_fail', 'Do not worry, review again and you will get it!'),
+}))
 
 // ── State ──
 const phase = ref('select')
@@ -323,7 +329,7 @@ const scoreGrade = computed(() => {
   if (s >= 60) return 'pass'
   return 'fail'
 })
-const scoreSlogan = computed(() => SCORE_SLOGANS[scoreGrade.value])
+const scoreSlogan = computed(() => SCORE_SLOGANS.value[scoreGrade.value])
 const wrongItems = computed(() => answers.value.filter(a => !a.correct))
 
 const hintChars = computed(() => {
@@ -476,7 +482,7 @@ async function loadJobs() {
       .filter(j => j.status === 'done')
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   } catch (e) {
-    toast('加载失败: ' + e.message, 'err')
+    toast(`${tr('results_load_failed', 'Load failed')}: ${e.message}`, 'err')
   } finally {
     jobsLoading.value = false
   }
@@ -498,7 +504,7 @@ async function selectJob(j) {
       ...data.expressions.map(e => ({ ...e, type: 'expression' })),
     ]
     if (allItems.length === 0) {
-      toast('该视频没有可测试的词汇数据', 'err')
+      toast(tr('quiz_no_data', 'No quiz data available for this video'), 'err')
       return
     }
     // Shuffle
@@ -519,7 +525,7 @@ async function selectJob(j) {
     await nextTick()
     answerInput.value?.focus()
   } catch (e) {
-    toast('加载测试数据失败: ' + e.message, 'err')
+    toast(`${tr('quiz_load_failed', 'Failed to load quiz data')}: ${e.message}`, 'err')
   }
 }
 
@@ -597,7 +603,7 @@ function retryQuiz() {
 }
 
 function exitQuiz() {
-  if (answers.value.length > 0 && !confirm('确定退出？当前进度将丢失。')) return
+  if (answers.value.length > 0 && !confirm(tr('quiz_confirm_exit', 'Exit now? Current progress will be lost.'))) return
   phase.value = 'select'
   loadReviewWords()
 }
@@ -610,7 +616,7 @@ async function markMastered(w) {
       body: JSON.stringify({ mastered: 1 }),
     })
     w.mastered = 1
-    toast('已标记掌握', 'ok')
+    toast(tr('quiz_marked_mastered', 'Marked as mastered'), 'ok')
   } catch {}
 }
 
@@ -621,7 +627,7 @@ async function removeReviewWord(w) {
   } catch {}
 }
 
-function fmtDate(s) { return s ? new Date(s).toLocaleDateString('zh-CN') : '-' }
+function fmtDate(s) { return s ? new Date(s).toLocaleDateString(uiLang.value || 'en-US') : '-' }
 
 // ── Dictionary tooltip (review book) ───────────────────────────────────────
 const reviewSectionRef = ref(null)

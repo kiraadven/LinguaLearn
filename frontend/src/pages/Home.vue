@@ -2,20 +2,20 @@
   <div class="home">
     <!-- Hero -->
     <section class="hero">
-      <div class="hero-badge fade-up">✨ 支持 8 种语言双向互学</div>
+      <div class="hero-badge fade-up">{{ tr('home_badge', '✨ Support 8 languages for two-way learning') }}</div>
       <h1 class="hero-title fade-up" style="animation-delay:.1s">
         <span class="grad-text">LinguaLearn</span><br>
-        <span style="color:var(--text)">把外语视频变成学习利器</span>
+        <span style="color:var(--text)">{{ tr('home_title', 'Turn foreign videos into a learning superpower') }}</span>
       </h1>
       <p class="hero-sub fade-up" style="animation-delay:.2s">
-        上传任意外语视频，AI 自动转录、分析词汇、渲染字幕，<br>生成专属的「逐句精听」学习视频
+        {{ tr('home_subtitle_line1', 'Upload any foreign-language video. AI transcribes, analyzes vocabulary, and renders subtitles.') }}<br>{{ tr('home_subtitle_line2', 'Generate your personalized sentence-by-sentence intensive listening video.') }}
       </p>
       <div class="hero-btns fade-up" style="animation-delay:.3s">
         <button class="btn-primary" style="font-size:15px;padding:14px 36px" @click="goCreate">
-          立即开始 →
+          {{ tr('home_start_now', 'Start Now') }} →
         </button>
         <button class="btn-ghost" style="font-size:15px;padding:14px 36px" @click="scrollTo('features')">
-          了解功能
+          {{ tr('home_view_features', 'Explore Features') }}
         </button>
       </div>
       <!-- Floating lang pills -->
@@ -33,9 +33,9 @@
 
     <!-- Features -->
     <section class="section" id="features">
-      <div class="section-label">核心功能</div>
-      <h2 class="section-title">一站式语言学习解决方案</h2>
-      <p class="section-sub">从原始视频到完整学习材料，全程自动化，零门槛上手</p>
+      <div class="section-label">{{ tr('home_features_label', 'Core Features') }}</div>
+      <h2 class="section-title">{{ tr('home_features_title', 'All-in-one Language Learning Workflow') }}</h2>
+      <p class="section-sub">{{ tr('home_features_sub', 'From raw video to complete study materials, fully automated and easy to start.') }}</p>
       <div class="feat-grid">
         <div v-for="f in features" :key="f.icon" class="feat-card"
              @mousemove="on3D" @mouseleave="off3D">
@@ -49,8 +49,8 @@
 
     <!-- Steps -->
     <section class="section">
-      <div class="section-label">处理流程</div>
-      <h2 class="section-title">五步自动完成</h2>
+      <div class="section-label">{{ tr('home_steps_label', 'Workflow') }}</div>
+      <h2 class="section-title">{{ tr('home_steps_title', 'Complete in 5 Automatic Steps') }}</h2>
       <div class="steps-row">
         <div v-for="(s,i) in steps" :key="i" class="step-item">
           <div class="step-num">{{ i+1 }}</div>
@@ -66,8 +66,8 @@
 
     <!-- Languages -->
     <section class="section">
-      <div class="section-label">支持语言</div>
-      <h2 class="section-title">8 种语言，任意互学</h2>
+      <div class="section-label">{{ tr('home_langs_label', 'Supported Languages') }}</div>
+      <h2 class="section-title">{{ tr('home_langs_title', '8 Languages, Learn Any Pair') }}</h2>
       <div class="lang-grid">
         <div v-for="l in langs" :key="l.code" class="lang-card">
           <div class="lang-flag">{{ l.flag }}</div>
@@ -80,10 +80,10 @@
     <!-- CTA -->
     <section class="section" style="text-align:center;padding-bottom:120px">
       <div class="cta-card">
-        <h2 class="section-title" style="margin-bottom:12px">准备好了吗？</h2>
-        <p style="color:var(--text2);margin-bottom:32px">注册账号，上传你的第一个视频，免费体验</p>
+        <h2 class="section-title" style="margin-bottom:12px">{{ tr('home_cta_title', 'Ready to begin?') }}</h2>
+        <p style="color:var(--text2);margin-bottom:32px">{{ tr('home_cta_sub', 'Create an account, upload your first video, and start for free.') }}</p>
         <button class="btn-primary" style="font-size:16px;padding:16px 48px" @click="goCreate">
-          免费开始使用 →
+          {{ tr('home_cta_btn', 'Start for Free') }} →
         </button>
       </div>
     </section>
@@ -91,14 +91,20 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiFetch } from '../composables/useApi.js'
 import { useAuth } from '../composables/useAuth.js'
+import { useI18n } from '../i18n.js'
 
 const router   = useRouter()
 const openAuth = inject('openAuth')
 const { isLoggedIn } = useAuth()
+const { t } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 function goCreate() {
   if (!isLoggedIn.value) { openAuth(); return }
@@ -127,25 +133,41 @@ onMounted(async () => {
   } catch {}
 })
 
-const features = [
-  {icon:'🎙️',title:'本地 Whisper 转录',desc:'使用 OpenAI Whisper 本地模型，支持 7 种语言，带单词级时间戳，精准切割每一句话'},
-  {icon:'✂️',title:'LLM 智能分句',desc:'大语言模型辅助，根据语义边界切分句子，自动对齐时间戳，每句 5–30 词'},
-  {icon:'🧠',title:'AI 词汇深度分析',desc:'DeepSeek 并行分析，提取关键词（含音标、释义、难度）和实用表达'},
-  {icon:'🎬',title:'灵活 Part 结构',desc:'自由配置每个 Part 的重复次数和慢速选项，原速 → 慢速精学 → 原速巩固'},
-  {icon:'📐',title:'可视化布局编辑器',desc:'拖拽/缩放字幕框、单词框、表达框，实时预览位置，支持多套命名预设配置'},
-  {icon:'▶️',title:'视频文稿同步预览',desc:'分屏播放：视频播放时文稿自动高亮当前句，点击句子前 ▶ 可重复播放该句'},
-  {icon:'🎨',title:'样式深度个性化',desc:'字体族、字号倍率、行间距、背景主题、文字颜色……让每一帧都符合你的审美'},
-  {icon:'📊',title:'实时进度 & 取消',desc:'WebSocket 推送逐帧渲染进度，卡住时一键取消，不再对着空白屏发愁'},
-  {icon:'📝',title:'Markdown 学习笔记',desc:'自动生成结构化文字稿：原文、译文、音标表格、实用表达，可导入笔记软件'},
+const featureDefs = [
+  {icon:'🎙️',titleKey:'home_feat_1_title',descKey:'home_feat_1_desc',fallbackTitle:'Local Whisper Transcription',fallbackDesc:'Run local Whisper models with word-level timestamps for precise sentence segmentation.'},
+  {icon:'✂️',titleKey:'home_feat_2_title',descKey:'home_feat_2_desc',fallbackTitle:'LLM Smart Sentence Split',fallbackDesc:'Split by semantics and auto-align timestamps for natural learning chunks.'},
+  {icon:'🧠',titleKey:'home_feat_3_title',descKey:'home_feat_3_desc',fallbackTitle:'AI Vocabulary Analysis',fallbackDesc:'Extract key words, phonetics, meanings, and useful expressions automatically.'},
+  {icon:'🎬',titleKey:'home_feat_4_title',descKey:'home_feat_4_desc',fallbackTitle:'Flexible Part Structure',fallbackDesc:'Customize repeats and speed per part for listen-slow-listen workflows.'},
+  {icon:'📐',titleKey:'home_feat_5_title',descKey:'home_feat_5_desc',fallbackTitle:'Visual Layout Editor',fallbackDesc:'Drag and resize subtitle/word/expression boxes with real-time preview.'},
+  {icon:'▶️',titleKey:'home_feat_6_title',descKey:'home_feat_6_desc',fallbackTitle:'Transcript Sync Preview',fallbackDesc:'Transcript highlights in real time while video plays.'},
+  {icon:'🎨',titleKey:'home_feat_7_title',descKey:'home_feat_7_desc',fallbackTitle:'Style Personalization',fallbackDesc:'Fonts, spacing, themes, and colors to match your learning style.'},
+  {icon:'📊',titleKey:'home_feat_8_title',descKey:'home_feat_8_desc',fallbackTitle:'Real-time Progress',fallbackDesc:'Track rendering progress live and cancel tasks anytime.'},
+  {icon:'📝',titleKey:'home_feat_9_title',descKey:'home_feat_9_desc',fallbackTitle:'Markdown Notes',fallbackDesc:'Generate structured notes with source text, translation, vocabulary, and expressions.'},
 ]
 
-const steps = [
-  {icon:'🎵',title:'音频转录',desc:'Whisper 提取音频，生成带时间戳的文字'},
-  {icon:'✂️',title:'智能分句',desc:'按语义切割，精准对齐每句的起止时间'},
-  {icon:'🧠',title:'词汇分析',desc:'AI 并行分析所有句子，提取词汇和表达'},
-  {icon:'📝',title:'生成文字稿',desc:'导出 Markdown 格式学习笔记'},
-  {icon:'🎬',title:'渲染视频',desc:'FFmpeg 纯硬件流水线合成最终视频，ASS 字幕实时烧录，无需第三方渲染库'},
+const stepDefs = [
+  {icon:'🎵',titleKey:'home_step_1_title',descKey:'home_step_1_desc',fallbackTitle:'Audio Transcription',fallbackDesc:'Extract speech with timestamps.'},
+  {icon:'✂️',titleKey:'home_step_2_title',descKey:'home_step_2_desc',fallbackTitle:'Smart Sentence Split',fallbackDesc:'Split by semantics and align timing.'},
+  {icon:'🧠',titleKey:'home_step_3_title',descKey:'home_step_3_desc',fallbackTitle:'Vocabulary Analysis',fallbackDesc:'Extract words and expressions automatically.'},
+  {icon:'📝',titleKey:'home_step_4_title',descKey:'home_step_4_desc',fallbackTitle:'Generate Notes',fallbackDesc:'Export structured markdown notes.'},
+  {icon:'🎬',titleKey:'home_step_5_title',descKey:'home_step_5_desc',fallbackTitle:'Render Video',fallbackDesc:'Compose final learning video with subtitles.'},
 ]
+
+const features = computed(() =>
+  featureDefs.map(item => ({
+    ...item,
+    title: tr(item.titleKey, item.fallbackTitle),
+    desc: tr(item.descKey, item.fallbackDesc),
+  }))
+)
+
+const steps = computed(() =>
+  stepDefs.map(item => ({
+    ...item,
+    title: tr(item.titleKey, item.fallbackTitle),
+    desc: tr(item.descKey, item.fallbackDesc),
+  }))
+)
 
 // 3D card tilt
 function on3D(e) {

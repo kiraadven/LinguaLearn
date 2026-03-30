@@ -3,25 +3,25 @@
 
     <!-- Sticky top bar -->
     <div v-if="!isProcessing" class="jd-topbar">
-      <button class="back-btn" @click="$router.push('/results')">← 返回</button>
+      <button class="back-btn" @click="$router.push('/results')">{{ t.detail_back }}</button>
       <div class="jd-title" :title="jobName">{{ jobName }}</div>
-      <button class="toggle-btn" @click="transcriptOpen = !transcriptOpen" :title="transcriptOpen?'隐藏文稿':'显示文稿'">
-        <span>{{ transcriptOpen ? '⟩ 隐藏文稿' : '⟨ 显示文稿' }}</span>
+      <button class="toggle-btn" @click="transcriptOpen = !transcriptOpen" :title="transcriptOpen ? t.detail_hide_transcript : t.detail_show_transcript">
+        <span>{{ transcriptOpen ? `⟩ ${t.detail_hide_transcript}` : `⟨ ${t.detail_show_transcript}` }}</span>
       </button>
     </div>
 
     <!-- Loading / error -->
-    <div v-if="loading" class="jd-center"><div class="spin">⟳</div><p>加载中...</p></div>
-    <div v-else-if="!job" class="jd-center"><p>任务不存在</p></div>
+    <div v-if="loading" class="jd-center"><div class="spin">⟳</div><p>{{ t.detail_loading }}</p></div>
+    <div v-else-if="!job" class="jd-center"><p>{{ t.detail_not_found }}</p></div>
 
     <!-- ── Live progress view (running / queued) ── -->
     <div v-else-if="isProcessing" class="jd-progress-view">
       <div class="jd-create-header">
-        <h1>生成学习视频</h1>
-        <p>上传视频，配置布局与样式，AI 自动生成逐句精听视频</p>
+        <h1>{{ t.create_title }}</h1>
+        <p>{{ t.create_subtitle }}</p>
       </div>
       <div class="card progress-card">
-        <div class="card-title">⚡ 处理进度</div>
+        <div class="card-title">{{ t.create_progress }}</div>
         <div class="step-bar">
           <template v-for="i in 5" :key="i">
             <div :class="['step-dot', i < liveStep ? 'done' : i === liveStep ? 'active' : '']">{{ i }}</div>
@@ -30,16 +30,16 @@
         </div>
         <div class="cur-step"><span class="pulse-dot"></span><span>{{ liveStepName }}</span></div>
         <div v-if="liveStep >= 5" style="margin-top:14px">
-          <div class="pbar-row"><span>片段渲染</span><span>{{ liveClipsPct }}%</span></div>
+          <div class="pbar-row"><span>{{ t.create_segment_render }}</span><span>{{ liveClipsPct }}%</span></div>
           <div class="pbar-track"><div class="pbar-fill" :style="{width: liveClipsPct+'%', background: 'linear-gradient(90deg,var(--accent),var(--accent2))'}"></div></div>
-          <div class="pbar-row" style="margin-top:8px"><span>视频写入</span><span>{{ liveWritePct }}%</span></div>
+          <div class="pbar-row" style="margin-top:8px"><span>{{ t.create_video_write }}</span><span>{{ liveWritePct }}%</span></div>
           <div class="pbar-track"><div class="pbar-fill" :style="{width: liveWritePct+'%', background: 'linear-gradient(90deg,var(--accent3,#10b981),var(--accent4,#059669))'}"></div></div>
         </div>
         <div class="log-box" ref="liveLogBox">
           <div v-for="(l, i) in liveLogs" :key="i" :class="['log-line', logClass(l)]">{{ l }}</div>
         </div>
         <div v-if="job.status === 'running'" style="margin-top:14px;text-align:center">
-          <button class="btn-ghost cancel-job-btn" @click="cancelJob">取消任务</button>
+          <button class="btn-ghost cancel-job-btn" @click="cancelJob">{{ t.create_cancel_job }}</button>
         </div>
       </div>
     </div>
@@ -47,7 +47,7 @@
     <!-- ── Error view ── -->
     <div v-else-if="job.status === 'error'" class="jd-center">
       <p style="font-size:48px">❌</p>
-      <p style="font-weight:700;margin-top:8px">处理失败</p>
+      <p style="font-weight:700;margin-top:8px">{{ tr('detail_processing_failed', 'Processing failed') }}</p>
       <p v-if="job.error" style="color:var(--err);font-size:13px;margin-top:6px">{{ job.error }}</p>
     </div>
 
@@ -69,12 +69,12 @@
                 @loadedmetadata="onVideoMeta"
                 @play="isPlaying = true"
                 @pause="isPlaying = false"
-                @error="videoError='视频加载失败'"
+                @error="videoError=tr('detail_video_load_failed', 'Video failed to load')"
                 @click="togglePlay"
                 @dblclick="toggleFullscreen"
               />
               <div class="player-scrim"></div>
-              <button class="center-play" :class="{ hidden: isPlaying }" @click="togglePlay" :title="isPlaying ? '暂停' : '播放'">
+              <button class="center-play" :class="{ hidden: isPlaying }" @click="togglePlay" :title="isPlaying ? tr('detail_pause', 'Pause') : tr('detail_play', 'Play')">
                 {{ isPlaying ? '❚❚' : '▶' }}
               </button>
               <div v-if="videoError" class="video-err">⚠️ {{ videoError }}</div>
@@ -94,7 +94,7 @@
 
                 <div class="pc-main-row">
                   <div class="pc-left-group">
-                    <button class="pc-icon-btn primary" @click="togglePlay" :title="isPlaying ? '暂停' : '播放'">
+                    <button class="pc-icon-btn primary" @click="togglePlay" :title="isPlaying ? tr('detail_pause', 'Pause') : tr('detail_play', 'Play')">
                       {{ isPlaying ? '❚❚' : '▶' }}
                     </button>
                     <div class="pc-time">{{ fmtClock(currentTimeSec) }} / {{ fmtClock(durationSec) }}</div>
@@ -102,7 +102,7 @@
 
                   <div class="pc-right-group">
                     <div class="pc-volume-wrap">
-                      <button class="pc-icon-btn" @click="toggleMute" :title="isMuted ? '取消静音' : '静音'">{{ volumeIcon }}</button>
+                      <button class="pc-icon-btn" @click="toggleMute" :title="isMuted ? tr('detail_unmute', 'Unmute') : tr('detail_mute', 'Mute')">{{ volumeIcon }}</button>
                       <input
                         class="pc-volume"
                         type="range"
@@ -115,7 +115,7 @@
                     </div>
 
                     <div class="pc-menu-wrap" ref="qualityMenuRef">
-                      <button class="pc-pill-btn" @click="toggleQualityMenu" title="选择画质">
+                      <button class="pc-pill-btn" @click="toggleQualityMenu" :title="tr('detail_quality', 'Quality')">
                         {{ currentQualityLabel }}
                       </button>
                       <div v-if="showQualityMenu" class="pc-menu">
@@ -131,8 +131,8 @@
                     </div>
 
                     <div class="pc-menu-wrap" ref="speedMenuRef">
-                      <button class="pc-pill-btn" @click="onSpeedButton" :title="isMember ? '播放速度' : '会员专属倍速'">
-                        {{ isMember ? currentSpeedLabel : '倍速' }}
+                      <button class="pc-pill-btn" @click="onSpeedButton" :title="isMember ? tr('detail_speed', 'Playback Speed') : tr('detail_speed_member_only', 'Member-only speed')">
+                        {{ isMember ? currentSpeedLabel : tr('detail_speed_short', 'Speed') }}
                       </button>
                       <div v-if="showSpeedMenu && isMember" class="pc-menu">
                         <button
@@ -146,11 +146,11 @@
                       </div>
                     </div>
 
-                    <button class="pc-pill-btn" @click="onCastClick" :title="isMember ? '投屏播放' : '投屏为会员专属'">
-                      {{ isMember ? '投屏' : '投屏' }}
+                    <button class="pc-pill-btn" @click="onCastClick" :title="isMember ? tr('detail_cast', 'Cast') : tr('detail_cast_member_only', 'Member-only cast')">
+                      {{ tr('detail_cast', 'Cast') }}
                     </button>
 
-                    <button class="pc-icon-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+                    <button class="pc-icon-btn" @click="toggleFullscreen" :title="isFullscreen ? tr('detail_exit_fullscreen', 'Exit Fullscreen') : tr('detail_fullscreen', 'Fullscreen')">
                       {{ isFullscreen ? '🗗' : '⛶' }}
                     </button>
                   </div>
@@ -162,10 +162,10 @@
             <div class="video-meta-info">
               <div class="vm-name">{{ jobName }}</div>
               <div class="vm-sub">{{ job.result?.source_lang||'?' }} → {{ job.result?.target_lang||'?' }}
-                · {{ job.result?.sentences_count||'?' }} 句</div>
+                · {{ job.result?.sentences_count||'?' }} {{ t.detail_sentence_count }}</div>
             </div>
             <a :href="`/api/jobs/${jobId}/download/${encodeURIComponent(job.result.full_video)}`"
-               download class="dl-chip">⬇ 下载视频</a>
+               download class="dl-chip">{{ t.detail_download_video }}</a>
           </div>
         </div>
 
@@ -173,12 +173,12 @@
         <Transition name="panel">
           <div v-if="transcriptOpen" class="jd-transcript-col">
             <div class="tc-header">
-              <span class="tc-title">文稿同步</span>
-              <div v-if="segments.length" class="sync-dot">● 实时同步</div>
-              <div v-else-if="segLoading" style="font-size:11px;color:var(--text3)">加载中...</div>
+              <span class="tc-title">{{ t.detail_transcript }}</span>
+              <div v-if="segments.length" class="sync-dot">{{ t.detail_sync_real_time }}</div>
+              <div v-else-if="segLoading" style="font-size:11px;color:var(--text3)">{{ t.detail_loading }}</div>
             </div>
             <div class="tc-list" @mouseover="onMdHover" @mouseleave="onMdLeave" @click="onWordClick">
-              <div v-if="!segments.length && !segLoading" class="tc-empty">暂无文稿数据</div>
+              <div v-if="!segments.length && !segLoading" class="tc-empty">{{ tr('detail_no_transcript', 'No transcript data') }}</div>
               <div v-for="(s, i) in segments" :key="i"
                    :ref="el => segRefs[i] = el"
                    :class="['tc-item', {active: i === activeSeg}]"
@@ -196,24 +196,24 @@
       <!-- ── Learning Notes ── -->
       <div class="jd-notes">
         <div class="notes-hdr">
-          <span class="notes-hdr-title">📚 学习笔记</span>
+          <span class="notes-hdr-title">{{ t.detail_notes }}</span>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <a v-if="job.result?.markdown && isMember"
                :href="`/api/jobs/${jobId}/download/${encodeURIComponent(job.result.markdown)}`"
-               download class="dl-chip">⬇ 下载Markdown</a>
+               download class="dl-chip">{{ t.detail_download_notes }}</a>
             <button
               v-if="job.result?.markdown && !isMember"
               class="dl-chip dl-chip-btn"
               @click="onClickMemberMarkdown"
             >
-              ⬇ 下载Markdown
+              {{ t.detail_download_notes }}
             </button>
             <a v-if="job.result?.markdown"
                :href="`/api/jobs/${jobId}/export-notes-pdf`"
-               class="dl-chip">⬇ 导出PDF</a>
+               class="dl-chip">{{ tr('detail_export_pdf', '⬇ Export PDF') }}</a>
           </div>
         </div>
-        <div v-if="!markdownHtml" class="md-empty">暂无学习笔记</div>
+        <div v-if="!markdownHtml" class="md-empty">{{ tr('detail_no_notes', 'No notes yet') }}</div>
         <div v-else class="md-view" ref="mdViewRef" v-html="markdownHtml"
              @click="onWordClick"
              @mouseover="onMdHover" @mouseout="onMdOut" @mouseleave="onMdLeave"></div>
@@ -229,16 +229,16 @@
              @mouseenter="cancelHide"
              @mouseleave="scheduleHide">
           <div v-if="tooltip.loading" class="dt-loading">
-            <span class="dt-spin">⟳</span> 查询中…
+            <span class="dt-spin">⟳</span> {{ tr('dict_loading', 'Loading...') }}
           </div>
           <div v-else-if="tooltip.notFound" class="dt-not-found">
-            未找到 "{{ tooltip.word }}"
+            {{ tr('dict_not_found', 'Not found') }} "{{ tooltip.word }}"
           </div>
           <template v-else-if="tooltip.data">
             <div class="dt-head">
               <span class="dt-word">{{ tooltip.data.word }}</span>
               <span v-if="tooltip.data.phonetic" class="dt-phonetic">{{ tooltip.data.phonetic }}</span>
-              <button v-if="tooltip.data.audio" class="dt-audio" @click="playAudio" title="播放发音">🔊</button>
+              <button v-if="tooltip.data.audio" class="dt-audio" @click="playAudio" :title="tr('dict_play_audio', 'Play pronunciation')">🔊</button>
             </div>
             <div v-for="(m, i) in tooltip.data.meanings" :key="i" class="dt-meaning">
               <span v-if="m.pos" class="dt-pos">{{ m.pos }}</span>
@@ -246,7 +246,7 @@
               <p v-if="tooltip.data.translated_meanings?.[i]" class="dt-def-trans">{{ tooltip.data.translated_meanings[i] }}</p>
               <p v-if="m.example" class="dt-ex">"{{ m.example }}"</p>
               <p v-if="m.synonyms?.length" class="dt-syns">
-                同义: <span v-for="s in m.synonyms" :key="s" class="dt-syn">{{ s }}</span>
+                {{ tr('dict_synonyms', 'Synonyms') }}: <span v-for="s in m.synonyms" :key="s" class="dt-syn">{{ s }}</span>
               </p>
             </div>
           </template>
@@ -262,6 +262,7 @@ import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import { apiFetch } from '../composables/useApi.js'
 import { useAuth } from '../composables/useAuth.js'
+import { useI18n } from '../i18n.js'
 
 const route  = useRoute()
 const jobId  = route.params.id
@@ -269,6 +270,11 @@ const { user } = useAuth()
 const isMember = computed(() => user.value?.membership?.tier === 'member')
 const openMembership = inject('openMembership', () => {})
 const toast = inject('toast', () => {})
+const { t } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 const job        = ref(null)
 const loading    = ref(true)
@@ -295,15 +301,15 @@ const transcriptOpen = ref(true)
 const markdownHtml = ref('')
 const isProcessing = computed(() => job.value?.status === 'running' || job.value?.status === 'queued')
 
-const qualityOptions = [
-  { value: 'auto', label: '自动' },
+const qualityOptions = computed(() => ([
+  { value: 'auto', label: tr('detail_quality_auto', 'Auto') },
   { value: '1080', label: '1080p' },
   { value: '720', label: '720p' },
   { value: '360', label: '360p' },
-]
+]))
 const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const currentQualityLabel = computed(
-  () => qualityOptions.find(o => o.value === selectedQuality.value)?.label || '自动'
+  () => qualityOptions.value.find(o => o.value === selectedQuality.value)?.label || tr('detail_quality_auto', 'Auto')
 )
 const currentSpeedLabel = computed(() => `${currentSpeed.value.toFixed(2).replace(/\.00$/, '')}x`)
 const volumeIcon = computed(() => {
@@ -314,7 +320,7 @@ const volumeIcon = computed(() => {
 
 // ── Live progress (for running/queued jobs) ──
 const liveStep    = ref(0)
-const liveStepName= ref('等待处理...')
+const liveStepName= ref(tr('create_waiting', 'Waiting...'))
 const liveClipsPct= ref(0)
 const liveWritePct= ref(0)
 const liveLogs    = ref([])
@@ -322,8 +328,8 @@ const liveLogBox  = ref(null)
 let ws = null
 
 function logClass(l) {
-  if (l.includes('✅') || l.includes('成功')) return 'ok'
-  if (l.includes('❌') || l.includes('错误') || l.includes('失败')) return 'err'
+  if (l.includes('✅') || l.toLowerCase().includes('success') || l.includes('成功')) return 'ok'
+  if (l.includes('❌') || l.toLowerCase().includes('error') || l.includes('错误') || l.includes('失败')) return 'err'
   if (l.includes('⚠️')) return 'warn'
   return ''
 }
@@ -375,7 +381,7 @@ function connectProgressWS() {
           job.value.step = msg.data.step
           job.value.step_name = msg.data.step_name
           liveStep.value = msg.data.step || 0
-          liveStepName.value = msg.data.step_name || '等待处理...'
+          liveStepName.value = msg.data.step_name || tr('create_waiting', 'Waiting...')
           liveClipsPct.value = msg.data.video_clips_pct || 0
           liveWritePct.value = msg.data.video_write_pct || 0
         }
@@ -386,7 +392,7 @@ function connectProgressWS() {
 }
 
 async function cancelJob() {
-  if (!confirm('确定取消此任务？')) return
+  if (!confirm(tr('create_confirm_cancel', 'Cancel this task?'))) return
   try {
     await fetch(`/api/jobs/${jobId}`, {
       method: 'DELETE',
@@ -465,7 +471,7 @@ function toggleQualityMenu() {
 
 function onSpeedButton() {
   if (!isMember.value) {
-    toast('倍速播放为会员专属功能', 'warn')
+    toast(tr('detail_speed_member_only', 'Member-only speed'), 'warn')
     openMembership()
     return
   }
@@ -475,7 +481,7 @@ function onSpeedButton() {
 
 function setSpeed(speed) {
   if (!isMember.value) {
-    toast('倍速播放为会员专属功能', 'warn')
+    toast(tr('detail_speed_member_only', 'Member-only speed'), 'warn')
     openMembership()
     return
   }
@@ -528,7 +534,7 @@ function switchQuality(quality) {
 
 async function onCastClick() {
   if (!isMember.value) {
-    toast('投屏为会员专属功能', 'warn')
+    toast(tr('detail_cast_member_only', 'Member-only cast'), 'warn')
     openMembership()
     return
   }
@@ -543,9 +549,9 @@ async function onCastClick() {
       v.webkitShowPlaybackTargetPicker()
       return
     }
-    toast('当前浏览器暂不支持投屏', 'warn')
+    toast(tr('detail_cast_not_supported', 'Casting is not supported in this browser'), 'warn')
   } catch {
-    toast('投屏未连接或已取消', 'warn')
+    toast(tr('detail_cast_cancelled', 'Casting not connected or cancelled'), 'warn')
   }
 }
 
@@ -607,7 +613,7 @@ onMounted(async () => {
       if (d.result.markdown) loadMarkdown(d.result.markdown)
     } else if (d.status === 'running' || d.status === 'queued') {
       liveStep.value = d.step || 0
-      liveStepName.value = d.step_name || '等待处理...'
+      liveStepName.value = d.step_name || tr('create_waiting', 'Waiting...')
       liveClipsPct.value = d.video_clips_pct || 0
       liveWritePct.value = d.video_write_pct || 0
       connectProgressWS()

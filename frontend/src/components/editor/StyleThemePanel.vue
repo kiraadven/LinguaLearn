@@ -2,15 +2,15 @@
   <div class="style-theme-panel">
     <!-- Style Gallery -->
     <div style="margin-bottom:20px">
-      <div class="section-title">视觉风格</div>
+      <div class="section-title">{{ tr('create_visual_style', 'Visual Style') }}</div>
       <div class="style-gallery">
         <div v-for="theme in themes" :key="theme.id"
              :class="['style-card-item', { active: currentStyleId === theme.id }]"
              @click="$emit('applyTheme', theme.id)"
-             :title="theme.desc">
+            :title="theme.desc">
           <div class="style-swatch-bg" :style="{ background: theme.preview_colors?.bg || '#111' }">
             <span class="style-swatch-src" :style="{ color: theme.preview_colors?.src || '#fff' }">Aa</span>
-            <span class="style-swatch-tgt" :style="{ color: theme.preview_colors?.tgt || '#aaa' }">译</span>
+            <span class="style-swatch-tgt" :style="{ color: theme.preview_colors?.tgt || '#aaa' }">{{ tr('style_translation_mark', 'Tr') }}</span>
             <div class="style-swatch-box" :style="{ background: theme.preview_colors?.box_bg || '#222' }">
               <span :style="{ color: theme.preview_colors?.src || '#fff', fontSize: '8px', fontWeight: 600 }">KEY</span>
             </div>
@@ -24,12 +24,12 @@
 
     <!-- Font Picker -->
     <div>
-      <div class="section-title">字体</div>
+      <div class="section-title">{{ tr('create_font', 'Font') }}</div>
       <div class="font-grid">
         <div v-for="font in fontList" :key="font.val"
              :class="['font-chip', { active: currentFont === font.val }]"
              @click="$emit('setFont', font.val)">
-          <span class="font-sample" :style="{ fontFamily: font.css }">AaBb字体</span>
+          <span class="font-sample" :style="{ fontFamily: font.css }">AaBb</span>
           <span class="font-label">{{ font.label }}</span>
         </div>
       </div>
@@ -40,6 +40,7 @@
 <script setup>
 import { FONTS } from '@shared/font-registry.js'
 import { getThemeList } from '@shared/theme-mapper.js'
+import { useI18n } from '../../i18n.js'
 
 defineProps({
   currentStyleId: { type: String, default: 'ink_wash' },
@@ -47,6 +48,11 @@ defineProps({
 })
 
 defineEmits(['applyTheme', 'setFont'])
+const { t } = useI18n()
+
+function tr(key, fallback = '') {
+  return t.value?.[key] || fallback || key
+}
 
 const themes = getThemeList()
 const fontList = FONTS

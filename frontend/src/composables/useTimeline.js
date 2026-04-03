@@ -425,7 +425,7 @@ export function useTimeline() {
   function fromLegacy(cfg) {
     const tl = createDefaultTimeline({
       sourceLang: cfg.source_lang || cfg.srcLang || 'en',
-      targetLang: cfg.target_lang || cfg.tgtLang || 'zh',
+      targetLang: cfg.target_lang || cfg.tgtLang || 'zh-Hans',
       styleId: cfg.style_id || cfg.styleId || 'ink_wash',
     })
 

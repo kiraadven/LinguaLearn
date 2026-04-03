@@ -22,3 +22,6 @@ playwright>=1.40.0
 python-alipay-sdk>=3.3.0
 Markdown>=3.6
 requests>=2.31.0
+pypinyin>=0.53.0
+pykakasi>=2.3.0
+wiktionaryparser>=0.0.97

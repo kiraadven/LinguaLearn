@@ -301,7 +301,7 @@ const languagePrefs = inject('languagePrefs', null)
 const toast    = inject('toast')
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
 }
 
 function localPref(key) {
@@ -804,16 +804,6 @@ onMounted(async () => {
     {code:'es',native_name:'Español',flag:'🇪🇸'},{code:'ru',native_name:'Русский',flag:'🇷🇺'},
   ]
   await loadPresets()
-})
-
-watch(() => languagePrefs?.familiarLang?.value, (val) => {
-  if (!val || selectedFile.value || jobRunning.value) return
-  tgtLang.value = val
-})
-
-watch(() => languagePrefs?.learningLang?.value, (val) => {
-  if (!val || selectedFile.value || jobRunning.value) return
-  srcLang.value = val
 })
 
 watch(() => user.value?.membership?.tier, () => {

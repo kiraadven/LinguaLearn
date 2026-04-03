@@ -5,6 +5,10 @@
     <div v-for="(p, i) in parts" :key="p.id"
          :class="['part-chip', { active: currentPartIdx === i, dragging: dragPartId === p.id, 'drag-over': dragOverPartId === p.id && dragPartId !== p.id }]"
          draggable="true"
+         @pointerdown.capture="onPartPointerDown(p.id, $event)"
+         @pointermove.capture="onPartPointerMove(p.id, $event)"
+         @pointerup.capture="onPartPointerUp(p.id)"
+         @pointercancel.capture="onPartPointerUp(p.id)"
          @dragstart="onDragStart(p.id, $event)"
          @dragend="onDragEnd"
          @dragenter.prevent="onDragEnter(p.id)"
@@ -16,14 +20,14 @@
       <div style="display:flex;align-items:flex-start;justify-content:space-between">
         <div class="part-chip-title" style="display:flex;align-items:center;gap:6px">
           <span class="drag-handle" :title="tr('parts_drag_sort', 'Drag to reorder')">⋮⋮</span>
-          Part {{ i + 1 }}
+          {{ tr('parts_part_label', 'Part') }} {{ i + 1 }}
           <span style="font-size:10px;color:var(--text3);font-weight:400">
             {{ visibleCount(p) }} {{ tr('parts_elements', 'elements') }}
           </span>
         </div>
         <div style="display:flex;gap:2px;flex-shrink:0">
-          <button class="part-action-btn" @click.stop="$emit('copyPart', p.id)" :title="tr('parts_copy', 'Copy')">⿻</button>
-          <button v-if="parts.length > 1" class="del-part" @click.stop="$emit('removePart', p.id)" :title="tr('parts_delete', 'Delete')">✕</button>
+          <button class="part-action-btn" @click.stop="$emit('copyPart', p.id)" @dragstart.stop.prevent :title="tr('parts_copy', 'Copy')">⿻</button>
+          <button v-if="parts.length > 1" class="del-part" @click.stop="$emit('removePart', p.id)" @dragstart.stop.prevent :title="tr('parts_delete', 'Delete')">✕</button>
         </div>
       </div>
 
@@ -33,7 +37,8 @@
           {{ tr('create_repeat', 'Repeat') }}
           <input type="number" class="input" v-model.number="p.repeat" min="1" max="5"
                  style="width:40px;padding:3px 6px;font-size:11px;margin-bottom:0;text-align:center"
-                 @click.stop>
+                 @click.stop
+                 @dragstart.stop.prevent>
         </label>
       </div>
 
@@ -44,7 +49,8 @@
           <span style="font-size:11px;font-weight:700;color:var(--accent)">{{ Number(p.speed || 1).toFixed(2) }}×</span>
         </div>
         <input type="range" v-model.number="p.speed" min="0.25" max="2.0" step="0.05"
-               style="width:100%;accent-color:var(--accent);cursor:pointer" @click.stop>
+               style="width:100%;accent-color:var(--accent);cursor:pointer"
+               @click.stop>
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3)">
           <span>0.25×</span><span>1×</span><span>2×</span>
         </div>
@@ -59,6 +65,7 @@
           <input type="checkbox"
                  :checked="p.elementVisibility?.[el.id]"
                  @change="$emit('toggleVisibility', p.id, el.id, $event.target.checked)"
+                 @dragstart.stop.prevent
                  :style="`accent-color:${elementColor(el.type)}`">
           {{ elementLabel(el) }}
         </label>
@@ -85,13 +92,48 @@ const emit = defineEmits(['selectPart', 'addPart', 'copyPart', 'removePart', 'to
 const { t } = useI18n()
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
 }
 
 const dragPartId = ref(null)
 const dragOverPartId = ref(null)
+const dragGestureByPart = ref({})
+
+const DRAG_BLOCK_SELECTOR = 'input,textarea,select,button,label,[data-no-part-drag="1"],.part-action-btn,.del-part'
+
+function eventPoint(e) {
+  return {
+    x: Number(e?.clientX ?? e?.screenX ?? 0),
+    y: Number(e?.clientY ?? e?.screenY ?? 0),
+  }
+}
+
+function onPartPointerDown(partId, e) {
+  if (shouldIgnoreReorderDrag(e)) return
+  const pt = eventPoint(e)
+  dragGestureByPart.value[partId] = { start: pt, last: pt }
+}
+
+function onPartPointerMove(partId, e) {
+  const g = dragGestureByPart.value[partId]
+  if (!g) return
+  g.last = eventPoint(e)
+}
+
+function onPartPointerUp(partId) {
+  delete dragGestureByPart.value[partId]
+}
 
 function onDragStart(partId, e) {
+  if (shouldIgnoreReorderDrag(e)) {
+    e?.preventDefault?.()
+    return
+  }
+  if (!isVerticalDrag(partId, e)) {
+    e?.preventDefault?.()
+    return
+  }
+
   dragPartId.value = partId
   dragOverPartId.value = partId
   if (e?.dataTransfer) {
@@ -114,6 +156,29 @@ function onDragEnter(partId) {
 function onDragEnd() {
   dragPartId.value = null
   dragOverPartId.value = null
+  dragGestureByPart.value = {}
+}
+
+function shouldIgnoreReorderDrag(e) {
+  if (isRangeInputTarget(e)) return false
+  const target = e?.target
+  if (!target || typeof target.closest !== 'function') return false
+  return Boolean(target.closest(DRAG_BLOCK_SELECTOR))
+}
+
+function isRangeInputTarget(e) {
+  const target = e?.target
+  if (!target || typeof target.closest !== 'function') return false
+  return Boolean(target.closest('input[type="range"]'))
+}
+
+function isVerticalDrag(partId, e) {
+  const g = dragGestureByPart.value[partId]
+  if (!g?.start) return true
+  const dx = Math.abs((g.last?.x ?? g.start.x) - g.start.x)
+  const dy = Math.abs((g.last?.y ?? g.start.y) - g.start.y)
+  if (dx < 3 && dy < 3) return true
+  return dy >= dx
 }
 
 const TYPE_COLORS = {

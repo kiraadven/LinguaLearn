@@ -22,7 +22,7 @@
 
         <div class="mm-provider">
           <button :class="['pv-btn', {active: provider==='alipay'}]" @click="provider='alipay'">{{ tr('mm_alipay', 'Alipay') }}</button>
-          <button :class="['pv-btn', {active: provider==='stripe'}]" @click="provider='stripe'">Stripe</button>
+          <button :class="['pv-btn', {active: provider==='stripe'}]" @click="provider='stripe'">{{ tr('mm_stripe', 'Stripe') }}</button>
         </div>
 
         <div class="mm-plan-grid">
@@ -34,12 +34,12 @@
             @click="checkout(p)"
           >
             <div class="mm-plan-name">
-              {{ p.label }}
+              {{ localizedPlanLabel(p) }}
               <span v-if="p.trial_once" class="trial-tag">{{ tr('mm_trial_once', '1-time only') }}</span>
             </div>
             <div class="mm-plan-price">{{ p.currency === 'CNY' ? '¥' : '$' }}{{ p.price }}</div>
             <div class="mm-plan-meta">
-              {{ p.auto_renew ? tr('mm_auto_renew', 'Auto renew') : tr('mm_one_time', 'One-time') }} · {{ p.period }}
+              {{ p.auto_renew ? tr('mm_auto_renew', 'Auto renew') : tr('mm_one_time', 'One-time') }} · {{ localizedPeriod(p.period) }}
             </div>
             <div v-if="!p.available" class="mm-plan-unavail">{{ tr('mm_used', 'Used') }}</div>
           </button>
@@ -59,6 +59,7 @@
 import { ref, watch } from 'vue'
 import { apiFetch } from '../composables/useApi.js'
 import { useI18n } from '../i18n.js'
+import { formatMembershipPeriod, formatMembershipPlanLabel } from '../composables/membershipLabels.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -69,10 +70,18 @@ const status = ref(null)
 const plans = ref([])
 const provider = ref('alipay')
 const loadingCode = ref('')
-const { t } = useI18n()
+const { t, uiLang } = useI18n()
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
+}
+
+function localizedPlanLabel(plan) {
+  return formatMembershipPlanLabel(plan?.code, plan?.label, uiLang.value)
+}
+
+function localizedPeriod(period) {
+  return formatMembershipPeriod(period, uiLang.value, period)
 }
 
 watch(() => props.visible, async (v) => {

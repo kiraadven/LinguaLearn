@@ -177,7 +177,7 @@ const familiarLanguageOptions = computed(() =>
 const learningLanguageOptions = computed(() => languageOptions.value)
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
 }
 
 function detectPreferredLanguage() {

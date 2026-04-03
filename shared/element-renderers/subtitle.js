@@ -29,8 +29,17 @@ export function createSubtitleNodes(element, content, containerSize) {
   const srcLineHeight = style.sourceLineHeight ?? style.srcLineHeight ?? style.lineHeight ?? 1.3
   const tgtLineHeight = style.targetLineHeight ?? style.tgtLineHeight ?? style.lineHeight ?? 1.3
 
-  const srcText = content?.text || 'Source language sentence goes here.'
-  const tgtText = content?.translation || '翻译文本显示在这里'
+  const srcText =
+    content?.text ??
+    content?.source_text ??
+    content?.src_text ??
+    ''
+  const tgtText =
+    content?.translation ??
+    content?.translated_text ??
+    content?.target_text ??
+    content?.chinese_translation ??
+    ''
 
   const innerW = w - padding * 2   // use ACTUAL box width
   const innerH = h - padding * 2   // use ACTUAL box height

@@ -24,7 +24,7 @@ OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
 # 分句专用 API（可与上面相同，也可用更快的模型）
 SPLITTER_API_KEY = os.getenv('SPLITTER_API_KEY') or os.getenv('OPENAI_API_KEY')
 SPLITTER_BASE_URL = os.getenv('SPLITTER_BASE_URL') or os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
-SPLITTER_MODEL = os.getenv('SPLITTER_MODEL', 'deepseek-chat')
+SPLITTER_MODEL = os.getenv('SPLITTER_MODEL', 'deepseek-reasoner')
 
 # ===== 语音识别配置 =====
 # Whisper 模型大小: tiny / base / small（推荐）/ medium / large
@@ -32,22 +32,23 @@ WHISPER_MODEL_SIZE = os.getenv('WHISPER_MODEL_SIZE', 'small')
 
 # Whisper 支持的语言映射
 WHISPER_LANGUAGE_MAP = {
-    'en': 'en', 'zh': 'zh', 'zh-Hans': 'zh', 'zh-Hant': 'zh', 'ja': 'ja',
+    'en': 'en', 'zh-Hans': 'zh', 'zh-Hant': 'zh', 'ja': 'ja',
     'ko': 'ko', 'de': 'de', 'fr': 'fr', 'es': 'es', 'ru': 'ru',
 }
 
 # CJK 语言集合（用于文本断行和音标系统判断）
-CJK_LANGUAGES = {'zh', 'zh-Hans', 'zh-Hant', 'ja', 'ko'}
+CJK_LANGUAGES = {'zh-Hans', 'zh-Hant', 'ja', 'ko'}
 
 # 语言规范化：用于把变体语言码归一到主语言码
 LANGUAGE_CODE_ALIASES = {
-    'zh-Hans': 'zh',
-    'zh-Hant': 'zh',
+    # 仅保留两种中文语言码，旧值 zh 会自动归一到 zh-Hans
+    'zh': 'zh-Hans',
+    'zh-Hans': 'zh-Hans',
+    'zh-Hant': 'zh-Hant',
 }
 
 # 中文脚本偏好：用于控制转录输出简体/繁体
 ZH_SCRIPT_PREFERENCE = {
-    'zh': 'hans',       # 兼容旧值，默认简体
     'zh-Hans': 'hans',
     'zh-Hant': 'hant',
 }
@@ -68,7 +69,6 @@ LANGUAGE_NATIVE_NAMES = {
 # 语言对应的国旗 emoji
 LANGUAGE_FLAGS = {
     'en': '🇺🇸',
-    'zh': '🇨🇳',
     'zh-Hans': '🇨🇳',
     'zh-Hant': '🇭🇰',
     'ja': '🇯🇵',
@@ -106,9 +106,22 @@ PART3_SHOW_EXPRESSION_BOX = True
 SPEED_SLOW = 0.75
 
 # ===== 输出配置 =====
-OUTPUT_DIR = 'output'
-TEMP_DIR = 'temp'
+OUTPUT_DIR = 'data/output'
+TEMP_DIR = 'data/temp'
 VIDEO_RESOLUTION = os.getenv('VIDEO_RESOLUTION', '1080p')  # 1080p 或 720p
+WIKTEXTRACT_DB_PATH = os.getenv('WIKTEXTRACT_DB_PATH', 'data/wiktextract_trans.sqlite3')
+DICT_REMOTE_LOOKUP_TIMEOUT_SEC = float(os.getenv('DICT_REMOTE_LOOKUP_TIMEOUT_SEC', '1.2'))
+DICT_TRANSLATE_TIMEOUT_SEC = float(os.getenv('DICT_TRANSLATE_TIMEOUT_SEC', '1.5'))
+DICT_PROVIDER_MODE = os.getenv('DICT_PROVIDER_MODE', '').strip().lower()  # oxford / wiktextract
+DICT_ENABLE_REMOTE_FALLBACK = os.getenv('DICT_ENABLE_REMOTE_FALLBACK', '0').strip().lower() in {'1', 'true', 'yes', 'on'}
+DICT_ENABLE_LLM_TRANSLATION = os.getenv('DICT_ENABLE_LLM_TRANSLATION', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
+DICT_ENABLE_OXFORD = os.getenv('DICT_ENABLE_OXFORD', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
+DICT_ONLY_OXFORD = os.getenv('DICT_ONLY_OXFORD', '0').strip().lower() in {'1', 'true', 'yes', 'on'}
+OXFORD_BASE_URL = os.getenv('OXFORD_BASE_URL', 'https://od-api-sandbox.oxforddictionaries.com/api/v2')
+OXFORD_APP_ID = os.getenv('OXFORD_APP_ID')
+OXFORD_APP_KEY = os.getenv('OXFORD_APP_KEY', 'e5716115a3d7aeea0940dc6a9ca8880e')
+OXFORD_ENGLISH_DATASET = os.getenv('OXFORD_ENGLISH_DATASET', 'en-gb')
+OXFORD_TIMEOUT_SEC = float(os.getenv('OXFORD_TIMEOUT_SEC', '8.0'))
 
 # ===== 邮件配置 =====
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')

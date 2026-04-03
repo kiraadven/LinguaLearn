@@ -233,14 +233,31 @@
           </div>
           <div v-else-if="tooltip.notFound" class="dt-not-found">
             {{ tr('dict_not_found', 'Not found') }} "{{ tooltip.word }}"
+            <p v-if="dictDataNoticeText" class="dt-note-inline dt-note-inline-standalone">{{ dictDataNoticeText }}</p>
           </div>
           <template v-else-if="tooltip.data">
             <div class="dt-head">
-              <span class="dt-word">{{ tooltip.data.word }}</span>
-              <span v-if="tooltip.data.phonetic" class="dt-phonetic">{{ tooltip.data.phonetic }}</span>
-              <button v-if="tooltip.data.audio" class="dt-audio" @click="playAudio" :title="tr('dict_play_audio', 'Play pronunciation')">🔊</button>
+              <div class="dt-word-wrap">
+                <button
+                  v-if="tooltip.data.audio"
+                  class="dt-word-btn"
+                  @click="playAudio"
+                  :title="tr('dict_play_audio', 'Play pronunciation')"
+                >
+                  {{ tooltip.data.word }}
+                </button>
+                <span v-else class="dt-word">{{ tooltip.data.word }}</span>
+                <span v-if="tooltip.data.phonetic" class="dt-phonetic">{{ tooltip.data.phonetic }}</span>
+                <p class="dt-note-inline">{{ dictDataNoticeText }}</p>
+              </div>
+              <span
+                v-if="tooltip.data.provider && String(tooltip.data.provider).toLowerCase() !== 'wiktextract'"
+                class="dt-src"
+              >
+                {{ tooltip.data.provider }}
+              </span>
             </div>
-            <div v-for="(m, i) in tooltip.data.meanings" :key="i" class="dt-meaning">
+            <div v-for="(m, i) in (tooltip.data.meanings || []).slice(0, 3)" :key="i" class="dt-meaning">
               <span v-if="m.pos" class="dt-pos">{{ m.pos }}</span>
               <p class="dt-def">{{ m.definition }}</p>
               <p v-if="tooltip.data.translated_meanings?.[i]" class="dt-def-trans">{{ tooltip.data.translated_meanings[i] }}</p>
@@ -263,6 +280,9 @@ import { marked } from 'marked'
 import { apiFetch } from '../composables/useApi.js'
 import { useAuth } from '../composables/useAuth.js'
 import { useI18n } from '../i18n.js'
+import { TRANSLATIONS } from '../i18n/translations.js'
+import { wrapDictionaryWords } from '../composables/useDictionaryLookup.js'
+import { useJobDetailDictionaryTooltip } from './job-detail/useJobDetailDictionaryTooltip.js'
 
 const route  = useRoute()
 const jobId  = route.params.id
@@ -270,10 +290,11 @@ const { user } = useAuth()
 const isMember = computed(() => user.value?.membership?.tier === 'member')
 const openMembership = inject('openMembership', () => {})
 const toast = inject('toast', () => {})
+const languagePrefs = inject('languagePrefs', null)
 const { t } = useI18n()
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
 }
 
 const job        = ref(null)
@@ -300,6 +321,45 @@ const segRefs    = ref([])
 const transcriptOpen = ref(true)
 const markdownHtml = ref('')
 const isProcessing = computed(() => job.value?.status === 'running' || job.value?.status === 'queued')
+const sourceLangForLookup = computed(() =>
+  job.value?.result?.source_lang ||
+  languagePrefs?.learningLang?.value ||
+  localStorage.getItem('ll_learning_lang') ||
+  'en'
+)
+const targetLangForLookup = computed(() =>
+  languagePrefs?.familiarLang?.value ||
+  localStorage.getItem('ll_familiar_lang') ||
+  job.value?.result?.target_lang ||
+  'zh'
+)
+function normalizeDictNoticeLang(lang) {
+  const raw = String(lang || '').trim()
+  if (!raw) return 'en'
+  const low = raw.toLowerCase()
+  const norm = low.replace(/_/g, '-')
+  if (norm === 'zh' || norm === 'zh-hans' || norm === 'zh-cn' || norm === 'zh-sg') return 'zh-Hans'
+  if (norm === 'zh-hant' || norm === 'zh-tw' || norm === 'zh-hk' || norm === 'zh-mo') return 'zh-Hant'
+  if (norm.startsWith('zh-hans-')) return 'zh-Hans'
+  if (norm.startsWith('zh-hant-')) return 'zh-Hant'
+  if (norm.startsWith('ja')) return 'ja'
+  if (norm.startsWith('ko')) return 'ko'
+  if (norm.startsWith('de')) return 'de'
+  if (norm.startsWith('fr')) return 'fr'
+  if (norm.startsWith('es')) return 'es'
+  if (norm.startsWith('ru')) return 'ru'
+  return 'en'
+}
+const dictDataNoticeText = computed(() => {
+  const lang = normalizeDictNoticeLang(targetLangForLookup.value)
+  return (
+    TRANSLATIONS?.[lang]?.dict_data_notice ||
+    t.value?.dict_data_notice ||
+    TRANSLATIONS?.en?.dict_data_notice ||
+    ''
+  )
+})
+const mdViewRef = ref(null)
 
 const qualityOptions = computed(() => ([
   { value: 'auto', label: tr('detail_quality_auto', 'Auto') },
@@ -637,8 +697,10 @@ async function loadSegments() {
   try {
     const d = await apiFetch(`/api/jobs/${jobId}/segments?_ts=${Date.now()}`)
     const list = Array.isArray(d) ? d : []
-    // Wrap English words in each segment for hover dict support
-    segments.value = list.map(s => ({ ...s, _html: wrapEnglishWords(`<span>${s.text || ''}</span>`).replace(/^<span>|<\/span>$/g, '') }))
+    segments.value = list.map(s => ({
+      ...s,
+      _html: wrapDictionaryWords(`<span>${s.text || ''}</span>`, sourceLangForLookup.value).replace(/^<span>|<\/span>$/g, ''),
+    }))
   } catch { segments.value = [] }
   finally { segLoading.value = false }
 }
@@ -649,222 +711,29 @@ async function loadMarkdown(mdFile) {
     const text = d.content || ''
     let html = marked.parse(text)
     if (html instanceof Promise) html = await html
-    markdownHtml.value = wrapEnglishWords(html)
+    markdownHtml.value = wrapDictionaryWords(html, sourceLangForLookup.value)
   } catch (e) {
     console.error('loadMarkdown error:', e)
   }
 }
 
-// ── English word wrapping ───────────────────────────────────────────────────
-function wrapEnglishWords(html) {
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html')
-  const root = doc.body.firstChild
-  const SKIP = new Set(['CODE', 'PRE', 'SCRIPT', 'STYLE'])
-  const RE = /\b[a-zA-Z]+(?:['''-][a-zA-Z]+)*\b/g
-
-  function walk(node) {
-    if (node.nodeType === 3) { // TEXT_NODE
-      const text = node.textContent
-      if (!/[a-zA-Z]/.test(text)) return
-      const parts = []
-      let last = 0, m, changed = false
-      RE.lastIndex = 0
-      while ((m = RE.exec(text)) !== null) {
-        if (m.index > last) parts.push(document.createTextNode(text.slice(last, m.index)))
-        const s = document.createElement('span')
-        s.className = 'dict-word'
-        s.dataset.word = m[0].toLowerCase()
-        s.textContent = m[0]
-        parts.push(s)
-        last = RE.lastIndex
-        changed = true
-      }
-      if (!changed) return
-      if (last < text.length) parts.push(document.createTextNode(text.slice(last)))
-      const frag = document.createDocumentFragment()
-      parts.forEach(p => frag.appendChild(p))
-      node.parentNode.replaceChild(frag, node)
-    } else if (node.nodeType === 1) { // ELEMENT_NODE
-      if (SKIP.has(node.tagName) || node.classList?.contains('dict-word')) return
-      ;[...node.childNodes].forEach(walk)
-    }
-  }
-
-  walk(root)
-  return root.innerHTML
-}
-
 // ── Dictionary tooltip ──────────────────────────────────────────────────────
-const tooltip = ref({ visible: false, loading: false, notFound: false, word: '', data: null, x: 0, y: 0, side: 'right', anchorX: 0 })
-const mdViewRef = ref(null)
-const dictCache = {}
-let showTimer = null
-let hideTimer = null
-let hoverToken = 0
-let activeHoverKey = ''
-let requestToken = 0
-
-const TOOLTIP_W = 300
-
-const tooltipStyle = computed(() => {
-  const MARGIN = 10
-  const GAP = 20   // gap between tooltip edge and document content
-  let x, y
-  if (tooltip.value.side === 'left') {
-    // Card in left margin: right edge of card at (anchorX - GAP)
-    x = tooltip.value.anchorX - TOOLTIP_W - GAP
-    x = Math.max(MARGIN, x)
-  } else {
-    // Card in right margin: left edge at (anchorX + GAP)
-    x = tooltip.value.anchorX + GAP
-    if (x + TOOLTIP_W > window.innerWidth - MARGIN) {
-      x = window.innerWidth - TOOLTIP_W - MARGIN
-    }
-  }
-  // Vertically: center on word
-  y = tooltip.value.y - 10
-  y = Math.max(MARGIN, Math.min(y, window.innerHeight - 300))
-  return { left: `${x}px`, top: `${y}px`, width: `${TOOLTIP_W}px` }
+const {
+  tooltip,
+  tooltipStyle,
+  onMdHover,
+  onMdOut,
+  onMdLeave,
+  onWordClick,
+  cancelHide,
+  scheduleHide,
+  playAudio,
+} = useJobDetailDictionaryTooltip({
+  sourceLangForLookup,
+  targetLangForLookup,
+  mdViewRef,
+  apiFetch,
 })
-
-function onMdHover(e) {
-  const el = e.target.closest?.('.dict-word')
-  if (el) {
-    hoverToken += 1
-    const localHover = hoverToken
-    clearTimeout(hideTimer)
-    clearTimeout(showTimer)
-    showTimer = setTimeout(() => {
-      // Ignore stale hover timers.
-      if (localHover !== hoverToken) return
-      triggerTooltip(el.dataset.word, el)
-    }, 200)
-    return
-  }
-  // Mouse is over non-word area within container — schedule hide (unless over tooltip)
-  if (!e.target.closest?.('.dict-tooltip')) {
-    clearTimeout(showTimer)
-    if (tooltip.value.visible) scheduleHide()
-  }
-}
-
-function onMdOut(e) {
-  // Specifically leaving a .dict-word element
-  if (e.target.classList?.contains('dict-word')) {
-    if (!e.relatedTarget?.closest?.('.dict-word') && !e.relatedTarget?.closest?.('.dict-tooltip')) {
-      hoverToken += 1
-      activeHoverKey = ''
-      clearTimeout(showTimer)
-      scheduleHide()
-    }
-  }
-}
-
-function onMdLeave(e) {
-  hoverToken += 1
-  activeHoverKey = ''
-  clearTimeout(showTimer)
-  if (e.relatedTarget?.closest?.('.dict-tooltip')) return
-  scheduleHide()
-}
-
-async function onWordClick(e) {
-  const el = e.target.closest?.('.dict-word')
-  if (!el) return
-
-  // 避免触发父层句子点击跳转
-  e.preventDefault()
-  e.stopPropagation()
-
-  clearTimeout(hideTimer)
-  clearTimeout(showTimer)
-
-  const word = (el.dataset.word || '').toLowerCase().trim()
-  if (!word) return
-
-  try {
-    // 确保 tooltip 数据已就绪（未缓存时会即时请求）
-    await triggerTooltip(word, el)
-  } catch {
-    // ignore
-  }
-
-  const url = tooltip.value.data?.audio || dictCache[word]?.audio
-  if (url) {
-    new Audio(url).play().catch(() => {})
-  }
-}
-
-function cancelHide() { clearTimeout(hideTimer) }
-function scheduleHide() {
-  hideTimer = setTimeout(() => {
-    tooltip.value.visible = false
-    tooltip.value.loading = false
-  }, 200)
-}
-
-async function triggerTooltip(word, el) {
-  if (!word) return
-  const hoverKey = `${word}__${el?.dataset?.word || ''}__${Math.round(el?.getBoundingClientRect?.().left || 0)}`
-  activeHoverKey = hoverKey
-
-  const rect = el.getBoundingClientRect()
-  tooltip.value.word = word
-  tooltip.value.y = rect.top + rect.height / 2
-  tooltip.value.notFound = false
-
-  // Determine which margin to place the card in based on word's horizontal position
-  const containerRect = mdViewRef.value?.getBoundingClientRect()
-  const wordCenterX = (rect.left + rect.right) / 2
-  const centerX = containerRect
-    ? (containerRect.left + containerRect.right) / 2
-    : window.innerWidth / 2
-  const isLeft = wordCenterX < centerX
-  tooltip.value.side = isLeft ? 'left' : 'right'
-  // anchorX = the document edge nearest the card (left edge for left-side, right edge for right-side)
-  tooltip.value.anchorX = isLeft
-    ? (containerRect?.left ?? rect.left)
-    : (containerRect?.right ?? rect.right)
-
-  if (dictCache[word] !== undefined) {
-    if (activeHoverKey !== hoverKey) return
-    tooltip.value.data = dictCache[word] || null
-    tooltip.value.notFound = !dictCache[word]
-    tooltip.value.loading = false
-    tooltip.value.visible = true
-    return
-  }
-
-  tooltip.value.loading = true
-  tooltip.value.data = null
-  tooltip.value.visible = true
-
-  requestToken += 1
-  const localReq = requestToken
-  try {
-    const tgtLang = job.value?.result?.target_lang || 'zh'
-    const data = await apiFetch(`/api/dictionary/${encodeURIComponent(word)}?target_lang=${tgtLang}`)
-    dictCache[word] = data
-    // Drop stale responses from previous hover/request.
-    if (localReq !== requestToken || activeHoverKey !== hoverKey) return
-    tooltip.value.data = data
-    tooltip.value.notFound = false
-  } catch {
-    dictCache[word] = null
-    if (localReq !== requestToken || activeHoverKey !== hoverKey) return
-    tooltip.value.notFound = true
-    tooltip.value.data = null
-  } finally {
-    if (localReq !== requestToken || activeHoverKey !== hoverKey) return
-    tooltip.value.loading = false
-  }
-}
-
-function playAudio() {
-  const url = tooltip.value.data?.audio
-  if (url) new Audio(url).play().catch(() => {})
-}
 
 // ── Video sync ──────────────────────────────────────────────────────────────
 function onTimeUpdate() {
@@ -904,713 +773,4 @@ function fmtTime(sec) {
 }
 </script>
 
-<style scoped>
-.jd-page { min-height: 100vh; background: var(--bg); }
-
-/* Top bar */
-.jd-topbar {
-  position: sticky; top: 60px; z-index: 50;
-  display: flex; align-items: center; gap: 12px; padding: 10px 24px;
-  background: rgba(255,255,255,0.95); backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--border); box-shadow: var(--shadow);
-}
-.back-btn {
-  padding: 7px 14px; border-radius: 8px; background: var(--bg3);
-  border: 1px solid var(--border); color: var(--text2); font-size: 13px;
-  font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .15s;
-}
-.back-btn:hover { background: var(--border); color: var(--text); }
-.jd-title {
-  flex: 1; font-size: 15px; font-weight: 700; color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.toggle-btn {
-  padding: 7px 16px; border-radius: 20px; font-size: 12px; font-weight: 600;
-  background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.2);
-  color: var(--accent); cursor: pointer; transition: all .2s; white-space: nowrap;
-}
-.toggle-btn:hover { background: rgba(99,102,241,.15); }
-
-/* Body */
-.jd-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; gap: 16px; }
-.spin { font-size: 36px; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.jd-body { max-width: 1400px; margin: 0 auto; padding: 20px 20px 80px; }
-
-/* Main row */
-.jd-main {
-  display: grid; grid-template-columns: 60fr 40fr; gap: 16px; margin-bottom: 24px;
-  transition: grid-template-columns .35s ease;
-}
-.jd-main.wide { grid-template-columns: 1fr; }
-@media (max-width: 900px) { .jd-main { grid-template-columns: 1fr !important; } }
-
-/* Video column */
-.jd-video-col { display: flex; flex-direction: column; }
-.video-wrap {
-  background:
-    radial-gradient(110% 120% at 50% -20%, rgba(255,255,255,.06), transparent 55%),
-    linear-gradient(180deg, rgba(16,18,23,.98), rgba(8,9,12,.98));
-  border-radius: 20px;
-  border: 1px solid rgba(255,255,255,.08);
-  overflow: hidden;
-  box-shadow: 0 24px 58px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.25);
-}
-.video-wrap:fullscreen {
-  border-radius: 0;
-  border: none;
-  width: 100vw;
-  height: 100vh;
-}
-.video-wrap:fullscreen .jd-video {
-  max-height: calc(100vh - 72px);
-}
-.player-surface {
-  position: relative;
-  background: #000;
-  overflow: hidden;
-}
-.player-scrim {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(to top, rgba(0,0,0,.55) 0%, rgba(0,0,0,.2) 22%, rgba(0,0,0,0) 42%);
-  opacity: .82;
-  z-index: 1;
-}
-.jd-video {
-  width: 100%;
-  display: block;
-  max-height: 560px;
-  object-fit: contain;
-  background: #000;
-  cursor: pointer;
-}
-.center-play {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 68px;
-  height: 68px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.26);
-  background: radial-gradient(100% 100% at 30% 20%, rgba(255,255,255,.25), rgba(0,0,0,.45));
-  backdrop-filter: blur(10px);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: .9;
-  z-index: 4;
-  transition: all .2s;
-  box-shadow: 0 10px 28px rgba(2,6,23,.52), inset 0 1px 0 rgba(255,255,255,.25);
-}
-.center-play:hover {
-  transform: translate(-50%, -50%) scale(1.06);
-  filter: brightness(1.15);
-}
-.center-play.hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-.video-err {
-  position: absolute;
-  left: 14px;
-  bottom: 96px;
-  z-index: 5;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(248,113,113,.4);
-  color: #fecaca;
-  font-size: 12px;
-  background: rgba(153,27,27,.65);
-}
-
-.player-controls {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
-  z-index: 4;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.16);
-  background: linear-gradient(180deg, rgba(10,10,10,.72), rgba(10,10,10,.55));
-  backdrop-filter: blur(10px);
-  box-shadow: 0 10px 24px rgba(0,0,0,.42);
-  padding: 8px 8px 7px;
-  opacity: 0;
-  transform: translateY(8px);
-  transition: all .22s ease;
-}
-.player-surface:hover .player-controls,
-.player-surface:focus-within .player-controls,
-.video-wrap:fullscreen .player-controls {
-  opacity: 1;
-  transform: translateY(0);
-}
-.pc-progress-row {
-  padding: 0 2px 6px;
-}
-.pc-main-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.pc-left-group,
-.pc-right-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.pc-time {
-  font-size: 11.5px;
-  color: rgba(255,255,255,.88);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: .18px;
-  min-width: 96px;
-}
-.pc-seek {
-  width: 100%;
-  height: 4px;
-  cursor: pointer;
-  accent-color: #ff5f57;
-  filter: drop-shadow(0 0 6px rgba(255,95,87,.3));
-}
-.pc-icon-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.2);
-  background: rgba(255,255,255,.08);
-  color: rgba(255,255,255,.94);
-  font-size: 12px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all .16s ease;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-}
-.pc-icon-btn:hover {
-  border-color: rgba(255,255,255,.34);
-  background: rgba(255,255,255,.18);
-  transform: translateY(-1px) scale(1.01);
-}
-.pc-icon-btn.primary {
-  border-color: rgba(255,95,87,.7);
-  background: linear-gradient(135deg, rgba(255,95,87,.72), rgba(255,149,0,.68));
-}
-.pc-pill-btn {
-  height: 30px;
-  border: 1px solid rgba(255,255,255,.2);
-  background: rgba(255,255,255,.07);
-  color: rgba(255,255,255,.92);
-  border-radius: 999px;
-  padding: 0 10px;
-  font-size: 11.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: all .16s ease;
-}
-.pc-pill-btn:hover {
-  border-color: rgba(255,255,255,.34);
-  color: #fff;
-  background: rgba(255,255,255,.16);
-}
-.pc-menu-wrap { position: relative; }
-.pc-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  min-width: 120px;
-  background: rgba(10,10,10,.95);
-  border: 1px solid rgba(255,255,255,.18);
-  border-radius: 12px;
-  padding: 6px;
-  box-shadow: 0 12px 30px rgba(2,6,23,.52);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  z-index: 6;
-}
-.pc-menu-item {
-  border: 1px solid transparent;
-  background: transparent;
-  color: #cbd5e1;
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.pc-menu-item:hover {
-  background: rgba(255,255,255,.12);
-  color: #fff;
-}
-.pc-menu-item.active {
-  border-color: rgba(255,95,87,.7);
-  background: rgba(255,95,87,.24);
-  color: #fff;
-}
-.pc-volume-wrap {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.pc-volume {
-  width: 84px;
-  accent-color: #fff;
-  height: 4px;
-}
-@media (max-width: 980px) {
-  .player-controls {
-    opacity: 1;
-    transform: none;
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    padding: 8px 8px 7px;
-  }
-  .pc-main-row { flex-wrap: wrap; gap: 8px; }
-  .pc-left-group, .pc-right-group {
-    width: 100%;
-    justify-content: space-between;
-  }
-  .pc-right-group {
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .pc-volume-wrap { flex: 1; min-width: 130px; }
-  .pc-volume { width: 100%; }
-  .pc-time { min-width: 92px; }
-}
-.video-meta-row {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-  padding: 12px 4px 0;
-}
-.vm-name { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
-.vm-sub { font-size: 12px; color: var(--text3); }
-
-/* Transcript panel */
-.jd-transcript-col {
-  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-  overflow: hidden; display: flex; flex-direction: column;
-  max-height: 580px; box-shadow: var(--shadow);
-}
-.tc-header {
-  display: flex; align-items: center; gap: 8px; padding: 11px 14px;
-  border-bottom: 1px solid var(--border); background: var(--bg3); flex-shrink: 0;
-}
-.tc-title { font-size: 13px; font-weight: 700; color: var(--text); }
-.sync-dot { font-size: 11px; font-weight: 600; color: var(--ok); margin-left: auto; animation: pulse 2s infinite; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-.tc-list { flex: 1; overflow-y: auto; }
-.tc-empty { text-align: center; padding: 32px; font-size: 13px; color: var(--text3); }
-
-.tc-item {
-  display: flex; gap: 10px; align-items: flex-start;
-  padding: 10px 12px; cursor: pointer; border-left: 3px solid transparent;
-  border-bottom: 1px solid var(--border); transition: all .15s;
-}
-.tc-item:last-child { border-bottom: none; }
-.tc-item:hover { background: rgba(99,102,241,.04); }
-.tc-item.active { background: rgba(99,102,241,.08); border-left-color: var(--accent); }
-.tc-ts {
-  flex-shrink: 0; padding: 3px 8px; border-radius: 10px;
-  background: var(--bg3); border: 1px solid var(--border);
-  color: var(--text3); font-size: 11px; font-weight: 700;
-  cursor: pointer; white-space: nowrap; transition: all .15s;
-}
-.tc-ts:hover, .tc-item.active .tc-ts { background: var(--accent); color: #fff; border-color: var(--accent); }
-.tc-texts { flex: 1; min-width: 0; }
-.tc-orig { font-size: 13px; color: var(--text); line-height: 1.5; margin: 0; }
-.tc-item.active .tc-orig { color: var(--text); font-weight: 600; }
-
-/* Slide transition */
-.panel-enter-active, .panel-leave-active { transition: all .3s ease; overflow: hidden; }
-.panel-enter-from { opacity: 0; transform: translateX(20px); }
-.panel-leave-to { opacity: 0; transform: translateX(20px); }
-
-/* ── Notes section (Feishu/Notion style doc) ── */
-.jd-notes {
-  padding-top: 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.notes-hdr {
-  width: 100%; max-width: 860px;
-  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
-  gap: 10px; margin-bottom: 16px;
-}
-.notes-hdr-title {
-  font-size: 15px; font-weight: 700; color: var(--text2);
-  letter-spacing: .3px; text-transform: uppercase; font-size: 12px;
-}
-.md-empty { text-align: center; padding: 64px; color: var(--text3); font-size: 14px; }
-
-/* DL chip */
-.dl-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 6px 12px; border-radius: 8px;
-  background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.2);
-  color: var(--accent); font-size: 12px; font-weight: 600; transition: all .2s;
-  white-space: nowrap; text-decoration: none;
-}
-.dl-chip:hover { background: rgba(99,102,241,.15); }
-.dl-chip-btn {
-  cursor: pointer;
-}
-
-/* ── Markdown doc view (Feishu-inspired) ── */
-.md-view {
-  width: 100%; max-width: 860px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 48px 64px 56px;
-  box-shadow: 0 2px 16px rgba(0,0,0,.06);
-  line-height: 1.85;
-  color: var(--text);
-  font-size: 15px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
-}
-@media (max-width: 960px) { .md-view { padding: 32px 36px 40px; } }
-@media (max-width: 700px) { .md-view { padding: 24px 20px 32px; } }
-
-/* h1: document title style */
-.md-view :deep(h1) {
-  font-size: 28px; font-weight: 800; margin: 0 0 28px;
-  color: var(--text);
-  padding-bottom: 16px;
-  border-bottom: 2px solid var(--border);
-  letter-spacing: -.3px;
-}
-/* h2: section heading with left accent */
-.md-view :deep(h2) {
-  font-size: 19px; font-weight: 700; margin: 36px 0 14px;
-  color: var(--text);
-  display: flex; align-items: center; gap: 10px;
-}
-.md-view :deep(h2)::before {
-  content: '';
-  display: inline-block; width: 4px; height: 1em;
-  background: var(--accent); border-radius: 2px; flex-shrink: 0;
-}
-/* h3: subsection */
-.md-view :deep(h3) {
-  font-size: 16px; font-weight: 700; margin: 24px 0 10px;
-  color: var(--text);
-}
-.md-view :deep(h4) {
-  font-size: 14px; font-weight: 600; margin: 16px 0 8px; color: var(--text2);
-}
-.md-view :deep(p) {
-  margin: 0 0 14px; color: var(--text); line-height: 1.85;
-}
-/* Blockquote: Feishu style — accent left bar + subtle bg */
-.md-view :deep(blockquote) {
-  border-left: 3px solid var(--accent);
-  margin: 16px 0; padding: 12px 18px;
-  background: rgba(99,102,241,.05); border-radius: 0 8px 8px 0;
-}
-.md-view :deep(blockquote p) { margin: 0; color: var(--text2); font-style: italic; }
-/* Tables */
-.md-view :deep(table) {
-  width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;
-  border-radius: 8px; overflow: hidden; border: 1px solid var(--border);
-}
-.md-view :deep(thead tr) {
-  background: rgba(99,102,241,.07);
-}
-.md-view :deep(th) {
-  padding: 10px 14px; font-weight: 600;
-  text-align: left; font-size: 12.5px; color: var(--text2);
-  border-bottom: 1px solid var(--border);
-  letter-spacing: .4px; text-transform: uppercase;
-}
-.md-view :deep(td) {
-  padding: 9px 14px; border-bottom: 1px solid var(--border);
-  vertical-align: middle; color: var(--text); font-size: 14px;
-}
-.md-view :deep(tr:last-child td) { border-bottom: none; }
-.md-view :deep(tr:hover td) { background: rgba(99,102,241,.03); }
-/* Lists */
-.md-view :deep(ul), .md-view :deep(ol) { padding-left: 24px; margin: 8px 0 14px; }
-.md-view :deep(li) { margin-bottom: 6px; line-height: 1.75; color: var(--text); }
-.md-view :deep(ul li)::marker { color: var(--accent); }
-/* Inline elements */
-.md-view :deep(strong) { font-weight: 700; color: var(--text); }
-.md-view :deep(em) { font-style: italic; color: var(--text2); }
-/* Inline code */
-.md-view :deep(code) {
-  background: rgba(99,102,241,.1); border: none;
-  border-radius: 5px; padding: 2px 7px; font-size: 13px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  color: var(--accent);
-}
-/* Code blocks */
-.md-view :deep(pre) {
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 10px; padding: 18px 20px; margin: 16px 0;
-  overflow-x: auto;
-}
-.md-view :deep(pre code) {
-  background: none; border: none; padding: 0; font-size: 13px;
-  color: var(--text); line-height: 1.65;
-}
-/* HR */
-.md-view :deep(hr) {
-  border: none; height: 1px; margin: 32px 0;
-  background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
-}
-.md-view :deep(div[align="center"]) { text-align: center; }
-
-/* ── Hoverable English words (markdown + transcript) ── */
-.md-view :deep(.dict-word),
-.tc-orig :deep(.dict-word) {
-  cursor: pointer;
-  border-bottom: 1px dashed var(--text3);
-  transition: color .12s, border-color .12s;
-}
-.md-view :deep(.dict-word:hover),
-.tc-orig :deep(.dict-word:hover) {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-/* ── Dictionary tooltip card ── */
-.dict-tooltip {
-  position: fixed;
-  z-index: 9999;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 0 12px 12px 0;
-  padding: 14px 16px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.1);
-  pointer-events: auto;
-  transform: translateY(-50%);
-}
-.dict-tooltip.left-side {
-  border-left: 1px solid var(--border);
-  border-right: 3px solid var(--accent);
-  border-radius: 12px 0 0 12px;
-}
-/* Connecting line — right side: line extends leftward from card toward document */
-.dict-tooltip::before {
-  content: '';
-  position: absolute;
-  right: 100%;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 48px;
-  height: 2px;
-  background: linear-gradient(to left, var(--accent) 20%, rgba(99,102,241,0.15) 100%);
-  border-radius: 1px;
-}
-/* Connecting line — left side: line extends rightward from card toward document */
-.dict-tooltip.left-side::before {
-  right: auto;
-  left: 100%;
-  background: linear-gradient(to right, var(--accent) 20%, rgba(99,102,241,0.15) 100%);
-}
-/* Small dot at the tip of the line (document side) */
-.dict-tooltip::after {
-  content: '';
-  position: absolute;
-  right: calc(100% + 45px);
-  top: 50%;
-  transform: translateY(-50%);
-  width: 5px;
-  height: 5px;
-  background: var(--accent);
-  border-radius: 50%;
-  opacity: 0.6;
-}
-.dict-tooltip.left-side::after {
-  right: auto;
-  left: calc(100% + 45px);
-}
-
-/* Tooltip enter/leave transition */
-.dt-enter-active { transition: opacity .14s ease, transform .14s ease; }
-.dt-leave-active { transition: opacity .1s ease; }
-.dt-enter-from   { opacity: 0; transform: translateY(-50%) translateX(-6px); }
-.dt-leave-to     { opacity: 0; }
-
-.dt-loading {
-  font-size: 13px; color: var(--text3); display: flex; align-items: center; gap: 6px;
-}
-.dt-spin { display: inline-block; animation: spin .9s linear infinite; }
-.dt-not-found { font-size: 12px; color: var(--text3); }
-
-.dt-head {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;
-}
-.dt-word    { font-size: 17px; font-weight: 700; color: var(--text); }
-.dt-phonetic { font-size: 12px; color: var(--text3); font-family: monospace; flex: 1; }
-.dt-audio {
-  background: none; border: none; cursor: pointer; font-size: 14px;
-  padding: 2px 5px; border-radius: 6px; color: var(--text3); transition: all .15s;
-}
-.dt-audio:hover { background: var(--bg3); color: var(--accent); }
-
-.dt-meaning { margin-bottom: 9px; }
-.dt-meaning:last-child { margin-bottom: 0; }
-
-.dt-pos {
-  display: inline-block; padding: 1px 7px; border-radius: 10px; margin-bottom: 4px;
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
-  background: rgba(99,102,241,.1); color: var(--accent);
-}
-.dt-def { font-size: 13px; color: var(--text); margin: 0 0 3px; line-height: 1.5; }
-.dt-def-trans { font-size: 12px; color: var(--accent); margin: 0 0 4px; line-height: 1.4; font-weight: 600; }
-.dt-ex  { font-size: 12px; color: var(--text3); font-style: italic; margin: 0 0 3px; }
-.dt-syns { font-size: 11px; color: var(--text3); margin: 0; }
-.dt-syn {
-  display: inline-block; margin: 1px 3px 1px 0; padding: 1px 5px;
-  background: var(--bg3); border-radius: 4px; font-size: 11px;
-}
-
-/* ── Live progress view ── */
-.jd-progress-view {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 22px 20px 30px;
-}
-.jd-create-header {
-  margin-bottom: 14px;
-}
-.jd-create-header h1 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 800;
-  color: var(--text);
-}
-.jd-create-header p {
-  margin: 8px 0 0;
-  color: var(--text3);
-  font-size: 14px;
-}
-.progress-card {
-  padding: 28px;
-  margin-top: 6px;
-}
-.step-bar {
-  display: flex;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.step-dot {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  background: var(--bg3);
-  border: 2px solid var(--border);
-  color: var(--text3);
-  transition: all .3s;
-}
-.step-dot.active {
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  border-color: transparent;
-  color: #fff;
-  box-shadow: 0 0 16px rgba(99, 102, 241, .35);
-}
-.step-dot.done {
-  background: rgba(16, 185, 129, .1);
-  border-color: rgba(16, 185, 129, .4);
-  color: var(--ok);
-}
-.step-ln {
-  flex: 1;
-  height: 2px;
-  background: var(--border);
-  transition: background .3s;
-}
-.step-ln.done {
-  background: linear-gradient(90deg, var(--ok), rgba(16, 185, 129, .3));
-}
-.cur-step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text2);
-  margin-bottom: 4px;
-}
-.pulse-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: pulse 1.5s infinite;
-  flex-shrink: 0;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: .55; transform: scale(1.2); }
-}
-.pbar-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--text2);
-  margin-bottom: 6px;
-  font-weight: 600;
-}
-.pbar-track {
-  height: 6px;
-  background: rgba(255, 255, 255, .06);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.pbar-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width .5s;
-  box-shadow: 0 0 8px rgba(167, 139, 250, .4);
-}
-.log-box {
-  max-height: 220px;
-  overflow-y: auto;
-  margin-top: 14px;
-  padding: 12px;
-  background: #1e1e2e;
-  border-radius: 8px;
-  border: 1px solid #2d2d3e;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.log-line {
-  color: #94a3b8;
-}
-.log-line.ok {
-  color: #10b981;
-}
-.log-line.err {
-  color: #ef4444;
-}
-.log-line.warn {
-  color: #f59e0b;
-}
-.cancel-job-btn {
-  padding: 8px 18px;
-  font-size: 13px;
-  color: var(--err);
-  border-color: rgba(248,113,113,.3);
-}
-</style>
+<style scoped src="./job-detail/JobDetail.css"></style>

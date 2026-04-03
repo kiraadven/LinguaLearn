@@ -22,7 +22,7 @@ import { useI18n } from '../../i18n.js'
 
 defineProps({
   sourceLang: { type: String, default: 'en' },
-  targetLang: { type: String, default: 'zh' },
+  targetLang: { type: String, default: 'zh-Hans' },
   numWords:   { type: Number, default: 3 },
   numExprs:   { type: Number, default: 2 },
 })
@@ -30,7 +30,7 @@ defineProps({
 const { t } = useI18n()
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
 }
 </script>
 

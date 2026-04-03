@@ -11,55 +11,193 @@ import shutil
 import time
 import io
 import hashlib
-import hmac
 import random
 import smtplib
-import base64
 import subprocess
 import html
-from urllib.parse import urlencode, quote_plus
 try:
     import resend
 except ImportError:
     resend = None
-import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from contextlib import redirect_stdout
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, List, Any
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, PlainTextResponse
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
 import config
-import database
+import core.db as database
 import markdown as md_lib
+from core.app.dictionary_router import router as dictionary_router
+from core.app.routes.auth_routes import build_auth_router
+from core.app.routes.membership_routes import build_membership_router
+from core.app.routes.config_routes import build_config_router
+from core.app.routes.i18n_routes import build_i18n_router
+from core.app.routes.review_routes import build_review_router
+from core.app.membership_service import (
+    _FREE_MAX_VIDEO_SECONDS,
+    _DEFAULT_VIDEO_WATERMARK,
+    _PLAN_BY_CODE,
+    _detect_country_code,
+    _build_membership_status,
+)
 
 app = FastAPI(title="LinguaLearn API", version="2.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(dictionary_router)
+
+_FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg" if os.path.exists("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg") else "ffmpeg"
+_FFPROBE_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe" if os.path.exists("/opt/homebrew/opt/ffmpeg-full/bin/ffprobe") else "ffprobe"
 
 # ===== 目录 =====
-UPLOAD_DIR = Path("uploads")
+DATA_DIR = Path("data")
+UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = Path(config.OUTPUT_DIR)
 TEMP_DIR   = Path(config.TEMP_DIR)
 STATIC_DIR = Path("static")
+AVATAR_DIR = UPLOAD_DIR / "avatars"
 
-for d in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, STATIC_DIR]:
-    d.mkdir(exist_ok=True)
+for d in [DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, STATIC_DIR, AVATAR_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+# 启动时清理历史临时文件（例如上次异常退出遗留）
+for p in TEMP_DIR.iterdir():
+    try:
+        if p.is_dir():
+            shutil.rmtree(str(p), ignore_errors=True)
+        else:
+            p.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _cleanup_job_temp_dir(job_id: str) -> None:
+    """删除任务临时目录，确保任务结束后不残留 temp 文件。"""
+    job_tmp = TEMP_DIR / job_id
+    if job_tmp.exists():
+        shutil.rmtree(str(job_tmp), ignore_errors=True)
+    try:
+        if TEMP_DIR.exists() and not any(TEMP_DIR.iterdir()):
+            TEMP_DIR.rmdir()
+    except Exception:
+        pass
+
+
+def _export_sentence_quiz_assets(
+    *,
+    job_id: str,
+    job_out: Path,
+    audio_path: str,
+    source_lang: str,
+    target_lang: str,
+    timestamps: List[Dict[str, Any]],
+    sentences_data: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """
+    Export per-sentence original audio clips and a sentence quiz manifest.
+    Files are written under output/<job_id>/:
+      - sentence_quiz.json
+      - sq_0001.mp3, sq_0002.mp3, ...
+    """
+    if not timestamps or not sentences_data:
+        return None
+
+    total = min(len(timestamps), len(sentences_data))
+    if total <= 0:
+        return None
+
+    items: List[Dict[str, Any]] = []
+    audio_ok = 0
+    for i in range(total):
+        ts = timestamps[i] or {}
+        sd = sentences_data[i] or {}
+        text = (sd.get("original_text") or ts.get("sentence") or "").strip()
+        if not text:
+            continue
+
+        start = max(0.0, float(ts.get("start", 0.0) or 0.0))
+        end = max(start + 0.18, float(ts.get("end", start + 0.18) or (start + 0.18)))
+        duration = max(0.18, end - start)
+
+        audio_file = f"sq_{i + 1:04d}.mp3"
+        out_audio = job_out / audio_file
+        if out_audio.exists():
+            out_audio.unlink(missing_ok=True)
+
+        has_audio = False
+        if audio_path and Path(audio_path).exists():
+            try:
+                subprocess.run(
+                    [
+                        _FFMPEG_BIN,
+                        "-y",
+                        "-v",
+                        "error",
+                        "-ss",
+                        f"{start:.3f}",
+                        "-t",
+                        f"{duration:.3f}",
+                        "-i",
+                        str(audio_path),
+                        "-vn",
+                        "-ac",
+                        "1",
+                        "-ar",
+                        "22050",
+                        "-b:a",
+                        "48k",
+                        str(out_audio),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                if out_audio.exists() and out_audio.stat().st_size > 0:
+                    has_audio = True
+                    audio_ok += 1
+            except Exception as e:
+                print(f"⚠️ 句子音频切片失败 idx={i}: {e}")
+
+        items.append({
+            "sentence_index": i,
+            "text": text,
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "audio_file": audio_file if has_audio else "",
+        })
+
+    if not items:
+        return None
+
+    manifest = {
+        "version": 1,
+        "job_id": job_id,
+        "source_lang": source_lang,
+        "target_lang": target_lang,
+        "audio_ready_count": audio_ok,
+        "generated_at": datetime.now().isoformat(),
+        "sentences": items,
+    }
+    (job_out / "sentence_quiz.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"✅ sentence_quiz.json 已保存: {len(items)} 句，音频 {audio_ok} 条")
+    return manifest
 
 # ===== 内存存储 =====
 jobs:          Dict[str, dict] = {}
 job_ws_queues: Dict[str, asyncio.Queue] = {}
 
-# 用户和验证码现在存储在 SQLite 数据库中（见 database.py）
+# 用户和验证码现在存储在 SQLite 数据库中（见 core/db 模块）
 
 security = HTTPBearer(auto_error=False)
 
@@ -104,110 +242,6 @@ def get_job_or_404(job_id: str) -> dict:
 
 
 # ===== Membership helpers =====
-
-_FREE_DAILY_VIDEO_LIMIT = 5
-_FREE_MAX_VIDEO_SECONDS = 5 * 60
-_MEMBER_MAX_VIDEO_SECONDS = 30 * 60
-
-_DEFAULT_VIDEO_WATERMARK = {
-    "text": "LinguaLearn",
-    "position": {"x": 0.33, "y": 0.16},     # 居中偏上（左上角锚点）
-    "size": {"w": 0.34, "h": 0.12},         # 放大水印显示区域
-    "rotation": 30,
-    "opacity": 0.20,                         # 20%
-    "font_size": 120,
-}
-
-_MEMBERSHIP_PLAN_SETS = {
-    "cn": [
-        {"code": "cn_day", "label": "1天体验价", "days": 1, "price": 3.0, "currency": "CNY", "period": "day", "auto_renew": False, "trial_once": True},
-        {"code": "cn_week", "label": "连续包周", "days": 7, "price": 8.0, "currency": "CNY", "period": "week", "auto_renew": True, "trial_once": False},
-        {"code": "cn_month", "label": "连续包月", "days": 30, "price": 25.0, "currency": "CNY", "period": "month", "auto_renew": True, "trial_once": False},
-        {"code": "cn_year", "label": "连续包年", "days": 365, "price": 260.0, "currency": "CNY", "period": "year", "auto_renew": True, "trial_once": False},
-    ],
-    "intl": [
-        {"code": "intl_day", "label": "1-day Trial", "days": 1, "price": 0.8, "currency": "USD", "period": "day", "auto_renew": False, "trial_once": True},
-        {"code": "intl_week", "label": "Weekly", "days": 7, "price": 2.0, "currency": "USD", "period": "week", "auto_renew": True, "trial_once": False},
-        {"code": "intl_month", "label": "Monthly", "days": 30, "price": 7.0, "currency": "USD", "period": "month", "auto_renew": True, "trial_once": False},
-        {"code": "intl_year", "label": "Yearly", "days": 365, "price": 75.0, "currency": "USD", "period": "year", "auto_renew": True, "trial_once": False},
-    ],
-}
-_PLAN_BY_CODE = {p["code"]: p for plans in _MEMBERSHIP_PLAN_SETS.values() for p in plans}
-
-_FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg" if os.path.exists("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg") else "ffmpeg"
-_FFPROBE_BIN = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe" if os.path.exists("/opt/homebrew/opt/ffmpeg-full/bin/ffprobe") else "ffprobe"
-
-
-def _country_bucket(country_code: str) -> str:
-    code = (country_code or "").strip().upper()
-    return "cn" if code in {"CN", "CHN", "CHINA", "中国"} else "intl"
-
-
-def _detect_country_code(request: Optional[Request], fallback: str = "CN") -> str:
-    if not request:
-        return fallback
-    # Common proxy/CDN headers
-    for key in ("cf-ipcountry", "x-country-code", "x-vercel-ip-country"):
-        v = request.headers.get(key)
-        if v:
-            return v.strip().upper()
-    return fallback
-
-
-def _get_plan_catalog(country_code: str, trial_used: bool = False) -> list:
-    bucket = _country_bucket(country_code)
-    plans = []
-    for p in _MEMBERSHIP_PLAN_SETS[bucket]:
-        item = dict(p)
-        item["available"] = not (item.get("trial_once") and trial_used)
-        plans.append(item)
-    return plans
-
-
-def _membership_limits(tier: str) -> dict:
-    is_member = tier == "member"
-    return {
-        "daily_video_limit": None if is_member else _FREE_DAILY_VIDEO_LIMIT,
-        "max_video_seconds": _MEMBER_MAX_VIDEO_SECONDS if is_member else _FREE_MAX_VIDEO_SECONDS,
-        "can_remove_default_watermark": is_member,
-        "can_customize_video_watermark": is_member,
-        "can_customize_doc_watermark": is_member,
-        "premium_badge": is_member,
-    }
-
-
-def _build_membership_status(email: str, country_code: str = "CN") -> dict:
-    rec = database.get_user_membership(email) or {}
-    tier = "member" if (rec.get("tier") == "member" and rec.get("status") == "active") else "free"
-    limits = _membership_limits(tier)
-    used_today = database.get_today_usage(email)
-    daily_limit = limits["daily_video_limit"]
-    remaining = None if daily_limit is None else max(0, daily_limit - used_today)
-    trial_used = bool(rec.get("trial_used", 0))
-    plans = _get_plan_catalog(country_code or rec.get("country_code") or "CN", trial_used)
-    return {
-        "tier": tier,
-        "status": rec.get("status", "inactive"),
-        "provider": rec.get("provider"),
-        "plan_code": rec.get("plan_code"),
-        "plan_name": rec.get("plan_name"),
-        "started_at": rec.get("started_at"),
-        "expires_at": rec.get("expires_at"),
-        "auto_renew": bool(rec.get("auto_renew", 0)),
-        "trial_used": trial_used,
-        "badge_unlocked": bool(rec.get("badge_unlocked", 0)),
-        "doc_watermark_text": rec.get("doc_watermark_text") or "LinguaLearn",
-        "doc_watermark_enabled": bool(rec.get("doc_watermark_enabled", 1)),
-        "usage": {
-            "day": datetime.now().strftime('%Y-%m-%d'),
-            "videos_generated_today": used_today,
-            "remaining_today": remaining,
-        },
-        "limits": limits,
-        "plans": plans,
-        "premium_logo": "/premium-badge.svg",
-    }
-
 
 def _probe_video_duration_seconds(path: Path) -> Optional[float]:
     try:
@@ -688,6 +722,7 @@ async def process_video_job(
     animation: Optional[str],
     loop: asyncio.AbstractEventLoop,
     timeline_json: Optional[dict] = None,
+    owner_email: str = "",
     membership_tier: str = "free",
     doc_watermark_text: str = "LinguaLearn",
     doc_watermark_enabled: bool = True,
@@ -703,6 +738,7 @@ async def process_video_job(
         old_stdout = sys.stdout
         sys.stdout = capture
         try:
+            sentence_quiz_manifest = None
             # Apply config globals
             config.SOURCE_LANGUAGE  = source_lang
             config.TARGET_LANGUAGE  = target_lang
@@ -782,17 +818,18 @@ async def process_video_job(
 
             update_job(job_id, status="running", step=1, step_name="正在提取音频...")
 
-            from core.audio_transcriber import AudioTranscriber
-            from core.sentence_splitter  import SentenceSplitter
-            from core.word_analyzer      import WordAnalyzer
-            from core.video_processor    import VideoProcessor
-            from core.markdown_exporter  import MarkdownExporter
+            from core.learning.audio_transcriber import AudioTranscriber
+            from core.learning.sentence_splitter import SentenceSplitter
+            from core.learning.word_analyzer import WordAnalyzer
+            from core.learning.video_processor import VideoProcessor
+            from core.learning.markdown_exporter import MarkdownExporter
 
             job_out = OUTPUT_DIR / job_id
             job_out.mkdir(exist_ok=True)
+            job_tmp = TEMP_DIR / job_id
+            job_tmp.mkdir(parents=True, exist_ok=True)
             config.OUTPUT_DIR = str(job_out)
-            config.TEMP_DIR   = str(TEMP_DIR / job_id)
-            Path(config.TEMP_DIR).mkdir(exist_ok=True)
+            config.TEMP_DIR   = str(job_tmp)
 
             # 调试快照：落盘本次任务使用的 timeline，便于排查“编辑器与成片不一致”。
             if timeline_json:
@@ -1111,6 +1148,29 @@ async def process_video_job(
                 except Exception as _sv_e:
                     print(f"⚠️ 预生成清晰度失败（可回退点播转码）: {_sv_e}")
 
+            # 句子听写资产（原声切片 + sentence_quiz.json）
+            try:
+                sentence_quiz_manifest = _export_sentence_quiz_assets(
+                    job_id=job_id,
+                    job_out=job_out,
+                    audio_path=audio_path,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    timestamps=timestamps,
+                    sentences_data=sentences_data,
+                )
+                if sentence_quiz_manifest and owner_email:
+                    inserted = database.upsert_review_sentences(
+                        owner_email,
+                        job_id,
+                        sentence_quiz_manifest.get("sentences", []),
+                        source_lang=source_lang,
+                        target_lang=target_lang,
+                    )
+                    print(f"🧠 已写入句子复习库: +{inserted}")
+            except Exception as _sqe:
+                print(f"⚠️ 句子听写资产生成失败: {_sqe}")
+
             # 尝试自动生成视频名称（若尚未命名）
             auto_name = None
             try:
@@ -1124,6 +1184,7 @@ async def process_video_job(
                            "sentences_count": len(sentences_data),
                            "full_video":  "学习版.mp4" if final_full.exists() else None,
                            "markdown":    f"{output_name}.md",
+                           "sentence_quiz": "sentence_quiz.json" if sentence_quiz_manifest else None,
                            "source_lang": source_lang,
                            "target_lang": target_lang,
                        })
@@ -1150,6 +1211,7 @@ async def process_video_job(
             update_job(job_id, status="error", error=str(e))
             asyncio.run_coroutine_threadsafe(_push(job_id, "error", str(e)), loop)
         finally:
+            _cleanup_job_temp_dir(job_id)
             sys.stdout = old_stdout
 
     print(f"[process_video_job] 🚀 Coroutine 启动, job={job_id[:8]}, 即将 run_in_executor")
@@ -1158,683 +1220,48 @@ async def process_video_job(
 
 
 # ============================================================
-# AUTH routes
+# Route composition
 # ============================================================
 
-@app.post("/api/auth/send-code")
-async def send_code(email: str = Form(...)):
-    """发送邮箱验证码（注册时调用）"""
-    email = email.strip().lower()
-    if '@' not in email or '.' not in email.split('@')[-1]:
-        raise HTTPException(400, "邮箱格式不正确")
-    if database.user_exists(email):
-        raise HTTPException(400, "该邮箱已注册，请直接登录")
-
-    code = _gen_code()
-    expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
-    database.save_verification_code(email, code, expires_at)
-
-    sent = _send_code_email(email, code)
-    if sent:
-        return {"status": "ok"}
-    else:
-        # Dev mode – return code in response
-        print(f"[DEV] Verification code for {email}: {code}")
-        return {"status": "ok", "dev_mode": True, "dev_code": code}
-
-
-@app.post("/api/auth/send-sms-code")
-async def send_sms_code(phone: str = Form(...)):
-    """发送短信验证码（注册/登陆时调用）"""
-    phone = phone.strip()
-    if not phone or len(phone) < 10:
-        raise HTTPException(400, "手机号格式不正确")
-
-    code = _gen_code()
-    expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
-    database.save_verification_code(phone, code, expires_at)
-
-    sent = _send_sms(phone, code)
-    if sent:
-        return {"status": "ok"}
-    else:
-        # Dev mode – return code in response
-        print(f"[DEV] Verification code for {phone}: {code}")
-        return {"status": "ok", "dev_mode": True, "dev_code": code}
-
-
-@app.post("/api/auth/register")
-async def register(
-    email:    str = Form(...),
-    password: str = Form(...),
-    name:     str = Form(""),
-    code:     str = Form(...),
-    phone:    str = Form(""),
-):
-    """注册用户（邮箱或手机号）"""
-    code = code.strip()
-
-    # 手机号注册
-    if phone:
-        phone = phone.strip()
-        if not phone or len(phone) < 10:
-            raise HTTPException(400, "手机号格式不正确")
-        if len(password) < 6:
-            raise HTTPException(400, "密码至少6位")
-        if database.user_exists_by_phone(phone):
-            raise HTTPException(400, "该手机号已注册")
-
-        # DEV: "000000" bypasses code check; remove when done
-        if code != "000000":
-            pending = database.get_verification_code(phone)
-            if not pending:
-                raise HTTPException(400, "请先获取验证码")
-            if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
-                database.delete_verification_code(phone)
-                raise HTTPException(400, "验证码已过期，请重新获取")
-            if pending["code"] != code:
-                raise HTTPException(400, "验证码错误")
-
-        database.delete_verification_code(phone)
-        # 使用手机号作为邮箱前缀（phone@lingualearn.local）
-        email_generated = f"{phone}@lingualearn.local"
-        user = database.create_user_with_phone(email_generated, _hash(password), phone, name.strip() or phone)
-        if not user:
-            raise HTTPException(400, "手机号已注册")
-
-        token = str(uuid.uuid4())
-        expires_at = (datetime.now() + timedelta(days=30)).isoformat()
-        database.save_token(token, email_generated, expires_at)
-
-        return {"token": token, "name": user["name"], "phone": phone}
-
-    # 邮箱注册（原逻辑）
-    email = email.strip().lower()
-    if '@' not in email or '.' not in email.split('@')[-1]:
-        raise HTTPException(400, "邮箱格式不正确")
-    if len(password) < 6:
-        raise HTTPException(400, "密码至少6位")
-    if database.user_exists(email):
-        raise HTTPException(400, "该邮箱已注册")
-
-    # DEV: "000000" bypasses code check; remove when done
-    if code != "000000":
-        pending = database.get_verification_code(email)
-        if not pending:
-            raise HTTPException(400, "请先获取验证码")
-        if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
-            database.delete_verification_code(email)
-            raise HTTPException(400, "验证码已过期，请重新获取")
-        if pending["code"] != code:
-            raise HTTPException(400, "验证码错误")
-
-    database.delete_verification_code(email)
-    database.create_user(email, _hash(password), name.strip())
-
-    token = str(uuid.uuid4())
-    expires_at = (datetime.now() + timedelta(days=30)).isoformat()
-    database.save_token(token, email, expires_at)
-
-    user = database.get_user(email)
-    return {"token": token, "name": user["name"], "email": email, "avatar_url": user.get("avatar_url")}
-
-
-@app.post("/api/auth/login")
-async def login(
-    login_type: str = Form("email_password"),
-    email: str = Form(""),
-    phone: str = Form(""),
-    password: str = Form(""),
-    code: str = Form(""),
-):
-    """登陆（支持三种方式）
-    - login_type=email_password: email + password
-    - login_type=phone_password: phone + password
-    - login_type=phone_code: phone + code（验证码登陆）
-    """
-
-    if login_type == "email_password":
-        # 邮箱+密码登陆
-        email = email.strip().lower()
-        if not email:
-            raise HTTPException(400, "邮箱不能为空")
-        user = database.get_user(email)
-        if not user or user["password_hash"] != _hash(password):
-            raise HTTPException(401, "邮箱或密码错误")
-        token = str(uuid.uuid4())
-        expires_at = (datetime.now() + timedelta(days=30)).isoformat()
-        database.save_token(token, email, expires_at)
-        return {"token": token, "name": user["name"], "email": email, "avatar_url": user.get("avatar_url")}
-
-    elif login_type == "phone_password":
-        # 手机号+密码登陆
-        phone = phone.strip()
-        if not phone:
-            raise HTTPException(400, "手机号不能为空")
-        user = database.get_user_by_phone(phone)
-        if not user or user["password_hash"] != _hash(password):
-            raise HTTPException(401, "手机号或密码错误")
-        token = str(uuid.uuid4())
-        expires_at = (datetime.now() + timedelta(days=30)).isoformat()
-        database.save_token(token, user["email"], expires_at)
-        return {"token": token, "name": user["name"], "phone": phone, "email": user["email"], "avatar_url": user.get("avatar_url")}
-
-    elif login_type == "phone_code":
-        # 手机号+验证码登陆（用户不存在则自动注册）
-        phone = phone.strip()
-        code = code.strip()
-        if not phone or not code:
-            raise HTTPException(400, "手机号和验证码不能为空")
-
-        # DEV: "000000" bypasses code check; remove when done
-        if code != "000000":
-            pending = database.get_verification_code(phone)
-            if not pending:
-                raise HTTPException(400, "请先获取验证码")
-            if datetime.now() > datetime.fromisoformat(pending["expires_at"]):
-                database.delete_verification_code(phone)
-                raise HTTPException(400, "验证码已过期，请重新获取")
-            if pending["code"] != code:
-                raise HTTPException(400, "验证码错误")
-
-        database.delete_verification_code(phone)
-
-        # 检查用户是否存在
-        user = database.get_user_by_phone(phone)
-        if not user:
-            # 自动注册新用户（使用手机号作为名称）
-            email_generated = f"{phone}@lingualearn.local"
-            user = database.create_user_with_phone(
-                email_generated,
-                _hash(phone),  # 密码设为手机号（无登陆用）
-                phone,
-                phone
-            )
-            if not user:
-                raise HTTPException(400, "注册失败")
-
-        token = str(uuid.uuid4())
-        expires_at = (datetime.now() + timedelta(days=30)).isoformat()
-        database.save_token(token, user["email"], expires_at)
-        return {"token": token, "name": user["name"], "phone": phone}
-
-    else:
-        raise HTTPException(400, "login_type 不支持")
-
-
-@app.get("/api/auth/me")
-async def get_me(request: Request, current_user: Optional[dict] = Depends(get_current_user)):
-    if not current_user:
-        raise HTTPException(401, "未登录")
-    country_code = _detect_country_code(request)
-    membership = _build_membership_status(current_user["email"], country_code=country_code)
-    return {
-        "email": current_user["email"],
-        "name": current_user["name"],
-        "avatar_url": current_user.get("avatar_url"),
-        "created_at": current_user["created_at"],
-        "membership": membership,
-    }
-
-
-@app.post("/api/auth/change-password")
-async def change_password(
-    old_password: str = Form(...),
-    new_password: str = Form(...),
-    current_user: dict = Depends(require_user),
-):
-    if current_user["password_hash"] != _hash(old_password):
-        raise HTTPException(400, "原密码错误")
-    if len(new_password) < 6:
-        raise HTTPException(400, "新密码至少6位")
-    database.update_user_password(current_user["email"], _hash(new_password))
-    return {"status": "ok"}
-
-
-@app.post("/api/auth/send-email-code")
-async def send_email_code(email: str = Form(...)):
-    """发送邮件验证码到目标邮箱"""
-    if not email or "@" not in email:
-        raise HTTPException(400, "邮箱格式错误")
-
-    code = f"{random.randint(100000, 999999)}"
-    expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
-
-    database.save_verification_code(email, code, expires_at)
-
-    # 使用 Resend 发送，fallback 到 SMTP
-    if config.RESEND_API_KEY and resend:
-        try:
-            resend.api_key = config.RESEND_API_KEY
-            r = resend.Emails.send({
-                "from": "noreply@lingualearn.com",
-                "to": email,
-                "subject": "LinguaLearn 邮箱验证码",
-                "html": f"""
-    <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:40px 24px;background:#0a0a12;color:#e2e8f0;border-radius:16px;">
-      <h1 style="font-size:24px;font-weight:800;background:linear-gradient(135deg,#6c63ff,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0 0 8px;">LinguaLearn</h1>
-      <h2 style="font-size:14px;color:#64748b;font-weight:500;margin:0 0 24px;">邮箱验证</h2>
-      <p style="font-size:32px;font-weight:800;color:#fff;margin:32px 0;letter-spacing:8px;text-align:center;">{code}</p>
-      <p style="color:#64748b;font-size:13px;margin:0;">验证码 <strong>10 分钟</strong>内有效。如非本人操作，请忽略此邮件。</p>
-    </div>
-                """
-            })
-            if r.get("id"):
-                return {"status": "ok", "message": "验证码已发送", "code": code}  # DEV: remove "code" when done
-        except Exception as e:
-            print(f"[Resend Error] {type(e).__name__}: {e}")
-            # Fallback to SMTP
-            pass
-
-    # SMTP fallback
-    sent = _send_email(email, "【LinguaLearn】邮箱验证码", f"""
-    <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:40px 24px;background:#0a0a12;color:#e2e8f0;border-radius:16px;">
-      <h1 style="font-size:24px;font-weight:800;background:linear-gradient(135deg,#6c63ff,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0 0 8px;">LinguaLearn</h1>
-      <h2 style="font-size:14px;color:#64748b;font-weight:500;margin:0 0 24px;">邮箱验证</h2>
-      <p style="font-size:32px;font-weight:800;color:#fff;margin:32px 0;letter-spacing:8px;text-align:center;">{code}</p>
-      <p style="color:#64748b;font-size:13px;margin:0;">验证码 <strong>10 分钟</strong>内有效。如非本人操作，请忽略此邮件。</p>
-    </div>
-    """)
-    # DEV: always return code for testing; remove "code" key when done
-    print(f"[DEV] Verification code for {email}: {code}")
-    return {"status": "ok", "message": "验证码已发送", "code": code}
-
-
-@app.post("/api/auth/bind-email")
-async def bind_email(
-    email: str = Form(...),
-    code: str = Form(...),
-    current_user: dict = Depends(require_user),
-):
-    """验证邮箱验证码并绑定邮箱"""
-    if not email or "@" not in email:
-        raise HTTPException(400, "邮箱格式错误")
-
-    # DEV: "000000" bypasses code check; remove when done
-    if code != "000000":
-        vc = database.verify_code(email, code)
-        if not vc:
-            raise HTTPException(400, "验证码错误或已过期")
-
-    # 更新用户邮箱
-    if not database.bind_email(current_user["email"], email):
-        raise HTTPException(400, "邮箱已被其他用户使用")
-
-    return {"status": "ok", "message": "邮箱已绑定", "email": email}
-
-
-@app.post("/api/users/avatar")
-async def upload_avatar(
-    file: UploadFile = File(...),
-    current_user: dict = Depends(require_user),
-):
-    """上传用户头像"""
-    if not file.filename:
-        raise HTTPException(400, "未提供文件")
-
-    # 验证文件类型
-    allowed_types = {"image/jpeg", "image/png", "image/webp"}
-    if file.content_type not in allowed_types:
-        raise HTTPException(400, "仅支持 JPG/PNG/WebP 格式")
-
-    try:
-        # 创建 avatars 目录（使用 uploads/ 而非 static/，避免前端构建时覆盖）
-        avatar_dir = Path("uploads/avatars")
-        avatar_dir.mkdir(parents=True, exist_ok=True)
-
-        # 确定文件扩展名
-        ext_map = {
-            "image/jpeg": "jpg",
-            "image/png": "png",
-            "image/webp": "webp"
-        }
-        ext = ext_map.get(file.content_type, "jpg")
-
-        # 保存文件
-        filename = f"{current_user['email'].replace('@', '_')}.{ext}"
-        filepath = avatar_dir / filename
-        content = await file.read()
-        with open(filepath, "wb") as f:
-            f.write(content)
-
-        # 更新数据库
-        avatar_url = f"/avatars/{filename}"
-        if not database.update_user_avatar(current_user["email"], avatar_url):
-            raise HTTPException(500, "头像保存失败")
-
-        return {"status": "ok", "avatar_url": avatar_url}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"头像上传失败: {e}")
-
-
-# ============================================================
-# MEMBERSHIP routes
-# ============================================================
-
-@app.get("/api/membership/status")
-async def membership_status(request: Request, current_user: dict = Depends(require_user)):
-    country_code = _detect_country_code(request)
-    return _build_membership_status(current_user["email"], country_code=country_code)
-
-
-@app.post("/api/membership/preferences")
-async def update_membership_preferences(
-    request: Request,
-    current_user: dict = Depends(require_user),
-):
-    body = await request.json()
-    rec = _build_membership_status(current_user["email"], country_code=_detect_country_code(request))
-    if rec["tier"] != "member":
-        raise HTTPException(403, "仅会员可自定义文稿水印")
-
-    enabled = bool(body.get("doc_watermark_enabled", True))
-    text = str(body.get("doc_watermark_text", "LinguaLearn")).strip()[:64]
-    if enabled and not text:
-        text = "LinguaLearn"
-    database.update_user_membership(
-        current_user["email"],
-        doc_watermark_enabled=1 if enabled else 0,
-        doc_watermark_text=text,
-    )
-    return _build_membership_status(current_user["email"], country_code=_detect_country_code(request))
-
-
-@app.post("/api/membership/checkout/stripe")
-async def create_stripe_checkout(
-    request: Request,
-    current_user: dict = Depends(require_user),
-):
-    if not config.STRIPE_SECRET_KEY:
-        raise HTTPException(400, "未配置 STRIPE_SECRET_KEY")
-
-    body = await request.json()
-    plan_code = str(body.get("plan_code", "")).strip()
-    plan = _PLAN_BY_CODE.get(plan_code)
-    if not plan:
-        raise HTTPException(400, "套餐不存在")
-
-    country_code = (_detect_country_code(request) or "CN").upper()
-    rec = _build_membership_status(current_user["email"], country_code=country_code)
-    if plan.get("trial_once") and rec.get("trial_used"):
-        raise HTTPException(400, "1天体验价每个账号仅可使用一次")
-
-    price_id = _get_stripe_price_id(plan_code)
-    if not price_id:
-        raise HTTPException(400, f"套餐 {plan_code} 尚未配置 Stripe Price ID")
-
-    order_id = f"ord_{uuid.uuid4().hex[:24]}"
-    success_url = body.get("success_url") or f"{config.APP_BASE_URL}/#/profile?membership=success"
-    cancel_url = body.get("cancel_url") or f"{config.APP_BASE_URL}/#/profile?membership=cancel"
-
-    mode = "payment" if plan.get("period") == "day" else "subscription"
-    payload = [
-        ("mode", mode),
-        ("line_items[0][price]", price_id),
-        ("line_items[0][quantity]", "1"),
-        ("success_url", success_url),
-        ("cancel_url", cancel_url),
-        ("client_reference_id", current_user["email"]),
-        ("metadata[order_id]", order_id),
-        ("metadata[email]", current_user["email"]),
-        ("metadata[plan_code]", plan_code),
-        ("metadata[country_code]", country_code),
-    ]
-    if mode == "subscription":
-        payload.extend([
-            ("subscription_data[metadata][order_id]", order_id),
-            ("subscription_data[metadata][plan_code]", plan_code),
-            ("subscription_data[metadata][email]", current_user["email"]),
-        ])
-
-    resp = requests.post(
-        "https://api.stripe.com/v1/checkout/sessions",
-        data=payload,
-        auth=(config.STRIPE_SECRET_KEY, ""),
-        timeout=20,
-    )
-    if resp.status_code >= 400:
-        raise HTTPException(400, f"Stripe 创建结算失败: {resp.text[:300]}")
-    sd = resp.json()
-    checkout_url = sd.get("url")
-    if not checkout_url:
-        raise HTTPException(400, "Stripe 未返回支付链接")
-
-    database.save_membership_order(
-        order_id=order_id,
-        email=current_user["email"],
-        provider="stripe",
-        plan_code=plan_code,
-        currency=plan["currency"],
-        amount=plan["price"],
-        status="pending",
-        checkout_url=checkout_url,
-        subscription_id=sd.get("subscription"),
-        payload_json=json.dumps(sd, ensure_ascii=False),
-    )
-    return {
-        "order_id": order_id,
-        "provider": "stripe",
-        "checkout_url": checkout_url,
-        "session_id": sd.get("id"),
-    }
-
-
-def _verify_stripe_signature(raw_body: bytes, sig_header: str, secret: str) -> bool:
-    if not secret:
-        return True
-    try:
-        pieces = {}
-        for part in (sig_header or "").split(","):
-            if "=" in part:
-                k, v = part.split("=", 1)
-                pieces.setdefault(k.strip(), []).append(v.strip())
-        ts = pieces.get("t", [None])[0]
-        sigs = pieces.get("v1", [])
-        if not ts or not sigs:
-            return False
-        signed_payload = f"{ts}.{raw_body.decode('utf-8')}"
-        expected = hmac.new(secret.encode("utf-8"), signed_payload.encode("utf-8"), hashlib.sha256).hexdigest()
-        return any(hmac.compare_digest(expected, s) for s in sigs)
-    except Exception:
-        return False
-
-
-@app.post("/api/payments/stripe/webhook")
-async def stripe_webhook(request: Request):
-    raw = await request.body()
-    sig = request.headers.get("stripe-signature", "")
-    if not _verify_stripe_signature(raw, sig, config.STRIPE_WEBHOOK_SECRET):
-        raise HTTPException(400, "Stripe 签名校验失败")
-
-    event = json.loads(raw.decode("utf-8"))
-    typ = event.get("type")
-    obj = event.get("data", {}).get("object", {})
-
-    if typ == "checkout.session.completed":
-        meta = obj.get("metadata", {}) or {}
-        order_id = meta.get("order_id")
-        order = database.get_membership_order(order_id) if order_id else None
-        if order:
-            sub_id = obj.get("subscription") or order.get("subscription_id")
-            database.update_membership_order(
-                order_id,
-                status="paid",
-                subscription_id=sub_id,
-                payload_json=json.dumps(obj, ensure_ascii=False),
-            )
-            _activate_membership_for_user(
-                email=order["email"],
-                plan_code=order["plan_code"],
-                provider="stripe",
-                subscription_id=sub_id,
-                customer_id=obj.get("customer"),
-                country_code=(meta.get("country_code") or "CN"),
-            )
-
-    elif typ == "invoice.paid":
-        sub_id = obj.get("subscription")
-        if sub_id:
-            order = database.get_membership_order_by_subscription("stripe", sub_id)
-            if order:
-                database.update_membership_order(
-                    order["order_id"],
-                    status="paid",
-                    payload_json=json.dumps(obj, ensure_ascii=False),
-                )
-                _activate_membership_for_user(
-                    email=order["email"],
-                    plan_code=order["plan_code"],
-                    provider="stripe",
-                    subscription_id=sub_id,
-                    customer_id=obj.get("customer"),
-                    country_code=(database.get_user_membership(order["email"]) or {}).get("country_code", "CN"),
-                )
-
-    elif typ in ("customer.subscription.updated", "customer.subscription.deleted"):
-        sub_id = obj.get("id")
-        if sub_id:
-            order = database.get_membership_order_by_subscription("stripe", sub_id)
-            if order:
-                is_cancelled = typ == "customer.subscription.deleted" or obj.get("cancel_at_period_end")
-                if is_cancelled:
-                    database.update_user_membership(order["email"], auto_renew=0, status="cancelled")
-
-    return {"received": True}
-
-
-@app.post("/api/membership/checkout/alipay")
-async def create_alipay_checkout(
-    request: Request,
-    current_user: dict = Depends(require_user),
-):
-    body = await request.json()
-    plan_code = str(body.get("plan_code", "")).strip()
-    plan = _PLAN_BY_CODE.get(plan_code)
-    if not plan:
-        raise HTTPException(400, "套餐不存在")
-
-    rec = _build_membership_status(current_user["email"], country_code=_detect_country_code(request))
-    if plan.get("trial_once") and rec.get("trial_used"):
-        raise HTTPException(400, "1天体验价每个账号仅可使用一次")
-
-    if not (config.ALIPAY_APP_ID and config.ALIPAY_PRIVATE_KEY and config.ALIPAY_PUBLIC_KEY):
-        raise HTTPException(400, "未配置支付宝签约参数（ALIPAY_APP_ID/ALIPAY_PRIVATE_KEY/ALIPAY_PUBLIC_KEY）")
-
-    try:
-        from alipay import AliPay
-    except Exception:
-        raise HTTPException(500, "请先安装 python-alipay-sdk 才能启用支付宝支付")
-
-    order_id = f"ali_{uuid.uuid4().hex[:24]}"
-    alipay = AliPay(
-        appid=config.ALIPAY_APP_ID,
-        app_notify_url=config.ALIPAY_NOTIFY_URL or None,
-        app_private_key_string=config.ALIPAY_PRIVATE_KEY,
-        alipay_public_key_string=config.ALIPAY_PUBLIC_KEY,
-        sign_type="RSA2",
-        debug=("sandbox" in (config.ALIPAY_GATEWAY or "")),
-    )
-
-    # 支付宝“自动续费签约”在线上一般需要代扣签约流程。
-    # 这里先提供标准支付能力，并保留 auto_renew 标志由 webhook + 业务续签接入。
-    pay_str = alipay.api_alipay_trade_wap_pay(
-        out_trade_no=order_id,
-        total_amount=str(plan["price"]),
-        subject=f"LinguaLearn 会员 - {plan['label']}",
-        return_url=config.ALIPAY_RETURN_URL or f"{config.APP_BASE_URL}/#/profile?membership=success",
-        notify_url=config.ALIPAY_NOTIFY_URL or f"{config.APP_BASE_URL}/api/payments/alipay/webhook",
-    )
-    checkout_url = f"{config.ALIPAY_GATEWAY}?{pay_str}"
-
-    database.save_membership_order(
-        order_id=order_id,
-        email=current_user["email"],
-        provider="alipay",
-        plan_code=plan_code,
-        currency=plan["currency"],
-        amount=plan["price"],
-        status="pending",
-        checkout_url=checkout_url,
-        payload_json=json.dumps({"pay_str": pay_str}, ensure_ascii=False),
-    )
-    return {"order_id": order_id, "provider": "alipay", "checkout_url": checkout_url}
-
-
-@app.post("/api/payments/alipay/webhook")
-async def alipay_webhook(request: Request):
-    form = dict(await request.form())
-    sign = form.pop("sign", None)
-    form.pop("sign_type", None)
-    if not sign:
-        raise HTTPException(400, "缺少签名")
-
-    try:
-        from alipay import AliPay
-    except Exception:
-        raise HTTPException(500, "服务端未安装 python-alipay-sdk")
-
-    alipay = AliPay(
-        appid=config.ALIPAY_APP_ID,
-        app_notify_url=config.ALIPAY_NOTIFY_URL or None,
-        app_private_key_string=config.ALIPAY_PRIVATE_KEY,
-        alipay_public_key_string=config.ALIPAY_PUBLIC_KEY,
-        sign_type="RSA2",
-        debug=("sandbox" in (config.ALIPAY_GATEWAY or "")),
-    )
-    if not alipay.verify(form, sign):
-        raise HTTPException(400, "支付宝签名校验失败")
-
-    order_id = form.get("out_trade_no")
-    trade_status = form.get("trade_status")
-    order = database.get_membership_order(order_id) if order_id else None
-    if order and trade_status in ("TRADE_SUCCESS", "TRADE_FINISHED"):
-        agreement_no = form.get("agreement_no") or form.get("trade_no")
-        database.update_membership_order(
-            order_id,
-            status="paid",
-            subscription_id=agreement_no,
-            payload_json=json.dumps(form, ensure_ascii=False),
-        )
-        _activate_membership_for_user(
-            email=order["email"],
-            plan_code=order["plan_code"],
-            provider="alipay",
-            subscription_id=agreement_no,
-            country_code=(database.get_user_membership(order["email"]) or {}).get("country_code", "CN"),
-        )
-    elif order and trade_status:
-        database.update_membership_order(order_id, status="failed", payload_json=json.dumps(form, ensure_ascii=False))
-
-    return PlainTextResponse("success")
-
-
-@app.post("/api/membership/cancel-auto-renew")
-async def cancel_auto_renew(
-    request: Request,
-    current_user: dict = Depends(require_user),
-):
-    rec = database.get_user_membership(current_user["email"]) or {}
-    if rec.get("tier") != "member" or rec.get("status") != "active":
-        raise HTTPException(400, "当前不是有效会员")
-
-    provider = rec.get("provider")
-    sub_id = rec.get("subscription_id")
-    if provider == "stripe" and sub_id and config.STRIPE_SECRET_KEY:
-        resp = requests.post(
-            f"https://api.stripe.com/v1/subscriptions/{sub_id}",
-            data={"cancel_at_period_end": "true"},
-            auth=(config.STRIPE_SECRET_KEY, ""),
-            timeout=20,
-        )
-        if resp.status_code >= 400:
-            raise HTTPException(400, f"Stripe 取消自动续费失败: {resp.text[:300]}")
-
-    database.update_user_membership(current_user["email"], auto_renew=0, status="cancelled")
-    return {"status": "ok", "auto_renew": False}
-
+app.include_router(build_auth_router(
+    database=database,
+    config=config,
+    get_current_user=get_current_user,
+    require_user=require_user,
+    detect_country_code=_detect_country_code,
+    build_membership_status=_build_membership_status,
+    gen_code=_gen_code,
+    hash_password=_hash,
+    send_code_email=_send_code_email,
+    send_sms=_send_sms,
+    send_email=_send_email,
+    avatar_dir=AVATAR_DIR,
+    resend_module=resend,
+))
+app.include_router(build_membership_router(
+    database=database,
+    config=config,
+    require_user=require_user,
+    detect_country_code=_detect_country_code,
+    build_membership_status=_build_membership_status,
+    plan_by_code=_PLAN_BY_CODE,
+    get_stripe_price_id=_get_stripe_price_id,
+    activate_membership_for_user=_activate_membership_for_user,
+))
+app.include_router(build_config_router(
+    database=database,
+    require_user=require_user,
+    get_job_or_404=get_job_or_404,
+    output_dir=OUTPUT_DIR,
+))
+app.include_router(build_i18n_router(config=config))
+app.include_router(build_review_router(
+    database=database,
+    config=config,
+    require_user=require_user,
+    get_job_or_404=get_job_or_404,
+    output_dir=OUTPUT_DIR,
+))
 
 # ============================================================
 # JOB routes
@@ -1850,8 +1277,8 @@ async def get_languages():
 
 @app.get("/api/styles")
 async def get_styles():
-    """返回所有 ASS 样式模版的预览信息（供前端样式画廊使用）"""
-    from core.ass_styles import STYLE_TEMPLATES
+    """返回所有样式模版的预览信息（供前端样式画廊使用）"""
+    from core.rendering.style_templates import STYLE_TEMPLATES
     return {
         sid: {
             "name":           t["name"],
@@ -1880,7 +1307,7 @@ async def create_job(
     layout:             str   = Form("{}"),   # position percentages（旧格式，保留兼容）
     style:              str   = Form("{}"),   # visual style options
     parts_json:         str   = Form("[]"),   # 新的 Part 配置
-    style_id:           str   = Form("aurora_dark"),  # ASS 样式模版 ID
+    style_id:           str   = Form("aurora_dark"),  # 样式模版 ID
     animation:          str   = Form("fade"),          # 入场动画类型
     timeline_json:      str   = Form(""),              # 新 Timeline JSON（优先级最高）
     current_user: dict = Depends(require_user),
@@ -2067,6 +1494,7 @@ async def create_job(
             style_id=style_id or "aurora_dark",
             animation=animation or "fade",
             timeline_json=timeline_dict,
+            owner_email=current_user["email"],
             membership_tier=tier,
             doc_watermark_text=(
                 membership.get("doc_watermark_text") if tier == "member" else "LinguaLearn"
@@ -2100,6 +1528,7 @@ async def cancel_job(job_id: str, current_user: dict = Depends(require_user)):
         job_out = OUTPUT_DIR / job_id
         if job_out.exists():
             _shutil.rmtree(str(job_out), ignore_errors=True)
+        _cleanup_job_temp_dir(job_id)
         # Also remove uploaded source video if it still exists
         if job.get("video_filename"):
             src_video = UPLOAD_DIR / f"{job_id}_{job['video_filename']}"
@@ -2298,452 +1727,9 @@ async def list_jobs(current_user: Optional[dict] = Depends(get_current_user)):
         return {"jobs": job_list[:50]}
 
 
-# ===== 配置保存/加载 =====
-
-@app.post("/api/config/save")
-async def save_config(
-    config_json: str = Form(...),
-    current_user: dict = Depends(require_user),
-):
-    """保存用户配置"""
-    try:
-        # 验证 JSON 格式
-        import json
-        json.loads(config_json)
-    except:
-        raise HTTPException(400, "配置 JSON 格式不正确")
-
-    if database.save_user_config(current_user["email"], config_json):
-        return {"status": "ok"}
-    else:
-        raise HTTPException(500, "保存配置失败")
-
-
-@app.get("/api/config/load")
-async def load_config(current_user: dict = Depends(require_user)):
-    """加载用户配置"""
-    config = database.get_user_config(current_user["email"])
-    if config:
-        return {"config": config}
-    else:
-        return {"config": None}
-
-
-# ===== 命名配置预设接口 =====
-
-@app.post("/api/config/presets")
-async def create_config_preset(
-    name: str = Form(...),
-    config_json: str = Form(...),
-    current_user: dict = Depends(require_user),
-):
-    """保存命名配置预设"""
-    try:
-        json.loads(config_json)
-    except Exception:
-        raise HTTPException(400, "配置 JSON 格式不正确")
-    name = name.strip() or f"配置 {datetime.now().strftime('%m-%d %H:%M')}"
-    preset_id = database.save_config_preset(current_user["email"], name, config_json)
-    if preset_id < 0:
-        raise HTTPException(500, "保存预设失败")
-    return {"id": preset_id, "name": name, "created_at": datetime.now().isoformat()}
-
-
-@app.get("/api/config/presets")
-async def list_config_presets(current_user: dict = Depends(require_user)):
-    """列出用户所有命名配置预设"""
-    presets = database.get_config_presets(current_user["email"])
-    return {"presets": presets}
-
-
-@app.delete("/api/config/presets/{preset_id}")
-async def delete_config_preset(preset_id: int, current_user: dict = Depends(require_user)):
-    """删除命名配置预设"""
-    ok = database.delete_config_preset(preset_id, current_user["email"])
-    if not ok:
-        raise HTTPException(404, "预设不存在")
-    return {"status": "ok"}
-
-
-# ===== Segments 接口 =====
-
-@app.get("/api/jobs/{job_id}/segments")
-async def get_job_segments(job_id: str):
-    """获取视频的句子时间戳（供视频预览页同步文稿使用）"""
-    get_job_or_404(job_id)
-    path = OUTPUT_DIR / job_id / "segments.json"
-    if not path.exists():
-        return JSONResponse(content=[], headers={"Cache-Control": "no-store"})
-    data = json.loads(path.read_text(encoding='utf-8'))
-    return JSONResponse(content=data, headers={"Cache-Control": "no-store"})
-
-
-# ============================================================
-# STICKER routes
-# ============================================================
-
-STICKER_DIR = Path("uploads/stickers")
-STICKER_DIR.mkdir(parents=True, exist_ok=True)
-
-
-@app.get("/api/stickers")
-async def list_stickers():
-    """列出所有已上传的贴纸"""
-    stickers = []
-    if STICKER_DIR.exists():
-        for f in sorted(STICKER_DIR.iterdir()):
-            if f.suffix.lower() in ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'):
-                stickers.append({
-                    "id": f.stem,
-                    "url": f"/stickers/{f.name}",
-                    "name": f.name,
-                })
-    return stickers
-
-
-@app.post("/api/stickers")
-async def upload_sticker(image: UploadFile = File(...)):
-    """上传贴纸图片"""
-    if not image.filename:
-        raise HTTPException(400, "未提供文件")
-
-    # Validate file type
-    allowed_types = {"image/png", "image/jpeg", "image/gif", "image/svg+xml", "image/webp"}
-    if image.content_type and image.content_type not in allowed_types:
-        raise HTTPException(400, "仅支持 PNG/JPG/GIF/SVG/WebP 格式")
-
-    # Generate unique filename
-    ext = Path(image.filename).suffix.lower() or '.png'
-    sticker_id = f"stk_{uuid.uuid4().hex[:8]}"
-    filename = f"{sticker_id}{ext}"
-    filepath = STICKER_DIR / filename
-
-    content = await image.read()
-    with open(filepath, "wb") as f:
-        f.write(content)
-
-    return {
-        "id": sticker_id,
-        "url": f"/stickers/{filename}",
-        "name": filename,
-    }
-
-
-@app.get("/api/dictionary/{word}")
-async def lookup_dictionary(word: str, target_lang: str = "zh-Hans"):
-    """查询英文单词释义（Free Dictionary API v2），可选翻译到目标语言"""
-    import urllib.request
-    import urllib.error
-
-    word = word.strip().lower()
-    if not word or not all(c.isalpha() or c in "-'" for c in word):
-        raise HTTPException(400, "无效单词")
-
-    url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
-
-    def _fetch():
-        req = urllib.request.Request(url, headers={"User-Agent": "LinguaLearn/1.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            return json.loads(resp.read())
-
-    try:
-        data = await asyncio.get_event_loop().run_in_executor(None, _fetch)
-        entry = data[0]
-
-        # 提取音标和音频
-        phonetic = entry.get("phonetic", "")
-        audio_url = ""
-        for ph in entry.get("phonetics", []):
-            if ph.get("text") and not phonetic:
-                phonetic = ph["text"]
-            if ph.get("audio") and not audio_url:
-                audio_url = ph["audio"]
-                if audio_url.startswith("//"):
-                    audio_url = "https:" + audio_url
-
-        # 提取释义（最多3个词性）
-        meanings = []
-        for m in entry.get("meanings", [])[:3]:
-            defs = m.get("definitions", [])
-            if defs:
-                d = defs[0]
-                syns = (m.get("synonyms", []) + d.get("synonyms", []))[:3]
-                meanings.append({
-                    "pos": m.get("partOfSpeech", ""),
-                    "definition": d.get("definition", ""),
-                    "example": d.get("example", ""),
-                    "synonyms": syns,
-                })
-
-        result = {
-            "word": entry.get("word", word),
-            "phonetic": phonetic,
-            "audio": audio_url,
-            "meanings": meanings,
-        }
-
-        # 翻译释义到目标语言（非英文时）
-        lang_aliases = getattr(config, "LANGUAGE_CODE_ALIASES", {})
-        normalized_tl = lang_aliases.get(target_lang, target_lang)
-        if normalized_tl and normalized_tl != "en" and meanings:
-            try:
-                translated = await _translate_definitions(word, meanings, target_lang)
-                if translated:
-                    result["translated_meanings"] = translated
-            except Exception as te:
-                print(f"⚠️ 翻译释义失败: {te}")
-
-        return result
-
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            raise HTTPException(404, "单词不存在")
-        raise HTTPException(502, "词典服务错误")
-    except Exception as e:
-        raise HTTPException(500, f"查询失败: {e}")
-
-
-# 释义翻译缓存
-_translation_cache: dict = {}
-
-async def _translate_definitions(word: str, meanings: list, target_lang: str) -> list:
-    """使用 DeepSeek/OpenAI 将英文释义翻译成目标语言"""
-    cache_key = f"{word}_{target_lang}"
-    if cache_key in _translation_cache:
-        return _translation_cache[cache_key]
-
-    lang_names = {
-        "zh": "中文", "zh-Hans": "简体中文", "zh-Hant": "繁體中文",
-        "ja": "日本語", "ko": "한국어",
-        "de": "Deutsch", "fr": "français", "es": "español", "ru": "русский"
-    }
-    lang_name = lang_names.get(target_lang, target_lang)
-
-    # 构建翻译请求
-    defs_text = "\n".join(
-        f"{i+1}. [{m['pos']}] {m['definition']}"
-        for i, m in enumerate(meanings) if m.get('definition')
-    )
-
-    from openai import OpenAI
-    api_key = getattr(config, 'OPENAI_API_KEY', '')
-    base_url = getattr(config, 'OPENAI_BASE_URL', '')
-    if not api_key:
-        return []
-
-    def _do_translate():
-        client = OpenAI(api_key=api_key, base_url=base_url)
-        resp = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": f"你是一个精准的词典翻译助手。将英文释义翻译成{lang_name}，保持简洁准确。每行一个翻译，格式为数字序号开头，只返回翻译内容。"},
-                {"role": "user", "content": f"翻译以下「{word}」的英文释义为{lang_name}：\n{defs_text}"}
-            ],
-            temperature=0.2,
-            max_tokens=200,
-        )
-        return resp.choices[0].message.content.strip()
-
-    raw = await asyncio.get_event_loop().run_in_executor(None, _do_translate)
-
-    # 解析翻译结果
-    translated = []
-    for line in raw.strip().split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        # 去除序号前缀 "1. " / "1、" / "1) "
-        import re
-        cleaned = re.sub(r'^\d+[\.\、\)\]\s]+', '', line).strip()
-        # 去除可能的 [pos] 前缀
-        cleaned = re.sub(r'^\[.*?\]\s*', '', cleaned).strip()
-        if cleaned:
-            translated.append(cleaned)
-
-    _translation_cache[cache_key] = translated
-    return translated
-
-
-# ===== Quiz / Review Words API =====
-
-@app.get("/api/jobs/{job_id}/quiz-data")
-async def get_quiz_data(job_id: str, debug: bool = False):
-    """从 Markdown 文档提取词汇和表达数据用于自测"""
-    job_out = OUTPUT_DIR / job_id
-    # 获取 job 信息
-    j = get_job_or_404(job_id)
-    result = j.get("result") or {}
-    if isinstance(result, str):
-        result = json.loads(result) if result else {}
-    if not isinstance(result, dict):
-        result = {}
-    md_file = result.get("markdown")
-    if not md_file:
-        raise HTTPException(404, "无学习笔记")
-
-    md_path = job_out / md_file
-    if not md_path.exists():
-        raise HTTPException(404, f"笔记文件不存在: {md_path}")
-
-    content = md_path.read_text(encoding='utf-8')
-
-    # 更健壮的表格提取：找到标题后，提取表格（直到下一个 ## 标题或文件结尾）
-    import re
-    words = []
-    expressions = []
-
-    # 各语言词汇/表达汇总表的完整标题（避免与内容简介标题混淆）
-    _tl = result.get("target_lang", "zh-Hans")
-    _tl_norm = getattr(config, "LANGUAGE_CODE_ALIASES", {}).get(_tl, _tl)
-    _VOCAB_HEADERS = {
-        'zh': '## 📖 词汇汇总表', 'zh-Hans': '## 📖 词汇汇总表', 'zh-Hant': '## 📖 詞彙彙總表',
-        'en': '## 📖 Vocabulary Summary',
-        'ja': '## 📖 語彙まとめ',  'ko': '## 📖 어휘 정리',
-        'de': '## 📖 Vokabeln Zusammenfassung', 'fr': '## 📖 Résumé du vocabulaire',
-        'es': '## 📖 Resumen de vocabulario',   'ru': '## 📖 Итоговый словарь',
-    }
-    _EXPR_HEADERS = {
-        'zh': '## 📝 表达汇总表', 'zh-Hans': '## 📝 表达汇总表', 'zh-Hant': '## 📝 表達彙總表',
-        'en': '## 📝 Expressions Summary',
-        'ja': '## 📝 表現まとめ',  'ko': '## 📝 표현 정리',
-        'de': '## 📝 Ausdrücke Zusammenfassung', 'fr': '## 📝 Résumé des expressions',
-        'es': '## 📝 Resumen de expresiones',    'ru': '## 📝 Итоговые выражения',
-    }
-    _vocab_header = _VOCAB_HEADERS.get(_tl, _VOCAB_HEADERS.get(_tl_norm, '## 📖 词汇汇总表'))
-    _expr_header  = _EXPR_HEADERS.get(_tl, _EXPR_HEADERS.get(_tl_norm, '## 📝 表达汇总表'))
-
-    def extract_markdown_table(content, section_header):
-        """从Markdown中提取指定section的表格"""
-        # 先找到section标题
-        section_pattern = re.escape(section_header) + r'[^\n]*\n+(.*?)(?=\n##|$)'
-        section_match = re.search(section_pattern, content, re.DOTALL)
-        if not section_match:
-            return []
-
-        section_content = section_match.group(1)
-
-        # 从section内容中提取表格行（以 | 开头的行）
-        lines = section_content.split('\n')
-        table_rows = []
-        in_table = False
-        for line in lines:
-            if line.strip().startswith('|'):
-                # 检查是否是分隔线（包含 --- 或 :---: 等）
-                if '---' in line or ':---' in line:
-                    in_table = True
-                    continue
-                if in_table:
-                    table_rows.append(line)
-
-        return table_rows
-
-    # 提取词汇表
-    word_rows = extract_markdown_table(content, _vocab_header)
-    for row in word_rows:
-        if not row.strip():
-            continue
-        cols = [c.strip() for c in row.strip('|').split('|')]
-        if len(cols) >= 3:
-            word = re.sub(r'\*\*(.+?)\*\*', r'\1', cols[0]).strip()
-            phonetic = re.sub(r'`(.+?)`', r'\1', cols[1]).strip()
-            meaning = cols[2].strip()
-            if word and meaning:
-                words.append({"word": word, "phonetic": phonetic, "meaning": meaning})
-
-    # 提取表达表
-    expr_rows = extract_markdown_table(content, _expr_header)
-    for row in expr_rows:
-        if not row.strip():
-            continue
-        cols = [c.strip() for c in row.strip('|').split('|')]
-        if len(cols) >= 2:
-            expr = re.sub(r'\*\*(.+?)\*\*', r'\1', cols[0]).strip()
-            meaning = cols[1].strip()
-            if expr and meaning:
-                expressions.append({"word": expr, "meaning": meaning})
-
-    result_data = {
-        "words": words,
-        "expressions": expressions,
-        "source_lang": result.get("source_lang", "en"),
-        "target_lang": result.get("target_lang", "zh-Hans"),
-        "job_name": j.get("name") or j.get("video_filename") or job_id[:12],
-    }
-
-    # Debug mode: 返回额外信息用于调试
-    if debug:
-        result_data["debug"] = {
-            "md_file": str(md_file),
-            "md_exists": md_path.exists(),
-            "word_rows_found": len(word_rows),
-            "expr_rows_found": len(expr_rows),
-            "markdown_length": len(content),
-            "has_word_section": _vocab_header in content,
-            "has_expr_section": _expr_header in content,
-        }
-
-    return result_data
-
-
-@app.post("/api/review-words")
-async def save_review_words(
-    request: Request,
-    current_user: dict = Depends(require_user),
-):
-    """保存错误单词到复习本"""
-    body = await request.json()
-    job_id = body.get("job_id", "")
-    words = body.get("words", [])
-    if not job_id or not words:
-        raise HTTPException(400, "缺少 job_id 或 words")
-    added = database.add_review_words(current_user["email"], job_id, words)
-    return {"added": added, "total": len(words)}
-
-
-@app.get("/api/review-words")
-async def list_review_words(
-    job_id: str = None,
-    mastered: int = None,
-    current_user: dict = Depends(require_user),
-):
-    """获取复习单词列表"""
-    words = database.get_review_words(current_user["email"], job_id=job_id, mastered=mastered)
-    return {"words": words}
-
-
-@app.patch("/api/review-words/{word_id}")
-async def update_review_word(
-    word_id: int,
-    request: Request,
-    current_user: dict = Depends(require_user),
-):
-    """更新复习单词状态"""
-    body = await request.json()
-    mastered = body.get("mastered", 0)
-    ok = database.update_review_word(word_id, current_user["email"], mastered)
-    if not ok:
-        raise HTTPException(404, "单词不存在")
-    return {"ok": True}
-
-
-@app.delete("/api/review-words/{word_id}")
-async def delete_review_word_api(
-    word_id: int,
-    current_user: dict = Depends(require_user),
-):
-    """删除复习单词"""
-    ok = database.delete_review_word(word_id, current_user["email"])
-    if not ok:
-        raise HTTPException(404, "单词不存在")
-    return {"ok": True}
-
-
 # 头像目录单独挂载，避免被前端构建覆盖
-Path("uploads/avatars").mkdir(parents=True, exist_ok=True)
-app.mount("/avatars", StaticFiles(directory="uploads/avatars"), name="avatars")
-# 贴纸目录
-Path("uploads/stickers").mkdir(parents=True, exist_ok=True)
-app.mount("/stickers", StaticFiles(directory="uploads/stickers"), name="stickers")
+AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/avatars", StaticFiles(directory=str(AVATAR_DIR)), name="avatars")
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 

@@ -38,7 +38,7 @@ const props = defineProps({
 const { t } = useI18n()
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
 }
 
 const elementTypes = computed(() => ([

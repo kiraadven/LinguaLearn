@@ -1,14 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Download required export fonts into static/fonts/
+# Download required export fonts into persistent directory (default: data/fonts)
 # Usage:
 #   bash scripts/download_fonts.sh
+#   bash scripts/download_fonts.sh --dir /custom/path
+#   bash scripts/download_fonts.sh --sync-static
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FONT_DIR="$ROOT_DIR/static/fonts"
+FONT_DIR="$ROOT_DIR/data/fonts"
+SYNC_STATIC=0
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --dir requires a path argument" >&2
+        exit 1
+      fi
+      FONT_DIR="$2"
+      shift 2
+      ;;
+    --sync-static)
+      SYNC_STATIC=1
+      shift
+      ;;
+    -h|--help)
+      cat <<EOF
+Usage:
+  bash scripts/download_fonts.sh [--dir <path>] [--sync-static]
+
+Options:
+  --dir <path>      Target directory for .ttf files (default: $ROOT_DIR/data/fonts)
+  --sync-static     Also copy downloaded fonts to $ROOT_DIR/static/fonts
+EOF
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 mkdir -p "$FONT_DIR"
 
@@ -135,3 +170,12 @@ echo
 echo "Done. Downloaded fonts to: $FONT_DIR"
 echo "Files:"
 ls -1 "$FONT_DIR" | sed -n '1,200p'
+
+if [[ "$SYNC_STATIC" -eq 1 ]]; then
+  STATIC_FONT_DIR="$ROOT_DIR/static/fonts"
+  mkdir -p "$STATIC_FONT_DIR"
+  cp -f "$FONT_DIR"/*.ttf "$STATIC_FONT_DIR"/ 2>/dev/null || true
+  cp -f "$FONT_DIR"/*.otf "$STATIC_FONT_DIR"/ 2>/dev/null || true
+  echo
+  echo "Synced fonts to: $STATIC_FONT_DIR"
+fi

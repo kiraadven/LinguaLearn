@@ -79,7 +79,7 @@
         <div class="card" style="padding:28px;margin-bottom:16px">
           <div class="section-title" style="font-size:15px;margin-bottom:20px">👑 {{ tr('profile_membership', 'Membership') }}</div>
           <div v-if="membership?.tier==='member'" class="member-box">
-            <div class="member-row"><span>{{ tr('profile_plan', 'Plan') }}</span><strong>{{ membership.plan_name || membership.plan_code || tr('profile_member', 'Member') }}</strong></div>
+            <div class="member-row"><span>{{ tr('profile_plan', 'Plan') }}</span><strong>{{ localizedMembershipPlan }}</strong></div>
             <div class="member-row"><span>{{ tr('profile_expires_at', 'Expires At') }}</span><strong>{{ fmtDateTime(membership.expires_at) }}</strong></div>
             <div class="member-row"><span>{{ tr('profile_auto_renew', 'Auto Renew') }}</span><strong>{{ membership.auto_renew ? tr('profile_on', 'On') : tr('profile_off', 'Off') }}</strong></div>
             <div class="member-row">
@@ -130,19 +130,20 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted } from 'vue'
+import { computed, ref, inject, onMounted } from 'vue'
 import { useAuth } from '../composables/useAuth.js'
 import { apiFetch } from '../composables/useApi.js'
 import { useI18n } from '../i18n.js'
+import { formatMembershipPlanLabel } from '../composables/membershipLabels.js'
 
 const { user, isLoggedIn, changePassword, logout, sendEmailCode, bindEmail, uploadAvatar, refreshMembership } = useAuth()
 const openAuth = inject('openAuth')
 const openMembership = inject('openMembership', () => {})
 const toast    = inject('toast')
-const { t } = useI18n()
+const { t, uiLang } = useI18n()
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
 }
 
 const jobCount = ref(0)
@@ -163,6 +164,14 @@ const avatarInput = ref(null)
 const membership = ref(null)
 const docWatermarkEnabled = ref(true)
 const docWatermarkText = ref('LinguaLearn')
+const localizedMembershipPlan = computed(() => {
+  const m = membership.value || {}
+  return formatMembershipPlanLabel(
+    m.plan_code,
+    m.plan_name || m.plan_code || tr('profile_member', 'Member'),
+    uiLang.value
+  )
+})
 
 onMounted(async () => {
   if (!isLoggedIn.value) return

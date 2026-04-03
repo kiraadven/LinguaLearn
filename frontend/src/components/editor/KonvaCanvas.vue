@@ -170,7 +170,15 @@ const renderedElements = computed(() => {
     // Prepare content based on type
     let content = props.previewContent
     if (mergedEl.type === 'subtitle') {
-      content = { text: content?.text, translation: content?.translation }
+      content = {
+        text: content?.text ?? content?.source_text ?? content?.src_text ?? '',
+        translation:
+          content?.translation ??
+          content?.translated_text ??
+          content?.target_text ??
+          content?.chinese_translation ??
+          '',
+      }
     } else if (mergedEl.type === 'wordbox') {
       content = { words: content?.words }
     } else if (mergedEl.type === 'exprbox') {

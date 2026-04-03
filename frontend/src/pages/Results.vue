@@ -7,8 +7,8 @@
 
     <div v-if="!isLoggedIn" class="empty-state">
       <div class="empty-icon">🔒</div>
-      <p class="empty-title">{{ t.create_login_required || t.auth_login }}</p>
-      <button class="btn-primary" @click="openAuth()">{{ t.nav_login_register || (t.auth_login + ' / ' + t.auth_register) }}</button>
+      <p class="empty-title">{{ t.create_login_required }}</p>
+      <button class="btn-primary" @click="openAuth()">{{ t.nav_login_register }}</button>
     </div>
     <div v-else-if="loading" class="empty-state">
       <div style="font-size:32px;animation:spin 1s linear infinite">⟳</div>

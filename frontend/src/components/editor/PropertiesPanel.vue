@@ -12,14 +12,14 @@
       <!-- Position & Size -->
       <div v-if="!isLockedWatermark" class="prop-row2">
         <div>
-          <label class="label">X %</label>
+          <label class="label">{{ tr('props_x_pct', 'X %') }}</label>
           <input type="number" class="input input-sm"
                  :value="pct(selectedElement.position.x)"
                  @change="updatePos('x', $event.target.value)"
                  min="-200" max="300" step="1">
         </div>
         <div>
-          <label class="label">Y %</label>
+          <label class="label">{{ tr('props_y_pct', 'Y %') }}</label>
           <input type="number" class="input input-sm"
                  :value="pct(selectedElement.position.y)"
                  @change="updatePos('y', $event.target.value)"
@@ -164,7 +164,7 @@ const props = defineProps({
   selectedElement: { type: Object, default: null },
   watermarkLocked: { type: Boolean, default: false },
   sourceLang: { type: String, default: 'en' },
-  targetLang: { type: String, default: 'zh' },
+  targetLang: { type: String, default: 'zh-Hans' },
   numWords: { type: Number, default: 6 },
   numExprs: { type: Number, default: 4 },
   applyPatch: { type: Function, default: null },
@@ -175,7 +175,7 @@ const emit = defineEmits(['update', 'updateStyle', 'setAnimation', 'previewAnima
 const { t } = useI18n()
 
 function tr(key, fallback = '') {
-  return t.value?.[key] || fallback || key
+  return ((t.value?.[key]) ?? fallback) || key
 }
 
 const ANIMATIONS = [

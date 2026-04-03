@@ -10,8 +10,6 @@ __pycache__/
 dist/
 build/
 input_videos/
-temp/
-output/
 *.mp4
 *.mp3
 *.avi
@@ -25,4 +23,4 @@ output/
 MoneyPrinter*
 .claude/
 data/
-uploads/
+static/

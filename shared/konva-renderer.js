@@ -13,6 +13,8 @@ import { createExprboxNodes } from './element-renderers/exprbox.js'
 import { createWatermarkNodes } from './element-renderers/watermark.js'
 import { STYLE_THEMES } from './theme-mapper.js'
 
+const PREVIEW_DATA_VERSION = '2026-04-03-l10n-fix-3'
+
 /** Element type → renderer function mapping */
 const RENDERERS = {
   subtitle:  createSubtitleNodes,
@@ -68,28 +70,28 @@ export const PREVIEW_DATA = {
       ja: "毎日新しい言語を学ぶことは、自信を育て、記憶力を高め、異文化理解を広げ、友情・旅行・仕事・成長のための数多くの機会を開きます。",
     },
     words: [
-      { word: "认知", phonetic: "rèn zhī", translation: "cognition" },
-      { word: "非凡", phonetic: "fēi fán", translation: "extraordinary" },
-      { word: "可塑性", phonetic: "kě sù xìng", translation: "plasticity" },
-      { word: "习得", phonetic: "xí dé", translation: "acquisition" },
-      { word: "展示", phonetic: "zhǎn shì", translation: "demonstrate" },
-      { word: "现象", phonetic: "xiàn xiàng", translation: "phenomenon" },
-      { word: "适应性", phonetic: "shì yìng xìng", translation: "adaptability" },
-      { word: "神经", phonetic: "shén jīng", translation: "neural" },
-      { word: "机制", phonetic: "jī zhì", translation: "mechanism" },
-      { word: "潜能", phonetic: "qián néng", translation: "potential" },
-      { word: "语境", phonetic: "yǔ jìng", translation: "context" },
-      { word: "迁移", phonetic: "qiān yí", translation: "learning transfer" },
+      { word: "认知", phonetic: "rèn zhī", translation: { zh: "认知", en: "cognition", ja: "認知", ko: "인지", de: "Kognition", fr: "cognition", es: "cognición", ru: "когниция" } },
+      { word: "非凡", phonetic: "fēi fán", translation: { zh: "非凡", en: "extraordinary", ja: "非凡", ko: "비범한", de: "außergewöhnlich", fr: "extraordinaire", es: "extraordinario", ru: "необыкновенный" } },
+      { word: "可塑性", phonetic: "kě sù xìng", translation: { zh: "可塑性", en: "plasticity", ja: "可塑性", ko: "가소성", de: "Plastizität", fr: "plasticité", es: "plasticidad", ru: "пластичность" } },
+      { word: "习得", phonetic: "xí dé", translation: { zh: "习得", en: "acquisition", ja: "習得", ko: "습득", de: "Erwerb", fr: "acquisition", es: "adquisición", ru: "освоение" } },
+      { word: "展示", phonetic: "zhǎn shì", translation: { zh: "展示", en: "demonstrate", ja: "示す", ko: "보여주다", de: "demonstrieren", fr: "démontrer", es: "demostrar", ru: "демонстрировать" } },
+      { word: "现象", phonetic: "xiàn xiàng", translation: { zh: "现象", en: "phenomenon", ja: "現象", ko: "현상", de: "Phänomen", fr: "phénomène", es: "fenómeno", ru: "феномен" } },
+      { word: "适应性", phonetic: "shì yìng xìng", translation: { zh: "适应性", en: "adaptability", ja: "適応性", ko: "적응성", de: "Anpassungsfähigkeit", fr: "adaptabilité", es: "adaptabilidad", ru: "адаптивность" } },
+      { word: "神经", phonetic: "shén jīng", translation: { zh: "神经", en: "neural", ja: "神経", ko: "신경", de: "neuronal", fr: "neuronal", es: "neuronal", ru: "нейронный" } },
+      { word: "机制", phonetic: "jī zhì", translation: { zh: "机制", en: "mechanism", ja: "仕組み", ko: "기제", de: "Mechanismus", fr: "mécanisme", es: "mecanismo", ru: "механизм" } },
+      { word: "潜能", phonetic: "qián néng", translation: { zh: "潜能", en: "potential", ja: "潜在能力", ko: "잠재력", de: "Potenzial", fr: "potentiel", es: "potencial", ru: "потенциал" } },
+      { word: "语境", phonetic: "yǔ jìng", translation: { zh: "语境", en: "context", ja: "文脈", ko: "맥락", de: "Kontext", fr: "contexte", es: "contexto", ru: "контекст" } },
+      { word: "迁移", phonetic: "qiān yí", translation: { zh: "迁移", en: "transfer", ja: "転移", ko: "전이", de: "Transfer", fr: "transfert", es: "transferencia", ru: "перенос" } },
     ],
     expressions: [
-      { english: "令人难以置信", chinese: "incredibly hard to believe" },
-      { english: "展示了…能力", chinese: "demonstrates the ability" },
-      { english: "一种…现象", chinese: "a kind of phenomenon" },
-      { english: "在长期过程中", chinese: "in the long-term process" },
-      { english: "从认知角度看", chinese: "from a cognitive perspective" },
-      { english: "与…密切相关", chinese: "be closely related to" },
-      { english: "起到关键作用", chinese: "play a key role" },
-      { english: "有助于理解", chinese: "help with understanding" },
+      { english: "令人难以置信", chinese: { zh: "令人难以置信", en: "incredibly hard to believe", ja: "信じがたい", ko: "믿기 어려운", de: "kaum zu glauben", fr: "difficile à croire", es: "difícil de creer", ru: "трудно поверить" } },
+      { english: "展示了…能力", chinese: { zh: "展示了…能力", en: "demonstrates the ability to...", ja: "…する能力を示す", ko: "…하는 능력을 보여준다", de: "zeigt die Fähigkeit, ...", fr: "démontre la capacité à ...", es: "demuestra la capacidad de ...", ru: "демонстрирует способность ..." } },
+      { english: "一种…现象", chinese: { zh: "一种…现象", en: "a kind of phenomenon", ja: "一種の…現象", ko: "하나의 … 현상", de: "eine Art von Phänomen", fr: "une sorte de phénomène", es: "una especie de fenómeno", ru: "разновидность ... явления" } },
+      { english: "在长期过程中", chinese: { zh: "在长期过程中", en: "in the long-term process", ja: "長期的な過程で", ko: "장기적인 과정에서", de: "im langfristigen Prozess", fr: "dans le processus à long terme", es: "en el proceso a largo plazo", ru: "в долгосрочном процессе" } },
+      { english: "从认知角度看", chinese: { zh: "从认知角度看", en: "from a cognitive perspective", ja: "認知の観点から", ko: "인지적 관점에서", de: "aus kognitiver Sicht", fr: "du point de vue cognitif", es: "desde una perspectiva cognitiva", ru: "с когнитивной точки зрения" } },
+      { english: "与…密切相关", chinese: { zh: "与…密切相关", en: "be closely related to", ja: "…と密接に関連する", ko: "…와 밀접하게 관련되다", de: "eng mit ... verbunden sein", fr: "être étroitement lié à ...", es: "estar estrechamente relacionado con ...", ru: "быть тесно связанным с ..." } },
+      { english: "起到关键作用", chinese: { zh: "起到关键作用", en: "play a key role", ja: "重要な役割を果たす", ko: "핵심 역할을 하다", de: "eine Schlüsselrolle spielen", fr: "jouer un rôle clé", es: "desempeñar un papel clave", ru: "играть ключевую роль" } },
+      { english: "有助于理解", chinese: { zh: "有助于理解", en: "help with understanding", ja: "理解に役立つ", ko: "이해에 도움이 되다", de: "beim Verstehen helfen", fr: "aider à comprendre", es: "ayudar a comprender", ru: "помогать пониманию" } },
     ],
   },
   ja: {
@@ -416,6 +418,64 @@ const PREVIEW_STRESS_DATA = {
   },
 }
 
+function normalizePreviewLangCode(lang) {
+  const raw = String(lang || '').trim()
+  if (!raw) return 'en'
+  const lowered = raw.toLowerCase()
+  if (lowered === 'zh-hans' || lowered === 'zh-hant' || lowered.startsWith('zh-')) return 'zh'
+  return lowered.split(/[-_]/)[0]
+}
+
+function firstNonEmptyTranslation(translations) {
+  if (!translations || typeof translations !== 'object') return ''
+  for (const value of Object.values(translations)) {
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return ''
+}
+
+function resolveLocalizedText(value, normalizedTgt, fallback = '') {
+  if (typeof value === 'string') {
+    const plain = value.trim()
+    if (!plain) return fallback
+    if (normalizedTgt !== 'en' && fallback) return fallback
+    return plain
+  }
+  if (!value || typeof value !== 'object') return fallback
+  return (
+    value[normalizedTgt] ||
+    value.en ||
+    firstNonEmptyTranslation(value) ||
+    fallback
+  )
+}
+
+function localizePreviewWords(words, normalizedTgt, fallbackWords = []) {
+  return (words || []).map((w, idx) => {
+    const fb = fallbackWords.length ? (fallbackWords[idx % fallbackWords.length] || {}) : {}
+    const fallbackTranslation =
+      resolveLocalizedText(fb?.translation, normalizedTgt, '') ||
+      String(fb?.word || '').trim()
+    return {
+      ...w,
+      translation: resolveLocalizedText(w?.translation, normalizedTgt, fallbackTranslation),
+    }
+  })
+}
+
+function localizePreviewExpressions(expressions, normalizedTgt, fallbackExpressions = []) {
+  return (expressions || []).map((e, idx) => {
+    const fb = fallbackExpressions.length ? (fallbackExpressions[idx % fallbackExpressions.length] || {}) : {}
+    const fallbackTranslation =
+      resolveLocalizedText(fb?.chinese ?? fb?.translation, normalizedTgt, '') ||
+      String(fb?.english || '').trim()
+    return {
+      ...e,
+      chinese: resolveLocalizedText(e?.chinese ?? e?.translation, normalizedTgt, fallbackTranslation),
+    }
+  })
+}
+
 /**
  * Get preview content for a given source/target language pair.
  *
@@ -426,31 +486,51 @@ const PREVIEW_STRESS_DATA = {
  * @returns {{ text, translation, words, expressions }}
  */
 export function getPreviewContent(srcLang, tgtLang, numWords = 6, numExprs = 4) {
-  const data = PREVIEW_DATA[srcLang] || PREVIEW_DATA.en
-  const stress = PREVIEW_STRESS_DATA[srcLang] || PREVIEW_STRESS_DATA.en
-  const baseTranslation = data.translations?.[tgtLang] || data.translations?.en || '翻译文本'
+  const normalizedSrc = normalizePreviewLangCode(srcLang)
+  const normalizedTgt = normalizePreviewLangCode(tgtLang)
+  const data = PREVIEW_DATA[normalizedSrc] || PREVIEW_DATA.en
+  const stress = PREVIEW_STRESS_DATA[normalizedSrc] || PREVIEW_STRESS_DATA.en
+  const targetData = PREVIEW_DATA[normalizedTgt] || PREVIEW_DATA.en
+  const targetStress = PREVIEW_STRESS_DATA[normalizedTgt] || PREVIEW_STRESS_DATA.en
+  const translations = data.translations || {}
+  const targetSentenceFallback =
+    targetData?.sentence ||
+    targetStress?.sentence ||
+    ''
+  const baseTranslation =
+    translations[normalizedTgt] ||
+    (normalizedTgt === normalizedSrc ? data.sentence : '') ||
+    targetSentenceFallback ||
+    translations.en ||
+    firstNonEmptyTranslation(translations)
 
   const text = data.sentence || stress?.sentence || ''
-  const translation = baseTranslation || stress?.translation || '翻译文本'
-  const mergedWords = [...(data.words || []), ...(stress?.words || [])]
-  const mergedExprs = [...(data.expressions || []), ...(stress?.expressions || [])]
+  const translation = baseTranslation || stress?.translation || ''
+  const mergedWordsRaw = [...(data.words || []), ...(stress?.words || [])]
+  const mergedExprsRaw = [...(data.expressions || []), ...(stress?.expressions || [])]
+  const targetMergedWordsRaw = [...(targetData?.words || []), ...(targetStress?.words || [])]
+  const targetMergedExprsRaw = [...(targetData?.expressions || []), ...(targetStress?.expressions || [])]
+  const mergedWords = localizePreviewWords(mergedWordsRaw, normalizedTgt, targetMergedWordsRaw)
+  const mergedExprs = localizePreviewExpressions(mergedExprsRaw, normalizedTgt, targetMergedExprsRaw)
   const words = numWords > 0 ? mergedWords.slice(0, numWords) : mergedWords
   const expressions = numExprs > 0 ? mergedExprs.slice(0, numExprs) : mergedExprs
 
   // If UI asks for more than built-in preview fixtures, duplicate with index suffix
   // so range expansion in the editor still has visible feedback.
-  if (numWords > 0 && words.length < numWords && data.words.length > 0) {
+  const localizedBaseWords = localizePreviewWords(data.words || [], normalizedTgt, targetData?.words || [])
+  const localizedBaseExprs = localizePreviewExpressions(data.expressions || [], normalizedTgt, targetData?.expressions || [])
+  if (numWords > 0 && words.length < numWords && localizedBaseWords.length > 0) {
     for (let i = words.length; i < numWords; i++) {
-      const base = data.words[i % data.words.length]
+      const base = localizedBaseWords[i % localizedBaseWords.length]
       words.push({
         ...base,
         word: `${base.word} ${i + 1}`,
       })
     }
   }
-  if (numExprs > 0 && expressions.length < numExprs && data.expressions.length > 0) {
+  if (numExprs > 0 && expressions.length < numExprs && localizedBaseExprs.length > 0) {
     for (let i = expressions.length; i < numExprs; i++) {
-      const base = data.expressions[i % data.expressions.length]
+      const base = localizedBaseExprs[i % localizedBaseExprs.length]
       expressions.push({
         ...base,
         english: `${base.english} ${i + 1}`,
@@ -459,6 +539,7 @@ export function getPreviewContent(srcLang, tgtLang, numWords = 6, numExprs = 4) 
   }
 
   return {
+    _pv: PREVIEW_DATA_VERSION,
     text,
     translation,
     words,
@@ -556,7 +637,15 @@ export function renderPart(timeline, partId, content, containerSize) {
     // Prepare content based on element type
     let elementContent = content
     if (mergedElement.type === 'subtitle') {
-      elementContent = { text: content?.text, translation: content?.translation }
+      elementContent = {
+        text: content?.text ?? content?.source_text ?? content?.src_text ?? '',
+        translation:
+          content?.translation ??
+          content?.translated_text ??
+          content?.target_text ??
+          content?.chinese_translation ??
+          '',
+      }
     } else if (mergedElement.type === 'wordbox') {
       elementContent = { words: content?.words }
     } else if (mergedElement.type === 'exprbox') {
@@ -588,7 +677,7 @@ export function renderPart(timeline, partId, content, containerSize) {
 export function createDefaultTimeline(opts = {}) {
   const {
     sourceLang = 'en',
-    targetLang = 'zh',
+    targetLang = 'zh-Hans',
     resolution = { width: 1920, height: 1080 },
     styleId = 'ink_wash',
   } = opts

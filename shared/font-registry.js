@@ -34,7 +34,7 @@ export function getFontFamily(fontKey) {
 }
 
 /**
- * Map from font key to TTF file name in static/fonts/
+ * Map from font key to TTF file name in fonts directory
  * Used by Node.js for canvas registerFont()
  */
 export const FONT_FILES = {
@@ -57,7 +57,7 @@ export const FONT_FILES = {
 /**
  * Register all available fonts for Node.js canvas rendering.
  * No-op in browser environments.
- * @param {string} fontsDir - Path to fonts directory (e.g. 'static/fonts/')
+ * @param {string} fontsDir - Path to fonts directory (e.g. 'data/fonts/')
  */
 export async function registerFonts(fontsDir) {
   const summary = {
@@ -80,7 +80,7 @@ export async function registerFonts(fontsDir) {
   const fs = await import('fs')
 
   if (!fontsDir || !fs.existsSync(fontsDir)) {
-    // Missing static/fonts means export will fallback to system fonts.
+    // Missing fonts directory means export will fallback to system fonts.
     summary.missingKeys = Object.keys(FONT_FILES)
     console.warn(`[font-registry] Fonts directory not found: ${fontsDir || '(empty)'}`)
     return summary

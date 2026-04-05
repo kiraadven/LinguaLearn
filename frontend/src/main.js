@@ -10,6 +10,8 @@ import ResultsPage from './pages/Results.vue'
 import ProfilePage from './pages/Profile.vue'
 import JobDetail   from './pages/JobDetail.vue'
 import QuizPage    from './pages/Quiz.vue'
+import AiTutorPage from './pages/AiTutor.vue'
+import MembershipPage from './pages/Membership.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -18,8 +20,10 @@ const router = createRouter({
     { path: '/create',      component: CreatePage  },
     { path: '/results',     component: ResultsPage },
     { path: '/results/:id', component: JobDetail   },
-    { path: '/quiz',        component: QuizPage    },
-    { path: '/profile',     component: ProfilePage },
+    { path: '/quiz',        component: QuizPage       },
+    { path: '/tutor',       component: AiTutorPage    },
+    { path: '/membership',  component: MembershipPage },
+    { path: '/profile',     component: ProfilePage    },
   ],
   scrollBehavior() { return { top: 0 } }
 })

@@ -28,15 +28,21 @@
           </div>
 
           <div class="hero-metrics">
-            <div v-for="m in heroMetrics" :key="m.label" class="metric-chip">
+            <button
+              v-for="m in heroMetrics"
+              :key="m.label"
+              class="metric-chip"
+              @click="scrollTo(m.target)"
+            >
               <div class="metric-value">{{ m.value }}</div>
               <div class="metric-label">{{ m.label }}</div>
-            </div>
+              <div class="metric-cta">{{ tr('home_view_features', 'Explore Features') }} →</div>
+            </button>
           </div>
 
           <div class="hero-langs">
             <div v-for="(l, i) in langs" :key="`${l.code}-${i}`" class="lang-pill" :style="`animation-delay:${i * 0.12}s`">
-              <span>{{ l.flag || '🌐' }}</span>
+              <span>{{ displayFlag(l) }}</span>
               <span>{{ l.native_name || l.code }}</span>
             </div>
           </div>
@@ -101,7 +107,7 @@
       </div>
     </section>
 
-    <section class="section reveal">
+    <section id="steps" class="section reveal">
       <div class="section-label">{{ tr('home_steps_label', 'Workflow') }}</div>
       <h2 class="section-title">{{ tr('home_steps_title', 'Complete in 5 Automatic Steps') }}</h2>
 
@@ -127,14 +133,14 @@
       </div>
     </section>
 
-    <section class="section reveal">
+    <section id="langs" class="section reveal">
       <div class="section-label">{{ tr('home_langs_label', 'Supported Languages') }}</div>
       <h2 class="section-title">{{ tr('home_langs_title', '8 Languages, Learn Any Pair') }}</h2>
 
       <div class="lang-marquee">
         <div class="marquee-track">
           <div v-for="(l, i) in marqueeLangs" :key="`marquee-${l.code}-${i}`" class="marquee-pill">
-            <span>{{ l.flag || '🌐' }}</span>
+            <span>{{ displayFlag(l) }}</span>
             <span>{{ l.native_name || l.code }}</span>
           </div>
         </div>
@@ -143,7 +149,7 @@
       <div class="lang-grid">
         <div v-for="l in langs" :key="`lang-${l.code}`" class="lang-card">
           <div class="lang-glint"></div>
-          <div class="lang-flag">{{ l.flag || '🌐' }}</div>
+          <div class="lang-flag">{{ displayFlag(l) }}</div>
           <div class="lang-name">{{ l.native_name || l.code }}</div>
           <div class="lang-code">{{ (l.code || '').toUpperCase() }}</div>
         </div>
@@ -209,23 +215,20 @@ const langs = ref([
 ])
 
 const featureDefs = [
-  { icon: '🎙️', titleKey: 'home_feat_1_title', descKey: 'home_feat_1_desc', fallbackTitle: 'Local Whisper Transcription', fallbackDesc: 'Run local Whisper models with word-level timestamps for precise sentence segmentation.' },
-  { icon: '✂️', titleKey: 'home_feat_2_title', descKey: 'home_feat_2_desc', fallbackTitle: 'LLM Smart Sentence Split', fallbackDesc: 'Split by semantics and auto-align timestamps for natural learning chunks.' },
-  { icon: '🧠', titleKey: 'home_feat_3_title', descKey: 'home_feat_3_desc', fallbackTitle: 'AI Vocabulary Analysis', fallbackDesc: 'Extract key words, phonetics, meanings, and useful expressions automatically.' },
-  { icon: '🎬', titleKey: 'home_feat_4_title', descKey: 'home_feat_4_desc', fallbackTitle: 'Flexible Part Structure', fallbackDesc: 'Customize repeats and speed per part for listen-slow-listen workflows.' },
-  { icon: '📐', titleKey: 'home_feat_5_title', descKey: 'home_feat_5_desc', fallbackTitle: 'Visual Layout Editor', fallbackDesc: 'Drag and resize subtitle/word/expression boxes with real-time preview.' },
-  { icon: '▶️', titleKey: 'home_feat_6_title', descKey: 'home_feat_6_desc', fallbackTitle: 'Transcript Sync Preview', fallbackDesc: 'Transcript highlights in real time while video plays.' },
-  { icon: '🎨', titleKey: 'home_feat_7_title', descKey: 'home_feat_7_desc', fallbackTitle: 'Style Personalization', fallbackDesc: 'Fonts, spacing, themes, and colors to match your learning style.' },
-  { icon: '📊', titleKey: 'home_feat_8_title', descKey: 'home_feat_8_desc', fallbackTitle: 'Real-time Progress', fallbackDesc: 'Track rendering progress live and cancel tasks anytime.' },
-  { icon: '📝', titleKey: 'home_feat_9_title', descKey: 'home_feat_9_desc', fallbackTitle: 'Markdown Notes', fallbackDesc: 'Generate structured notes with source text, translation, vocabulary, and expressions.' },
+  { icon: '🌍', titleKey: 'home_feat_1_title', descKey: 'home_feat_1_desc', fallbackTitle: '8-Language Cross Learning', fallbackDesc: 'Learn across 8 major languages with flexible direction between your familiar and target language.' },
+  { icon: '🎞️', titleKey: 'home_feat_2_title', descKey: 'home_feat_2_desc', fallbackTitle: 'Customize Any Video into Study Material', fallbackDesc: 'Turn any video into structured learning material based on your language goals and pacing.' },
+  { icon: '🧩', titleKey: 'home_feat_3_title', descKey: 'home_feat_3_desc', fallbackTitle: 'User-Friendly Visual Editor', fallbackDesc: 'Drag, resize, and preview subtitle and vocabulary panels with an intuitive editing workflow.' },
+  { icon: '🎧', titleKey: 'home_feat_4_title', descKey: 'home_feat_4_desc', fallbackTitle: 'High-Focus Listening Training Video', fallbackDesc: 'Generate repeatable, sentence-focused listening drills designed for deep concentration practice.' },
+  { icon: '📤', titleKey: 'home_feat_5_title', descKey: 'home_feat_5_desc', fallbackTitle: 'Exportable Notes and Learning Videos', fallbackDesc: 'Export learning notes, PDF handouts, and completed study videos for review anywhere.' },
+  { icon: '🧠', titleKey: 'home_feat_6_title', descKey: 'home_feat_6_desc', fallbackTitle: 'FSRT Smart Review Recommendations', fallbackDesc: 'Use interval-based FSRT scheduling to recommend what you should review next at the right time.' },
 ]
 
 const stepDefs = [
-  { icon: '🎵', titleKey: 'home_step_1_title', descKey: 'home_step_1_desc', fallbackTitle: 'Audio Transcription', fallbackDesc: 'Extract speech with timestamps.' },
-  { icon: '✂️', titleKey: 'home_step_2_title', descKey: 'home_step_2_desc', fallbackTitle: 'Smart Sentence Split', fallbackDesc: 'Split by semantics and align timing.' },
-  { icon: '🧠', titleKey: 'home_step_3_title', descKey: 'home_step_3_desc', fallbackTitle: 'Vocabulary Analysis', fallbackDesc: 'Extract words and expressions automatically.' },
-  { icon: '📝', titleKey: 'home_step_4_title', descKey: 'home_step_4_desc', fallbackTitle: 'Generate Notes', fallbackDesc: 'Export structured markdown notes.' },
-  { icon: '🎬', titleKey: 'home_step_5_title', descKey: 'home_step_5_desc', fallbackTitle: 'Render Video', fallbackDesc: 'Compose final learning video with subtitles.' },
+  { icon: '📥', titleKey: 'home_step_1_title', descKey: 'home_step_1_desc', fallbackTitle: 'Import Your Learning Video', fallbackDesc: 'Start with any video you want to turn into a focused study session.' },
+  { icon: '🔎', titleKey: 'home_step_2_title', descKey: 'home_step_2_desc', fallbackTitle: 'Extract Key Learning Content', fallbackDesc: 'The system automatically identifies the parts you should focus on.' },
+  { icon: '🗂️', titleKey: 'home_step_3_title', descKey: 'home_step_3_desc', fallbackTitle: 'Build Word & Sentence Cards', fallbackDesc: 'Useful vocabulary and sentence-level practice are organized for review.' },
+  { icon: '🎯', titleKey: 'home_step_4_title', descKey: 'home_step_4_desc', fallbackTitle: 'Compose Focused Listening Training', fallbackDesc: 'Create intensive listening segments for high-focus, repeatable practice.' },
+  { icon: '✅', titleKey: 'home_step_5_title', descKey: 'home_step_5_desc', fallbackTitle: 'Export Your Study Package', fallbackDesc: 'Output a complete package: learning video plus structured study materials.' },
 ]
 
 const features = computed(() =>
@@ -244,10 +247,25 @@ const steps = computed(() =>
   }))
 )
 
+function displayFlag(lang) {
+  const code = String(lang?.code || '').trim()
+  if (code === 'zh-Hans' || code === 'zh-Hant') return '🇨🇳'
+  return lang?.flag || '🌐'
+}
+
+const groupedLanguageCount = computed(() => {
+  const groups = new Set()
+  for (const lang of langs.value) {
+    const code = String(lang?.code || '').trim()
+    groups.add(code === 'zh-Hans' || code === 'zh-Hant' ? 'zh' : code)
+  }
+  return groups.size
+})
+
 const heroMetrics = computed(() => [
-  { value: `${langs.value.length}`, label: tr('home_langs_label', 'Supported Languages') },
-  { value: `${steps.value.length}`, label: tr('home_steps_label', 'Workflow') },
-  { value: `${features.value.length}`, label: tr('home_features_label', 'Core Features') },
+  { value: `${groupedLanguageCount.value}`, label: tr('home_langs_label', 'Supported Languages'), target: 'langs' },
+  { value: `${steps.value.length}`, label: tr('home_steps_label', 'Workflow'), target: 'steps' },
+  { value: `${features.value.length}`, label: tr('home_features_label', 'Core Features'), target: 'features' },
 ])
 
 const marqueeLangs = computed(() => [...langs.value, ...langs.value])
@@ -470,6 +488,15 @@ onBeforeUnmount(() => {
   text-wrap: balance;
 }
 
+.hero-title > span:last-child {
+  background: linear-gradient(118deg, #0d2f5a 0%, #0b78d1 56%, #f2a82c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  background-size: 180% 100%;
+  animation: shimmerMove 9s linear infinite;
+}
+
 .brand-mark {
   background: linear-gradient(115deg, var(--hero-ink) 0%, var(--hero-cyan) 58%, var(--hero-amber) 100%);
   -webkit-background-clip: text;
@@ -525,25 +552,68 @@ onBeforeUnmount(() => {
 }
 
 .metric-chip {
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  background: rgba(255, 255, 255, 0.58);
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  padding: 14px 14px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(13, 59, 102, 0.16);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(241, 248, 255, 0.76));
   backdrop-filter: blur(8px);
+  box-shadow: 0 8px 20px rgba(13, 59, 102, 0.1);
+  transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
+}
+
+.metric-chip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 14% 14%, rgba(11, 120, 209, 0.18), transparent 55%);
+  opacity: 0;
+  transition: opacity 0.24s ease;
+}
+
+.metric-chip:hover {
+  transform: translateY(-4px);
+  border-color: rgba(11, 120, 209, 0.42);
+  box-shadow: 0 14px 34px rgba(11, 120, 209, 0.18);
+}
+
+.metric-chip:hover::after {
+  opacity: 1;
 }
 
 .metric-value {
-  font-size: 22px;
-  font-weight: 800;
+  position: relative;
+  z-index: 1;
+  font-size: clamp(30px, 3vw, 36px);
+  font-weight: 900;
   line-height: 1.05;
-  color: var(--hero-ink);
+  letter-spacing: -0.02em;
+  background: linear-gradient(120deg, #0f4c81 0%, #0ea5e9 58%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .metric-label {
+  position: relative;
+  z-index: 1;
   margin-top: 4px;
-  font-size: 11px;
-  color: rgba(15, 23, 42, 0.65);
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.72);
   letter-spacing: 0.3px;
+}
+
+.metric-cta {
+  position: relative;
+  z-index: 1;
+  margin-top: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.38px;
+  color: rgba(13, 77, 128, 0.9);
 }
 
 .hero-langs {
@@ -756,6 +826,10 @@ onBeforeUnmount(() => {
   font-weight: 800;
   color: #0d1b34;
   letter-spacing: -0.02em;
+  background: linear-gradient(118deg, #0d2f5a 0%, #0b78d1 56%, #f2a82c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .section-sub {

@@ -1044,7 +1044,10 @@ onBeforeUnmount(() => {
 .panel-head h2 {
   margin: 0;
   font-size: 22px;
-  color: var(--text);
+  background: linear-gradient(118deg, #0d2f5a 0%, #0b78d1 56%, #f2a82c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .panel-head p {
@@ -1151,6 +1154,10 @@ onBeforeUnmount(() => {
 .setup-header h2 {
   margin: 0;
   font-size: 22px;
+  background: linear-gradient(118deg, #0d2f5a 0%, #0b78d1 56%, #f2a82c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .setup-header p {
@@ -1250,7 +1257,10 @@ onBeforeUnmount(() => {
 .exam-head h2 {
   margin: 0;
   font-size: 20px;
-  color: var(--text);
+  background: linear-gradient(118deg, #0d2f5a 0%, #0b78d1 56%, #f2a82c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .exam-head span {
@@ -1462,7 +1472,10 @@ onBeforeUnmount(() => {
 .global-hint-card h3 {
   margin: 0;
   font-size: 18px;
-  color: var(--text);
+  background: linear-gradient(118deg, #0d2f5a 0%, #0b78d1 56%, #f2a82c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .global-hint-card p {
@@ -1529,6 +1542,10 @@ onBeforeUnmount(() => {
 .mastered-head h2 {
   margin: 0;
   font-size: 22px;
+  background: linear-gradient(118deg, #0d2f5a 0%, #0b78d1 56%, #f2a82c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .mastered-tools {

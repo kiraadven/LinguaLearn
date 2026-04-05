@@ -1,6 +1,11 @@
 <template>
   <div class="profile-page page-inner">
+    <!-- Aurora glow orbs -->
+    <div class="pf-glow pf-glow-a"></div>
+    <div class="pf-glow pf-glow-b"></div>
+
     <div class="page-header">
+      <div class="page-header-badge">👤 {{ tr('profile_badge', '个人中心') }}</div>
       <h1>{{ tr('profile_center_title', t.profile_title) }}</h1>
       <p>{{ tr('profile_center_subtitle', 'Manage account info and security settings') }}</p>
     </div>
@@ -13,7 +18,7 @@
 
     <div v-else class="profile-grid">
       <!-- Avatar card -->
-      <div class="profile-card card" style="padding:36px 24px;text-align:center">
+      <div class="profile-card card section-card" style="padding:36px 24px;text-align:center;position:sticky;top:80px">
         <div class="avatar-section">
           <img v-if="user.avatar_url" :src="user.avatar_url" class="avatar-img" :alt="tr('profile_avatar', 'Avatar')">
           <div v-else class="avatar">{{ (user.name||user.email||'?')[0].toUpperCase() }}</div>
@@ -43,7 +48,7 @@
 
       <!-- Settings -->
       <div>
-        <div class="card" style="padding:28px;margin-bottom:16px">
+        <div class="card section-card">
           <div class="section-title" style="font-size:15px;margin-bottom:20px">👤 {{ t.profile_personal_info }}</div>
           <label class="label">{{ t.auth_nickname }}</label>
           <input class="input" :value="user.name||''" :placeholder="t.auth_nickname" style="margin-bottom:12px" disabled>
@@ -54,7 +59,7 @@
           </button>
         </div>
 
-        <div class="card" style="padding:28px;margin-bottom:16px">
+        <div class="card section-card">
           <div class="section-title" style="font-size:15px;margin-bottom:20px">📧 {{ t.profile_bind_email }}</div>
           <div v-if="emailBound" style="color:var(--ok);font-size:14px;margin-bottom:12px">✓ {{ t.profile_email_bound }}</div>
           <div v-else>
@@ -76,10 +81,12 @@
           </div>
         </div>
 
-        <div class="card" style="padding:28px;margin-bottom:16px">
+        <div class="card section-card membership-card">
           <div class="section-title" style="font-size:15px;margin-bottom:20px">👑 {{ tr('profile_membership', 'Membership') }}</div>
           <div v-if="membership?.tier==='member'" class="member-box">
             <div class="member-row"><span>{{ tr('profile_plan', 'Plan') }}</span><strong>{{ localizedMembershipPlan }}</strong></div>
+            <div class="member-row"><span>{{ tr('profile_daily_generation', 'Daily Limit') }}</span><strong>{{ tr('profile_daily_limit_member_new', 'Up to 15 videos/day') }}</strong></div>
+            <div class="member-row"><span>{{ tr('profile_video_duration', 'Single Video Duration') }}</span><strong>{{ tr('profile_video_duration_member_new', 'Up to 20 minutes') }}</strong></div>
             <div class="member-row"><span>{{ tr('profile_expires_at', 'Expires At') }}</span><strong>{{ fmtDateTime(membership.expires_at) }}</strong></div>
             <div class="member-row"><span>{{ tr('profile_auto_renew', 'Auto Renew') }}</span><strong>{{ membership.auto_renew ? tr('profile_on', 'On') : tr('profile_off', 'Off') }}</strong></div>
             <div class="member-row">
@@ -98,14 +105,15 @@
           </div>
           <div v-else class="member-box">
             <div class="member-row"><span>{{ tr('profile_status', 'Status') }}</span><strong>{{ tr('profile_non_member', 'Free') }}</strong></div>
-            <div class="member-row"><span>{{ tr('profile_daily_generation', 'Daily Limit') }}</span><strong>{{ tr('profile_daily_limit_text', 'Up to 5 videos') }}</strong></div>
-            <div class="member-row"><span>{{ tr('profile_video_duration', 'Single Video Duration') }}</span><strong>{{ tr('profile_video_duration_text', 'Up to 5 minutes') }}</strong></div>
+            <div class="member-row"><span>{{ tr('profile_daily_generation', 'Daily Limit') }}</span><strong>{{ tr('profile_daily_limit_text_new', 'Up to 3 videos/day') }}</strong></div>
+            <div class="member-row"><span>{{ tr('profile_video_duration', 'Single Video Duration') }}</span><strong>{{ tr('profile_video_duration_text_new', 'Up to 5 minutes') }}</strong></div>
             <div class="member-row"><span>{{ tr('profile_default_watermark', 'Default Watermark') }}</span><strong>{{ tr('profile_watermark_not_removable', 'Not removable') }}</strong></div>
+            <div class="member-row"><span>{{ tr('profile_storage', 'Storage') }}</span><strong>{{ tr('profile_storage_free', '10G') }}</strong></div>
             <button class="btn-primary" style="font-size:13px;padding:9px 16px;margin-top:8px" @click="openMembership()">{{ tr('nav_upgrade_membership', 'Upgrade Membership') }}</button>
           </div>
         </div>
 
-        <div class="card" style="padding:28px;margin-bottom:16px">
+        <div class="card section-card">
           <div class="section-title" style="font-size:15px;margin-bottom:20px">🔒 {{ t.profile_change_password }}</div>
           <label class="label">{{ tr('profile_current_password', 'Current Password') }}</label>
           <input class="input" v-model="oldPw" type="password" :placeholder="tr('profile_current_password', 'Current Password')" style="margin-bottom:12px">
@@ -121,7 +129,7 @@
           </button>
         </div>
 
-        <div class="card" style="padding:28px">
+        <div class="card section-card" style="margin-bottom:0">
           <button class="logout-btn" @click="doLogout">{{ t.profile_logout }}</button>
         </div>
       </div>
@@ -336,16 +344,111 @@ function fmtDateTime(v) {
 </script>
 
 <style scoped>
-.profile-page { padding: 32px 24px 80px; max-width: 900px; margin: 0 auto; }
-.page-header { margin-bottom: 32px; }
-.page-header h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 6px; }
-.page-header p  { color: var(--text2); font-size: 14px; }
-.empty-state { text-align:center;padding:80px 24px;display:flex;flex-direction:column;align-items:center;gap:12px; }
+/* Glow orbs */
+.pf-glow {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+}
+.pf-glow-a {
+  width: 480px; height: 480px;
+  top: -80px; right: -120px;
+  background: radial-gradient(circle, rgba(11,120,209,0.13), transparent 70%);
+  animation: pfDrift 16s ease-in-out infinite;
+}
+.pf-glow-b {
+  width: 380px; height: 380px;
+  bottom: 80px; left: -80px;
+  background: radial-gradient(circle, rgba(242,168,44,0.12), transparent 70%);
+  animation: pfDrift 20s ease-in-out infinite reverse;
+}
+@keyframes pfDrift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(30px); }
+}
+
+.profile-page {
+  padding: 32px 24px 80px;
+  max-width: 900px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.page-header {
+  margin-bottom: 36px;
+  position: relative;
+  z-index: 1;
+}
+
+.page-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(11,120,209,0.2);
+  background: linear-gradient(120deg, rgba(255,255,255,0.85), rgba(240,249,255,0.7));
+  backdrop-filter: blur(8px);
+  font-size: 11px;
+  font-weight: 700;
+  color: #0d4d80;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.page-header h1 {
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  margin-bottom: 8px;
+  background: linear-gradient(118deg, #0d2f5a 0%, #0b78d1 56%, #f2a82c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  background-size: 200% 100%;
+  animation: shimmerMove 10s linear infinite;
+}
+@keyframes shimmerMove {
+  0% { background-position: 100% 50%; }
+  100% { background-position: -100% 50%; }
+}
+.page-header p  { color: var(--text2); font-size: 14px; line-height: 1.6; }
+.empty-state { text-align:center;padding:80px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;position:relative;z-index:1; }
 .empty-icon { font-size:64px; }
 .empty-title { font-size:18px;font-weight:700; }
 
-.profile-grid { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+.profile-grid {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 20px;
+  align-items: start;
+  position: relative;
+  z-index: 1;
+}
 @media (max-width: 640px) { .profile-grid { grid-template-columns: 1fr; } }
+
+.section-card {
+  padding: 28px;
+  margin-bottom: 16px;
+  border-color: rgba(11,120,209,.14);
+  background:
+    radial-gradient(110% 120% at 0% 0%, rgba(11,120,209,.09), transparent 45%),
+    radial-gradient(80% 80% at 100% 100%, rgba(242,168,44,.05), transparent 50%),
+    linear-gradient(170deg, rgba(255,255,255,.97), rgba(248,252,255,.92));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(13,59,102,0.06);
+}
+
+.membership-card {
+  border-color: rgba(11,120,209,.22);
+  box-shadow: 0 16px 40px rgba(11,120,209,.13);
+  background:
+    radial-gradient(120% 100% at 0% 0%, rgba(11,120,209,.11), transparent 45%),
+    radial-gradient(80% 80% at 100% 100%, rgba(6,182,212,.07), transparent 50%),
+    linear-gradient(170deg, rgba(255,255,255,.98), rgba(240,249,255,.94));
+}
 
 .avatar-section { margin-bottom: 16px; }
 .avatar-img {
@@ -364,8 +467,10 @@ function fmtDateTime(v) {
 }
 .vip-chip-logo{width:14px;height:14px;border-radius:4px;}
 .member-box{
-  border:1px solid rgba(148,163,184,.2);
-  border-radius:12px;padding:12px;background:#fff;
+  border:1px solid rgba(11,120,209,.18);
+  border-radius:12px;
+  padding:12px;
+  background:rgba(255,255,255,.78);
 }
 .member-row{
   display:flex;justify-content:space-between;gap:10px;
@@ -402,4 +507,9 @@ function fmtDateTime(v) {
   color:var(--err);font-size:14px;font-weight:600;transition:all .2s;
 }
 .logout-btn:hover { background:rgba(248,113,113,0.1); }
+
+.section-title {
+  color: #0d4d80;
+  font-weight: 800;
+}
 </style>

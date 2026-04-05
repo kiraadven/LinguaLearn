@@ -193,6 +193,20 @@
         </Transition>
       </div>
 
+      <!-- ── AI Lesson Entry ── -->
+      <div class="jd-ai-entry">
+        <div class="ai-entry-inner">
+          <div class="ai-entry-text">
+            <span class="ai-entry-title">🎙️ {{ tr('detail_ai_lesson', 'AI 互动课堂') }}</span>
+            <span class="ai-entry-sub">{{ tr('detail_ai_lesson_sub', '由 AI 逐句讲解，边听边学') }}</span>
+          </div>
+          <button class="ai-entry-btn" @click="goAiLesson">
+            {{ tr('detail_start_lesson', '开始上课') }}
+            <span v-if="!isMember" class="ai-vip-tag">VIP</span>
+          </button>
+        </div>
+      </div>
+
       <!-- ── Learning Notes ── -->
       <div class="jd-notes">
         <div class="notes-hdr">
@@ -275,7 +289,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, inject } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import { apiFetch } from '../composables/useApi.js'
 import { useAuth } from '../composables/useAuth.js'
@@ -285,6 +299,7 @@ import { wrapDictionaryWords } from '../composables/useDictionaryLookup.js'
 import { useJobDetailDictionaryTooltip } from './job-detail/useJobDetailDictionaryTooltip.js'
 
 const route  = useRoute()
+const router = useRouter()
 const jobId  = route.params.id
 const { user } = useAuth()
 const isMember = computed(() => user.value?.membership?.tier === 'member')
@@ -295,6 +310,11 @@ const { t } = useI18n()
 
 function tr(key, fallback = '') {
   return ((t.value?.[key]) ?? fallback) || key
+}
+
+function goAiLesson() {
+  if (!isMember.value) { openMembership(); return }
+  router.push({ path: '/tutor', query: { jobId, mode: 'lesson' } })
 }
 
 const job        = ref(null)

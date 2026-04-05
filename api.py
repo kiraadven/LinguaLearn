@@ -1727,6 +1727,227 @@ async def list_jobs(current_user: Optional[dict] = Depends(get_current_user)):
         return {"jobs": job_list[:50]}
 
 
+# ── AI 讲师端点 ──────────────────────────────────────────────────────────────
+
+from fastapi.responses import StreamingResponse as _StreamingResponse
+from core.learning.ai_tutor import AITutor
+
+
+def _get_tutor_for_job(job: dict) -> AITutor:
+    """根据 job 的语言配置构造 AITutor 实例"""
+    return AITutor(
+        source_lang=job.get("source_lang", "en"),
+        target_lang=job.get("target_lang", "zh-Hans"),
+    )
+
+
+def _load_job_tutor_files(job_id: str):
+    """
+    加载 job 的 MD 文件和 segments.json，返回 (md_content, segments, job_output_dir)。
+    若文件缺失则抛出 HTTPException。
+    """
+    job_dir = OUTPUT_DIR / job_id
+    if not job_dir.exists():
+        raise HTTPException(404, "Job 输出目录不存在")
+
+    # 找 .md 文件
+    md_files = list(job_dir.glob("*.md"))
+    if not md_files:
+        raise HTTPException(404, "未找到学习文稿文件")
+    md_content = md_files[0].read_text(encoding="utf-8")
+
+    # 找 segments.json
+    seg_path = job_dir / "segments.json"
+    if not seg_path.exists():
+        raise HTTPException(404, "未找到 segments.json")
+    segments = json.loads(seg_path.read_text(encoding="utf-8"))
+
+    return md_content, segments, job_dir
+
+
+@app.post("/api/jobs/{job_id}/tutor/generate")
+async def tutor_generate(
+    job_id: str,
+    current_user: dict = Depends(require_user),
+):
+    """
+    生成 AI 讲师课程脚本 + TTS 音频（异步后台任务）。
+    立即返回 202，前端通过 GET /tutor/status 轮询或 SSE /tutor/stream 获取进度。
+    """
+    job = database.get_job(job_id)
+    if not job or job.get("email") != current_user["email"]:
+        raise HTTPException(404, "Job 不存在")
+    if job.get("status") != "done":
+        raise HTTPException(400, "视频尚未处理完成")
+
+    tutor_dir = OUTPUT_DIR / job_id / "tutor"
+    # 如果已经生成过，直接返回
+    if (tutor_dir / "tutor_script.json").exists():
+        return {"status": "already_done", "message": "课程脚本已存在，可直接使用"}
+
+    # 标记生成中（写一个 lock 文件）
+    tutor_dir.mkdir(exist_ok=True)
+    lock_file = tutor_dir / "generating.lock"
+    if lock_file.exists():
+        return {"status": "in_progress", "message": "正在生成中，请稍候"}
+    lock_file.write_text("generating")
+
+    async def _bg_generate():
+        try:
+            md_content, segments, job_dir = _load_job_tutor_files(job_id)
+            tutor = _get_tutor_for_job(job)
+            script = tutor.generate_lesson_script(md_content, segments, job_dir)
+            tutor.synthesize_tts(script, tutor_dir)
+        except Exception as e:
+            (tutor_dir / "error.txt").write_text(str(e), encoding="utf-8")
+        finally:
+            lock_file.unlink(missing_ok=True)
+
+    asyncio.create_task(_bg_generate())
+    return {"status": "started", "message": "课程生成已启动"}
+
+
+@app.get("/api/jobs/{job_id}/tutor/status")
+async def tutor_status(
+    job_id: str,
+    current_user: dict = Depends(require_user),
+):
+    """查询 AI 讲师生成状态"""
+    job = database.get_job(job_id)
+    if not job or job.get("email") != current_user["email"]:
+        raise HTTPException(404, "Job 不存在")
+
+    tutor_dir = OUTPUT_DIR / job_id / "tutor"
+    if (tutor_dir / "tutor_script.json").exists():
+        script = json.loads((tutor_dir / "tutor_script.json").read_text(encoding="utf-8"))
+        return {
+            "status": "done",
+            "total_items": len(script),
+            "tts_ready": all(
+                s.get("tts_audio") for s in script if s["type"] == "speak"
+            ),
+        }
+    if (tutor_dir / "generating.lock").exists():
+        return {"status": "in_progress"}
+    if (tutor_dir / "error.txt").exists():
+        err = (tutor_dir / "error.txt").read_text(encoding="utf-8")
+        return {"status": "error", "message": err}
+    return {"status": "not_started"}
+
+
+@app.get("/api/jobs/{job_id}/tutor/script")
+async def tutor_get_script(
+    job_id: str,
+    current_user: dict = Depends(require_user),
+):
+    """获取已生成的课程脚本 JSON"""
+    job = database.get_job(job_id)
+    if not job or job.get("email") != current_user["email"]:
+        raise HTTPException(404, "Job 不存在")
+
+    script_path = OUTPUT_DIR / job_id / "tutor" / "tutor_script.json"
+    if not script_path.exists():
+        raise HTTPException(404, "课程脚本尚未生成")
+
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    return {"script": script}
+
+
+@app.get("/api/jobs/{job_id}/tutor/audio/{filename}")
+async def tutor_audio(
+    job_id: str,
+    filename: str,
+    current_user: dict = Depends(require_user),
+):
+    """
+    提供 TTS 合成的音频文件（tts_xxxx.mp3）。
+    仅允许 tutor/ 目录下的 tts_*.mp3 文件。
+    """
+    job = database.get_job(job_id)
+    if not job or job.get("email") != current_user["email"]:
+        raise HTTPException(404, "Job 不存在")
+
+    # 安全校验：只允许 tts_ 前缀的 mp3
+    if not (filename.startswith("tts_") and filename.endswith(".mp3")):
+        raise HTTPException(400, "非法文件名")
+
+    audio_path = OUTPUT_DIR / job_id / "tutor" / filename
+    if not audio_path.exists():
+        raise HTTPException(404, "音频文件不存在")
+
+    return FileResponse(str(audio_path), media_type="audio/mpeg")
+
+
+@app.get("/api/jobs/{job_id}/tutor/podcast")
+async def tutor_podcast(
+    job_id: str,
+    current_user: dict = Depends(require_user),
+):
+    """
+    生成并下载完整 Podcast MP3（TTS + 原音拼接）。
+    如已生成则直接返回，否则实时生成（可能较慢）。
+    """
+    job = database.get_job(job_id)
+    if not job or job.get("email") != current_user["email"]:
+        raise HTTPException(404, "Job 不存在")
+
+    tutor_dir = OUTPUT_DIR / job_id / "tutor"
+    podcast_path = tutor_dir / "podcast.mp3"
+
+    if not podcast_path.exists():
+        script_path = tutor_dir / "tutor_script.json"
+        if not script_path.exists():
+            raise HTTPException(400, "请先生成课程脚本")
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+
+        # 检查 TTS 是否就绪
+        missing_tts = [
+            s for s in script
+            if s["type"] == "speak" and not s.get("tts_audio")
+        ]
+        if missing_tts:
+            raise HTTPException(400, "TTS 音频尚未全部合成完成")
+
+        tutor = _get_tutor_for_job(job)
+        tutor.build_podcast(script, OUTPUT_DIR / job_id, podcast_path)
+
+    return FileResponse(
+        str(podcast_path),
+        media_type="audio/mpeg",
+        filename=f"{job.get('name', job_id)}_讲课.mp3",
+    )
+
+
+@app.get("/api/jobs/{job_id}/tutor/stream")
+async def tutor_stream(
+    job_id: str,
+    current_user: dict = Depends(require_user),
+):
+    """
+    SSE 流式生成课程脚本 + TTS（前端可实时获取进度）。
+    适合首次生成时在前端显示逐步加载动画。
+    """
+    job = database.get_job(job_id)
+    if not job or job.get("email") != current_user["email"]:
+        raise HTTPException(404, "Job 不存在")
+    if job.get("status") != "done":
+        raise HTTPException(400, "视频尚未处理完成")
+
+    md_content, segments, job_dir = _load_job_tutor_files(job_id)
+    tutor = _get_tutor_for_job(job)
+
+    def _event_generator():
+        for event in tutor.stream_lesson_events(md_content, segments, job_dir):
+            data = json.dumps(event, ensure_ascii=False)
+            yield f"data: {data}\n\n"
+
+    return _StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # 头像目录单独挂载，避免被前端构建覆盖
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/avatars", StaticFiles(directory=str(AVATAR_DIR)), name="avatars")

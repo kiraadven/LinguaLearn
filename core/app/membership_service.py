@@ -6,9 +6,10 @@ from fastapi import Request
 
 import core.db as database
 
-_FREE_DAILY_VIDEO_LIMIT = 5
+_FREE_DAILY_VIDEO_LIMIT = 3
+_MEMBER_DAILY_VIDEO_LIMIT = 15
 _FREE_MAX_VIDEO_SECONDS = 5 * 60
-_MEMBER_MAX_VIDEO_SECONDS = 30 * 60
+_MEMBER_MAX_VIDEO_SECONDS = 20 * 60
 
 _DEFAULT_VIDEO_WATERMARK = {
     "text": "LinguaLearn",
@@ -22,15 +23,15 @@ _DEFAULT_VIDEO_WATERMARK = {
 _MEMBERSHIP_PLAN_SETS = {
     "cn": [
         {"code": "cn_day", "label": "1天体验价", "days": 1, "price": 3.0, "currency": "CNY", "period": "day", "auto_renew": False, "trial_once": True},
-        {"code": "cn_week", "label": "连续包周", "days": 7, "price": 8.0, "currency": "CNY", "period": "week", "auto_renew": True, "trial_once": False},
-        {"code": "cn_month", "label": "连续包月", "days": 30, "price": 25.0, "currency": "CNY", "period": "month", "auto_renew": True, "trial_once": False},
-        {"code": "cn_year", "label": "连续包年", "days": 365, "price": 260.0, "currency": "CNY", "period": "year", "auto_renew": True, "trial_once": False},
+        {"code": "cn_week", "label": "连续包周", "days": 7, "price": 21.0, "currency": "CNY", "period": "week", "auto_renew": True, "trial_once": False},
+        {"code": "cn_month", "label": "连续包月", "days": 30, "price": 75.0, "currency": "CNY", "period": "month", "auto_renew": True, "trial_once": False},
+        {"code": "cn_year", "label": "连续包年", "days": 365, "price": 730.0, "currency": "CNY", "period": "year", "auto_renew": True, "trial_once": False},
     ],
     "intl": [
-        {"code": "intl_day", "label": "1-day Trial", "days": 1, "price": 0.8, "currency": "USD", "period": "day", "auto_renew": False, "trial_once": True},
-        {"code": "intl_week", "label": "Weekly", "days": 7, "price": 2.0, "currency": "USD", "period": "week", "auto_renew": True, "trial_once": False},
-        {"code": "intl_month", "label": "Monthly", "days": 30, "price": 7.0, "currency": "USD", "period": "month", "auto_renew": True, "trial_once": False},
-        {"code": "intl_year", "label": "Yearly", "days": 365, "price": 75.0, "currency": "USD", "period": "year", "auto_renew": True, "trial_once": False},
+        {"code": "intl_day", "label": "1-day Trial", "days": 1, "price": 0.42, "currency": "USD", "period": "day", "auto_renew": False, "trial_once": True},
+        {"code": "intl_week", "label": "Weekly", "days": 7, "price": 2.94, "currency": "USD", "period": "week", "auto_renew": True, "trial_once": False},
+        {"code": "intl_month", "label": "Monthly", "days": 30, "price": 10.5, "currency": "USD", "period": "month", "auto_renew": True, "trial_once": False},
+        {"code": "intl_year", "label": "Yearly", "days": 365, "price": 102.2, "currency": "USD", "period": "year", "auto_renew": True, "trial_once": False},
     ],
 }
 _PLAN_BY_CODE = {p["code"]: p for plans in _MEMBERSHIP_PLAN_SETS.values() for p in plans}
@@ -65,12 +66,15 @@ def _get_plan_catalog(country_code: str, trial_used: bool = False) -> list:
 def _membership_limits(tier: str) -> dict:
     is_member = tier == "member"
     return {
-        "daily_video_limit": None if is_member else _FREE_DAILY_VIDEO_LIMIT,
+        "daily_video_limit": _MEMBER_DAILY_VIDEO_LIMIT if is_member else _FREE_DAILY_VIDEO_LIMIT,
         "max_video_seconds": _MEMBER_MAX_VIDEO_SECONDS if is_member else _FREE_MAX_VIDEO_SECONDS,
         "can_remove_default_watermark": is_member,
         "can_customize_video_watermark": is_member,
         "can_customize_doc_watermark": is_member,
         "premium_badge": is_member,
+        "storage_gb": 128 if is_member else 10,
+        "subtitle_style_tier": "advanced" if is_member else "basic",
+        "ai_tutor_assist": is_member,
     }
 
 

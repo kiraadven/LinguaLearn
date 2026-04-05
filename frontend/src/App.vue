@@ -8,15 +8,18 @@
 
   <!-- Nav -->
   <nav class="nav">
-    <span class="nav-logo" @click="$router.push('/')">🎓 LinguaLearn</span>
+    <span class="nav-logo" @click="$router.push('/')">
+      <img src="/favicon.svg" alt="LinguaLearn" class="nav-logo-icon">
+      <span class="nav-logo-text">LinguaLearn</span>
+    </span>
     <button class="nav-btn" :class="{active:$route.path==='/'}" @click="$router.push('/')">{{ t.nav_home }}</button>
     <button class="nav-btn" :class="{active:$route.path==='/create'}" @click="goCreate">{{ t.nav_create }}</button>
     <button class="nav-btn" :class="{active:$route.path==='/results'}" @click="$router.push('/results')">{{ t.nav_results }}</button>
     <button class="nav-btn" :class="{active:$route.path==='/quiz'}" @click="goQuiz">{{ t.nav_quiz }}</button>
     <div class="nav-spacer"></div>
-    <div style="display:flex;align-items:center;gap:10px">
+    <div class="nav-actions">
       <button class="nav-btn" @click="openLanguagePicker">{{ t.nav_language_settings }}</button>
-      <button class="nav-vip-btn" @click="openMembership">
+      <button class="nav-vip-btn" @click="router.push('/membership')">
         <img src="/premium-badge.svg" alt="VIP" class="vip-mini">
         {{ isMember ? t.nav_manage_membership : t.nav_upgrade_membership }}
       </button>
@@ -34,7 +37,7 @@
   </nav>
 
   <!-- Router view -->
-  <div style="position:relative;z-index:1;padding-top:60px;min-height:100vh">
+  <div class="app-view">
     <RouterView v-slot="{Component}">
       <Transition name="page" mode="out-in">
         <component :is="Component" @need-auth="showAuth=true" />
@@ -47,8 +50,8 @@
     <div v-if="showAuth" class="modal-overlay" @click.self="showAuth=false">
       <div class="modal-box">
         <button class="modal-close" @click="showAuth=false">✕</button>
-        <div style="font-size:22px;font-weight:800;margin-bottom:4px;color:var(--text)">{{ t.auth_welcome }}</div>
-        <div style="font-size:13px;color:var(--text3);margin-bottom:24px">{{ t.auth_login_or_register_desc }}</div>
+        <div class="modal-title">{{ t.auth_welcome }}</div>
+        <div class="modal-sub">{{ t.auth_login_or_register_desc }}</div>
         <div class="auth-tabs">
           <button :class="['auth-tab',{active:authTab==='login'}]" @click="authTab='login'">{{ t.auth_login }}</button>
           <button :class="['auth-tab',{active:authTab==='reg'}]" @click="authTab='reg'">{{ t.auth_register }}</button>
@@ -56,31 +59,31 @@
         <!-- Login -->
         <div v-if="authTab==='login'">
           <label class="label">{{ t.auth_email }}</label>
-          <input class="input" v-model="loginEmail" placeholder="you@example.com" type="email" style="margin-bottom:12px">
+          <input class="input modal-field" v-model="loginEmail" placeholder="you@example.com" type="email">
           <label class="label">{{ t.auth_password }}</label>
-          <input class="input" v-model="loginPw" :placeholder="t.auth_password" type="password" style="margin-bottom:16px" @keyup.enter="doLogin">
-          <div v-if="loginErr" style="font-size:13px;color:var(--err);margin-bottom:12px">{{ loginErr }}</div>
-          <button class="btn-primary" style="width:100%" :disabled="loginLoading" @click="doLogin">
+          <input class="input modal-field modal-field-last" v-model="loginPw" :placeholder="t.auth_password" type="password" @keyup.enter="doLogin">
+          <div v-if="loginErr" class="modal-err">{{ loginErr }}</div>
+          <button class="btn-primary modal-btn" :disabled="loginLoading" @click="doLogin">
             {{ loginLoading ? t.auth_logging_in : t.auth_login_btn }}
           </button>
         </div>
         <!-- Register -->
         <div v-else>
           <label class="label">{{ t.auth_email }}</label>
-          <input class="input" v-model="regEmail" placeholder="you@example.com" type="email" style="margin-bottom:12px">
+          <input class="input modal-field" v-model="regEmail" placeholder="you@example.com" type="email">
           <label class="label">{{ t.auth_nickname }}</label>
-          <input class="input" v-model="regName" :placeholder="t.auth_nickname" style="margin-bottom:12px">
+          <input class="input modal-field" v-model="regName" :placeholder="t.auth_nickname">
           <label class="label">{{ t.auth_password }}</label>
-          <input class="input" v-model="regPw" :placeholder="t.auth_password_hint" type="password" style="margin-bottom:12px">
+          <input class="input modal-field" v-model="regPw" :placeholder="t.auth_password_hint" type="password">
           <label class="label">{{ t.auth_code }}</label>
-          <div style="display:flex;gap:8px;margin-bottom:16px">
-            <input class="input" v-model="regCode" :placeholder="t.auth_code_hint" style="flex:1;margin-bottom:0">
+          <div class="modal-inline-row modal-field-last">
+            <input class="input modal-inline-input" v-model="regCode" :placeholder="t.auth_code_hint">
             <button class="btn-ghost" style="padding:10px 14px;white-space:nowrap" :disabled="codeSent" @click="doSendCode">
               {{ codeSent ? `${codeCountdown}s` : t.auth_get_code }}
             </button>
           </div>
-          <div v-if="regErr" style="font-size:13px;color:var(--err);margin-bottom:12px">{{ regErr }}</div>
-          <button class="btn-primary" style="width:100%" :disabled="regLoading" @click="doRegister">
+          <div v-if="regErr" class="modal-err">{{ regErr }}</div>
+          <button class="btn-primary modal-btn" :disabled="regLoading" @click="doRegister">
             {{ regLoading ? t.auth_registering : t.auth_create_account }}
           </button>
         </div>
@@ -93,25 +96,25 @@
     <div v-if="showLanguagePicker" class="modal-overlay">
       <div class="modal-box">
         <button v-if="hasSavedLanguagePrefs" class="modal-close" @click="showLanguagePicker=false">✕</button>
-        <div style="font-size:22px;font-weight:800;margin-bottom:6px;color:var(--text)">{{ t.lang_pref_title }}</div>
-        <div style="font-size:13px;color:var(--text3);margin-bottom:20px">{{ t.lang_pref_desc }}</div>
+        <div class="modal-title">{{ t.lang_pref_title }}</div>
+        <div class="modal-sub">{{ t.lang_pref_desc }}</div>
 
         <label class="label">{{ t.lang_pref_native }}</label>
-        <select class="input" v-model="familiarLang" style="margin-bottom:14px">
+        <select class="input modal-field" v-model="familiarLang">
           <option v-for="lang in familiarLanguageOptions" :key="`familiar-${lang.code}`" :value="lang.code">
             {{ lang.flag }} {{ lang.native_name }}
           </option>
         </select>
 
         <label class="label">{{ t.lang_pref_learning }}</label>
-        <select class="input" v-model="learningLang" style="margin-bottom:16px">
+        <select class="input modal-field modal-field-last" v-model="learningLang">
           <option v-for="lang in learningLanguageOptions" :key="`learning-${lang.code}`" :value="lang.code">
             {{ lang.flag }} {{ lang.native_name }}
           </option>
         </select>
 
-        <div v-if="languagePrefError" style="font-size:13px;color:var(--err);margin-bottom:12px">{{ languagePrefError }}</div>
-        <button class="btn-primary" style="width:100%" @click="saveLanguagePreferences">
+        <div v-if="languagePrefError" class="modal-err">{{ languagePrefError }}</div>
+        <button class="btn-primary modal-btn" @click="saveLanguagePreferences">
           {{ t.lang_pref_confirm }}
         </button>
       </div>
@@ -347,11 +350,6 @@ function goQuiz() {
   router.push('/quiz')
 }
 
-function openMembership() {
-  if (!isLoggedIn.value) { showAuth.value = true; return }
-  showMembership.value = true
-}
-
 async function refreshMembershipSafe() {
   try {
     await refreshMembership()
@@ -361,43 +359,191 @@ async function refreshMembershipSafe() {
 </script>
 
 <style scoped>
+.app-view {
+  position: relative;
+  z-index: 1;
+  padding-top: 68px;
+  min-height: 100vh;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .nav-avatar {
-  width:34px;height:34px;border-radius:50%;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  display:flex;align-items:center;justify-content:center;
-  font-size:13px;font-weight:700;cursor:pointer;color:#fff;
-  box-shadow:0 2px 12px rgba(167,139,250,0.35);transition:all .2s;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(150deg, var(--accent), var(--accent2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  color: #fff;
+  box-shadow: var(--shadow-glow);
+  transition: transform var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
   position: relative;
 }
-.nav-avatar:hover{transform:scale(1.08);}
+.nav-avatar:hover {
+  transform: translateY(-1px) scale(1.05);
+  box-shadow: 0 14px 24px rgba(11, 120, 209, 0.24), 0 5px 14px rgba(242, 168, 44, 0.24);
+}
+
 .nav-login-btn {
-  padding:8px 18px;border-radius:20px;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  color:#fff;font-size:13px;font-weight:600;
-  transition:all .2s;box-shadow:0 2px 12px rgba(167,139,250,0.25);
+  padding: 9px 17px;
+  border-radius: 999px;
+  background: linear-gradient(145deg, var(--accent), var(--accent2));
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  transition: transform var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
+  box-shadow: var(--shadow-glow);
 }
-.nav-login-btn:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(167,139,250,0.45);}
-.nav-vip-btn{
-  display:flex;align-items:center;gap:6px;
-  padding:7px 12px;border-radius:999px;
-  border:1px solid rgba(16,185,129,.35);
-  background:linear-gradient(135deg, rgba(16,185,129,.13), rgba(14,165,233,.1));
-  color:#065f46;font-size:12px;font-weight:700;
-}
-.vip-mini{width:16px;height:16px;border-radius:4px;}
-.avatar-vip-mark{
-  position:absolute;right:-6px;bottom:-6px;
-  width:15px;height:15px;border-radius:50%;
-  box-shadow:0 2px 8px rgba(15,23,42,.22);
-  background:#fff;
+.nav-login-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 24px rgba(11, 120, 209, 0.24), 0 5px 14px rgba(242, 168, 44, 0.24);
 }
 
-.auth-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;}
-.auth-tab{flex:1;padding:9px;text-align:center;font-size:13px;font-weight:600;color:var(--text3);
-  border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;transition:all .2s;background:transparent;}
-.auth-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.nav-vip-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(242, 168, 44, 0.42);
+  background: linear-gradient(135deg, rgba(242, 168, 44, 0.18), rgba(29, 167, 215, 0.11));
+  color: #6f4800;
+  font-size: 12px;
+  font-weight: 700;
+  transition: transform var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
+}
+.nav-vip-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(242, 168, 44, 0.6);
+}
 
-.page-enter-active,.page-leave-active{transition:all .25s ease;}
-.page-enter-from{opacity:0;transform:translateY(10px);}
-.page-leave-to{opacity:0;transform:translateY(-10px);}
+.vip-mini {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.avatar-vip-mark {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.22);
+  background: #fff;
+}
+
+.modal-title {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+.modal-sub {
+  font-size: 13px;
+  color: var(--text3);
+  margin-bottom: 22px;
+}
+
+.modal-field {
+  margin-bottom: 12px;
+}
+
+.modal-field-last {
+  margin-bottom: 16px;
+}
+
+.modal-inline-row {
+  display: flex;
+  gap: 8px;
+}
+
+.modal-inline-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.modal-btn {
+  width: 100%;
+}
+
+.modal-err {
+  font-size: 13px;
+  color: var(--err);
+  margin-bottom: 12px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 9px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text3);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-standard);
+  background: transparent;
+}
+
+.auth-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.page-enter-active,
+.page-leave-active {
+  transition: opacity var(--dur-base) var(--ease-standard), transform var(--dur-base) var(--ease-standard);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+@media (max-width: 920px) {
+  .nav-actions {
+    gap: 6px;
+  }
+
+  .nav-vip-btn {
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 740px) {
+  .app-view {
+    padding-top: 64px;
+  }
+
+  .nav-vip-btn {
+    display: none;
+  }
+}
 </style>

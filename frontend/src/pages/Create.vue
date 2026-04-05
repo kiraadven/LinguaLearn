@@ -245,23 +245,42 @@
 
       <!-- Progress -->
       <div v-if="jobRunning && !jobDone" class="card progress-card">
-        <div class="card-title">{{ t.create_progress }}</div>
-        <div class="step-bar">
-          <template v-for="i in 5" :key="i">
-            <div :class="['step-dot', i<currentStep?'done':i===currentStep?'active':'']">{{ i }}</div>
-            <div v-if="i<5" :class="['step-ln', i<currentStep?'done':'']"></div>
-          </template>
+        <div class="progress-head">
+          <div>
+            <div class="card-title" style="margin-bottom:6px">{{ t.create_progress }}</div>
+            <div class="progress-sub">{{ tr('create_progress_hint', 'Your learning video is being generated. You can watch the live status below.') }}</div>
+          </div>
+          <div class="progress-badge">
+            <span class="badge-dot"></span>
+            <span>{{ Math.min(currentStep, 5) }}/5</span>
+          </div>
         </div>
-        <div class="cur-step"><span class="pulse-dot"></span><span>{{ stepName }}</span></div>
-        <div v-if="currentStep>=5" style="margin-top:14px">
+
+        <div class="progress-bars">
+          <div class="step-bar">
+            <template v-for="i in 5" :key="i">
+              <div :class="['step-dot', i<currentStep?'done':i===currentStep?'active':'']">{{ i }}</div>
+              <div v-if="i<5" :class="['step-ln', i<currentStep?'done':'']"></div>
+            </template>
+          </div>
+          <div class="cur-step"><span class="pulse-dot"></span><span>{{ stepName }}</span></div>
+        </div>
+
+        <div v-if="currentStep>=5" class="render-bars">
           <PBar :label="t.create_segment_render" :pct="clipsPct" color="linear-gradient(90deg,var(--accent),var(--accent2))"/>
-          <PBar :label="t.create_video_write" :pct="writePct" color="linear-gradient(90deg,var(--accent3),var(--accent4))" style="margin-top:10px"/>
+          <PBar :label="t.create_video_write" :pct="writePct" color="linear-gradient(90deg,var(--accent3),var(--accent4))"/>
+        </div>
+
+        <div class="log-head">
+          <span>{{ tr('create_live_logs', 'Live Logs') }}</span>
+          <span class="log-count">{{ logs.length }}</span>
         </div>
         <div class="log-box" ref="logBox">
           <div v-for="(l,i) in logs" :key="i" :class="['log-line',logClass(l)]">{{ l }}</div>
         </div>
-        <div style="margin-top:14px">
-          <button class="btn-ghost" style="padding:8px 18px;font-size:13px;color:var(--err);border-color:rgba(248,113,113,.3)" @click="cancelJob">{{ t.create_cancel_job }}</button>
+
+        <div class="progress-actions">
+          <button class="btn-ghost cancel-btn" @click="cancelJob">{{ t.create_cancel_job }}</button>
         </div>
       </div>
 
@@ -321,12 +340,12 @@ const initialLearning = learningFromPref === familiarFromPref
 // ── Inline sub-component ──
 const PBar = {
   props: ['label','pct','color'],
-  template: `<div>
-    <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:6px;font-weight:600">
+  template: `<div class="pbar">
+    <div class="pbar-meta">
       <span>{{ label }}</span><span>{{ pct }}%</span>
     </div>
-    <div style="height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">
-      <div :style="{width:pct+'%',height:'100%',borderRadius:'3px',background:color,transition:'width .5s',boxShadow:'0 0 8px rgba(167,139,250,.4)'}"></div>
+    <div class="pbar-track">
+      <div class="pbar-fill" :style="{width:pct+'%',background:color}"></div>
     </div>
   </div>`
 }
@@ -814,7 +833,16 @@ watch(() => user.value?.membership?.tier, () => {
 <style scoped>
 .create-page{padding:28px 24px 80px;max-width:1200px;margin:0 auto;}
 .page-header{margin-bottom:24px;}
-.page-header h1{font-size:30px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px;color:var(--text);}
+.page-header h1{
+  font-size:30px;
+  font-weight:800;
+  letter-spacing:-0.5px;
+  margin-bottom:4px;
+  background:linear-gradient(118deg,#0d2f5a 0%,#0b78d1 56%,#f2a82c 100%);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
 .page-header p{color:var(--text2);font-size:14px;}
 .empty-state{text-align:center;padding:80px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;}
 
@@ -864,17 +892,148 @@ watch(() => user.value?.membership?.tier, () => {
 }
 
 /* PROGRESS */
-.progress-card{padding:28px;margin-top:20px;}
-.step-bar{display:flex;align-items:center;margin-bottom:16px;}
-.step-dot{width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--bg3);border:2px solid var(--border);color:var(--text3);transition:all .3s;}
-.step-dot.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#fff;box-shadow:0 0 16px rgba(99,102,241,.35);}
-.step-dot.done{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.4);color:var(--ok);}
-.step-ln{flex:1;height:2px;background:var(--border);transition:background .3s;}
-.step-ln.done{background:linear-gradient(90deg,var(--ok),rgba(16,185,129,.3));}
-.cur-step{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;color:var(--text2);margin-bottom:4px;}
-.pulse-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.5s infinite;flex-shrink:0;}
-.log-box{max-height:220px;overflow-y:auto;margin-top:14px;padding:12px;background:#1e1e2e;border-radius:8px;border:1px solid #2d2d3e;font-size:12px;line-height:1.7;}
-.log-line{color:#94a3b8;}
-.log-line.ok{color:#10b981;}
-.log-line.err{color:#ef4444;}
+.progress-card{
+  padding:26px;
+  margin-top:20px;
+  border-color:rgba(11,120,209,.16);
+  background:
+    radial-gradient(115% 140% at 0% 0%,rgba(11,120,209,.09),transparent 52%),
+    radial-gradient(95% 120% at 100% 0%,rgba(242,168,44,.08),transparent 48%),
+    linear-gradient(165deg,rgba(255,255,255,.95),rgba(248,252,255,.9));
+}
+.progress-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
+.progress-sub{
+  color:var(--text2);
+  font-size:13px;
+  line-height:1.6;
+  max-width:620px;
+}
+.progress-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:7px 12px;
+  border-radius:999px;
+  border:1px solid rgba(11,120,209,.24);
+  background:rgba(255,255,255,.8);
+  color:#0d4d80;
+  font-size:12px;
+  font-weight:700;
+}
+.badge-dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:#0ea5e9;
+  box-shadow:0 0 0 5px rgba(14,165,233,.18);
+  animation:pulse 1.6s infinite;
+}
+.progress-bars{
+  margin-top:14px;
+  padding:12px 12px 10px;
+  border-radius:12px;
+  border:1px solid rgba(11,120,209,.12);
+  background:rgba(255,255,255,.68);
+}
+.step-bar{display:flex;align-items:center;margin-bottom:12px;}
+.step-dot{
+  width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;background:#f3f8ff;border:2px solid rgba(148,163,184,.3);color:var(--text3);
+  transition:all .3s;
+}
+.step-dot.active{
+  background:linear-gradient(135deg,#0f4c81,#0ea5e9 64%,#f59e0b);
+  border-color:transparent;color:#fff;box-shadow:0 0 18px rgba(14,116,144,.34);
+}
+.step-dot.done{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.38);color:var(--ok);}
+.step-ln{flex:1;height:3px;background:rgba(148,163,184,.24);transition:background .3s;}
+.step-ln.done{background:linear-gradient(90deg,var(--ok),rgba(16,185,129,.32));}
+.cur-step{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;color:#0d4d80;}
+.pulse-dot{width:8px;height:8px;border-radius:50%;background:#0ea5e9;animation:pulse 1.5s infinite;flex-shrink:0;}
+.render-bars{
+  margin-top:14px;
+  display:grid;
+  gap:10px;
+}
+.pbar-meta{
+  display:flex;
+  justify-content:space-between;
+  font-size:12px;
+  color:var(--text2);
+  margin-bottom:7px;
+  font-weight:700;
+}
+.pbar-track{
+  height:10px;
+  border-radius:999px;
+  overflow:hidden;
+  background:rgba(148,163,184,.24);
+  border:1px solid rgba(148,163,184,.2);
+}
+.pbar-fill{
+  height:100%;
+  border-radius:inherit;
+  transition:width .45s ease;
+  box-shadow:0 0 18px rgba(14,116,144,.3);
+}
+.log-head{
+  margin-top:14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  font-size:12px;
+  color:#0d4d80;
+  font-weight:700;
+}
+.log-count{
+  min-width:30px;
+  text-align:center;
+  border-radius:999px;
+  padding:3px 8px;
+  border:1px solid rgba(11,120,209,.2);
+  background:rgba(255,255,255,.78);
+}
+.log-box{
+  max-height:240px;
+  overflow-y:auto;
+  margin-top:10px;
+  padding:12px 12px 10px;
+  border-radius:12px;
+  border:1px solid rgba(11,120,209,.15);
+  background:
+    linear-gradient(180deg,rgba(13,32,57,.88),rgba(11,25,45,.92));
+  font-size:12px;
+  line-height:1.72;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+}
+.log-line{
+  color:#cbd5e1;
+  padding:4px 2px;
+  border-bottom:1px solid rgba(148,163,184,.12);
+}
+.log-line:last-child{border-bottom:none;}
+.log-line.ok{color:#6ee7b7;}
+.log-line.err{color:#fca5a5;}
+.progress-actions{
+  margin-top:14px;
+  display:flex;
+  justify-content:flex-end;
+}
+.cancel-btn{
+  padding:8px 18px;
+  font-size:13px;
+  color:var(--err);
+  border-color:rgba(248,113,113,.3);
+  background:rgba(239,68,68,.04);
+}
+
+@media (max-width: 760px){
+  .progress-head{flex-direction:column;}
+  .progress-badge{align-self:flex-start;}
+}
 </style>

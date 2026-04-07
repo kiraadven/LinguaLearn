@@ -16,15 +16,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ===== 小工具 =====
+def _env_first(*keys: str, default=None):
+    for k in keys:
+        v = os.getenv(k)
+        if v is not None and str(v).strip() != "":
+            return v
+    return default
+
 # ===== LLM API 配置 =====
 # 主要 LLM 用于词汇分析和翻译
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
+LLM_PROVIDER = _env_first('LLM_PROVIDER', default='deepseek')
+OPENAI_API_KEY = _env_first('LLM_API_KEY', 'OPENAI_API_KEY')
+OPENAI_BASE_URL = _env_first('LLM_BASE_URL', 'OPENAI_BASE_URL', default='https://api.deepseek.com/v1')
 
 # 分句专用 API（可与上面相同，也可用更快的模型）
-SPLITTER_API_KEY = os.getenv('SPLITTER_API_KEY') or os.getenv('OPENAI_API_KEY')
-SPLITTER_BASE_URL = os.getenv('SPLITTER_BASE_URL') or os.getenv('OPENAI_BASE_URL', 'https://api.deepseek.com')
-SPLITTER_MODEL = os.getenv('SPLITTER_MODEL', 'deepseek-reasoner')
+SPLITTER_PROVIDER = _env_first('SPLITTER_PROVIDER', default='inherit').strip().lower()
+SPLITTER_API_KEY = _env_first('SPLITTER_API_KEY')
+SPLITTER_BASE_URL = _env_first('SPLITTER_BASE_URL')
+if SPLITTER_PROVIDER in {'inherit', 'same', 'default'} or not SPLITTER_API_KEY:
+    SPLITTER_API_KEY = SPLITTER_API_KEY or OPENAI_API_KEY
+if SPLITTER_PROVIDER in {'inherit', 'same', 'default'} or not SPLITTER_BASE_URL:
+    SPLITTER_BASE_URL = SPLITTER_BASE_URL or OPENAI_BASE_URL
+SPLITTER_MODEL = _env_first('SPLITTER_MODEL', default='deepseek-reasoner')
 
 # ===== 语音识别配置 =====
 # Whisper 模型大小: tiny / base / small（推荐）/ medium / large
@@ -109,19 +123,19 @@ SPEED_SLOW = 0.75
 OUTPUT_DIR = 'data/output'
 TEMP_DIR = 'data/temp'
 VIDEO_RESOLUTION = os.getenv('VIDEO_RESOLUTION', '1080p')  # 1080p 或 720p
-WIKTEXTRACT_DB_PATH = os.getenv('WIKTEXTRACT_DB_PATH', 'data/wiktextract_trans.sqlite3')
+WIKTEXTRACT_DB_PATH = _env_first('DICT_DB_PATH', 'WIKTEXTRACT_DB_PATH', default='data/wiktextract_trans.sqlite3')
 DICT_REMOTE_LOOKUP_TIMEOUT_SEC = float(os.getenv('DICT_REMOTE_LOOKUP_TIMEOUT_SEC', '1.2'))
 DICT_TRANSLATE_TIMEOUT_SEC = float(os.getenv('DICT_TRANSLATE_TIMEOUT_SEC', '1.5'))
-DICT_PROVIDER_MODE = os.getenv('DICT_PROVIDER_MODE', '').strip().lower()  # oxford / wiktextract
+DICT_PROVIDER_MODE = _env_first('DICT_MODE', 'DICT_PROVIDER_MODE', default='').strip().lower()  # oxford / wiktextract
 DICT_ENABLE_REMOTE_FALLBACK = os.getenv('DICT_ENABLE_REMOTE_FALLBACK', '0').strip().lower() in {'1', 'true', 'yes', 'on'}
 DICT_ENABLE_LLM_TRANSLATION = os.getenv('DICT_ENABLE_LLM_TRANSLATION', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
 DICT_ENABLE_OXFORD = os.getenv('DICT_ENABLE_OXFORD', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
 DICT_ONLY_OXFORD = os.getenv('DICT_ONLY_OXFORD', '0').strip().lower() in {'1', 'true', 'yes', 'on'}
-OXFORD_BASE_URL = os.getenv('OXFORD_BASE_URL', 'https://od-api-sandbox.oxforddictionaries.com/api/v2')
-OXFORD_APP_ID = os.getenv('OXFORD_APP_ID')
-OXFORD_APP_KEY = os.getenv('OXFORD_APP_KEY', 'e5716115a3d7aeea0940dc6a9ca8880e')
-OXFORD_ENGLISH_DATASET = os.getenv('OXFORD_ENGLISH_DATASET', 'en-gb')
-OXFORD_TIMEOUT_SEC = float(os.getenv('OXFORD_TIMEOUT_SEC', '8.0'))
+OXFORD_BASE_URL = _env_first('DICT_OXFORD_BASE_URL', 'OXFORD_BASE_URL', default='https://od-api-sandbox.oxforddictionaries.com/api/v2')
+OXFORD_APP_ID = _env_first('DICT_OXFORD_APP_ID', 'OXFORD_APP_ID')
+OXFORD_APP_KEY = _env_first('DICT_OXFORD_APP_KEY', 'OXFORD_APP_KEY', default='e5716115a3d7aeea0940dc6a9ca8880e')
+OXFORD_ENGLISH_DATASET = _env_first('DICT_OXFORD_DATASET', 'OXFORD_ENGLISH_DATASET', default='en-gb')
+OXFORD_TIMEOUT_SEC = float(_env_first('DICT_OXFORD_TIMEOUT_SEC', 'OXFORD_TIMEOUT_SEC', default='8.0'))
 
 # ===== 邮件配置 =====
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')

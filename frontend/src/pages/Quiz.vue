@@ -264,9 +264,12 @@
 
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuth } from '../composables/useAuth.js'
 import { apiFetch } from '../composables/useApi.js'
 import { useI18n } from '../i18n.js'
+
+const route = useRoute()
 
 const { isLoggedIn } = useAuth()
 const openAuth = inject('openAuth')
@@ -959,6 +962,12 @@ watch(isLoggedIn, async (v) => {
   }
   await loadJobs()
   await loadGlobalSettings()
+  // Auto-skip job selection when navigated from JobDetail quiz tab
+  const qJobId = route.query.jobId
+  if (qJobId && route.query.auto === '1') {
+    const targetJob = doneJobs.value.find(j => j.id === qJobId)
+    if (targetJob) openJobSetup(targetJob)
+  }
 }, { immediate: true })
 
 onBeforeUnmount(() => {

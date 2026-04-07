@@ -857,3 +857,61 @@
   color: var(--err);
   border-color: rgba(248,113,113,.3);
 }
+
+/* ── Learning Studio Tabs ── */
+.studio-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.studio-tab {
+  padding: 10px 18px;
+  border-radius: 10px 10px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  cursor: pointer;
+  transition: color .15s, background .15s;
+  margin-bottom: -2px;
+}
+.studio-tab:hover {
+  color: var(--text);
+  background: rgba(11, 120, 209, 0.05);
+}
+.studio-tab.active {
+  color: var(--accent);
+  background: var(--bg, #fff);
+  border-color: var(--border);
+  border-bottom-color: transparent;
+}
+
+/* ── Quiz hub panel ── */
+.studio-quiz-panel {
+  padding: 20px 0;
+}
+.studio-quiz-hub {
+  max-width: 520px;
+  margin: 40px auto;
+  padding: 32px;
+  text-align: center;
+  border-radius: 16px;
+  border: 1px solid rgba(11, 120, 209, 0.18);
+  background: linear-gradient(135deg, rgba(11,120,209,0.06), rgba(6,182,212,0.04));
+}
+.studio-quiz-hub h3 {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.studio-quiz-hub p {
+  color: var(--text2);
+  font-size: 14px;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}

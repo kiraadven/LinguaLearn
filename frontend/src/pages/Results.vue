@@ -65,13 +65,6 @@
               <p v-if="j.error" class="jc-error">{{ j.error }}</p>
             </div>
 
-            <!-- AI Lesson entry (only for done jobs) -->
-            <div v-if="j.status === 'done'" class="jc-ai-bar">
-              <button class="ai-entry-btn" @click.stop="goAiLesson(j.id)">
-                🎙️ <span>AI 课堂</span>
-              </button>
-            </div>
-
             <!-- Actions row -->
             <div class="jc-actions">
               <template v-if="renamingId === j.id">
@@ -102,14 +95,11 @@ import { useAuth } from '../composables/useAuth.js'
 import { apiFetch } from '../composables/useApi.js'
 import { useI18n } from '../i18n.js'
 
-const { isLoggedIn, user } = useAuth()
+const { isLoggedIn } = useAuth()
 const openAuth = inject('openAuth')
 const toast    = inject('toast')
-const openMembership = inject('openMembership', () => {})
 const router   = useRouter()
 const { t, uiLang } = useI18n()
-
-const isMember = computed(() => user.value?.membership?.tier === 'member')
 
 const jobs       = ref([])
 const loading    = ref(false)
@@ -199,11 +189,6 @@ function onJobCardClick(j) {
   if (j.status === 'done' || j.status === 'running' || j.status === 'queued') {
     router.push('/results/' + j.id)
   }
-}
-
-function goAiLesson(jobId) {
-  if (!isMember.value) { openMembership(); return }
-  router.push({ path: '/tutor', query: { jobId, mode: 'lesson' } })
 }
 
 watch(isLoggedIn, v => { if (v) loadJobs() }, { immediate: true })

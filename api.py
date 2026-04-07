@@ -15,6 +15,7 @@ import random
 import smtplib
 import subprocess
 import html
+import traceback
 try:
     import resend
 except ImportError:
@@ -1730,12 +1731,21 @@ async def list_jobs(current_user: Optional[dict] = Depends(get_current_user)):
 # ── AI 讲师端点 ──────────────────────────────────────────────────────────────
 
 from fastapi.responses import StreamingResponse as _StreamingResponse
-from core.learning.ai_tutor import AITutor
+from core.learning.ai_lesson import AILesson
+from core.learning.ai_podcast import AIPodcast
 
 
-def _get_tutor_for_job(job: dict) -> AITutor:
-    """根据 job 的语言配置构造 AITutor 实例"""
-    return AITutor(
+def _get_lesson_for_job(job: dict) -> AILesson:
+    """根据 job 的语言配置构造 AILesson 实例"""
+    return AILesson(
+        source_lang=job.get("source_lang", "en"),
+        target_lang=job.get("target_lang", "zh-Hans"),
+    )
+
+
+def _get_podcast_for_job(job: dict) -> AIPodcast:
+    """根据 job 的语言配置构造 AIPodcast 实例"""
+    return AIPodcast(
         source_lang=job.get("source_lang", "en"),
         target_lang=job.get("target_lang", "zh-Hans"),
     )
@@ -1765,6 +1775,77 @@ def _load_job_tutor_files(job_id: str):
     return md_content, segments, job_dir
 
 
+def _script_tts_ready(script_path: Path) -> tuple[bool, int, int]:
+    """检查脚本中 speak 项的 TTS 就绪情况。"""
+    if not script_path.exists():
+        return False, 0, 0
+    try:
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False, 0, 0
+    speaks = [s for s in script if s.get("type") == "speak"]
+    total = len(speaks)
+    ready = sum(1 for s in speaks if s.get("tts_audio"))
+    return ready == total, ready, total
+
+
+def _tutor_progress_path(tutor_dir: Path) -> Path:
+    return tutor_dir / "progress.json"
+
+
+def _tutor_debug_log_path(tutor_dir: Path) -> Path:
+    return tutor_dir / "debug.log"
+
+
+def _read_tutor_progress(tutor_dir: Path) -> dict:
+    p = _tutor_progress_path(tutor_dir)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_tutor_progress(tutor_dir: Path, *, phase: str, message: str, **extra) -> dict:
+    tutor_dir.mkdir(exist_ok=True)
+    payload = {
+        "phase": phase,
+        "message": message,
+        "updated_at": datetime.now().isoformat(),
+        **extra,
+    }
+    _tutor_progress_path(tutor_dir).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    line = f"[TutorProgress] phase={phase} message={message}"
+    if extra:
+        line += f" extra={extra}"
+    print(line, flush=True)
+    try:
+        with _tutor_debug_log_path(tutor_dir).open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat()} {line}\n")
+    except Exception:
+        pass
+    return payload
+
+
+def _tutor_text_outputs(tutor_dir: Path) -> dict:
+    names = [
+        "lesson_manuscript.txt",
+        "lesson_tts_manuscript.txt",
+        "podcast_manuscript.txt",
+        "podcast_tts_manuscript.txt",
+    ]
+    files = []
+    for n in names:
+        p = tutor_dir / n
+        if p.exists():
+            files.append(str(p))
+    return {"manuscript_files": files}
+
+
 @app.post("/api/jobs/{job_id}/tutor/generate")
 async def tutor_generate(
     job_id: str,
@@ -1782,24 +1863,122 @@ async def tutor_generate(
 
     tutor_dir = OUTPUT_DIR / job_id / "tutor"
     # 如果已经生成过，直接返回
-    if (tutor_dir / "tutor_script.json").exists():
+    lesson_ok, _, _ = _script_tts_ready(tutor_dir / "tutor_script.json")
+    podcast_ok, _, _ = _script_tts_ready(tutor_dir / "podcast_script.json")
+    if lesson_ok and podcast_ok:
         return {"status": "already_done", "message": "课程脚本已存在，可直接使用"}
 
     # 标记生成中（写一个 lock 文件）
     tutor_dir.mkdir(exist_ok=True)
     lock_file = tutor_dir / "generating.lock"
     if lock_file.exists():
-        return {"status": "in_progress", "message": "正在生成中，请稍候"}
+        prog = _read_tutor_progress(tutor_dir)
+        stale = False
+        try:
+            updated_at = prog.get("updated_at")
+            if updated_at:
+                last = datetime.fromisoformat(updated_at)
+                stale = (datetime.now() - last).total_seconds() > 20 * 60
+            else:
+                mtime = datetime.fromtimestamp(lock_file.stat().st_mtime)
+                stale = (datetime.now() - mtime).total_seconds() > 20 * 60
+        except Exception:
+            stale = False
+        if stale:
+            print(f"[TutorProgress] stale lock detected for job={job_id}, auto-clearing", flush=True)
+            lock_file.unlink(missing_ok=True)
+        else:
+            return {
+                "status": "in_progress",
+                "message": prog.get("message", "正在生成中，请稍候"),
+                "progress": prog,
+            }
+
+    # 清理历史错误和进度
+    for stale in ("error.txt", "progress.json", "debug.log"):
+        (tutor_dir / stale).unlink(missing_ok=True)
     lock_file.write_text("generating")
+    _write_tutor_progress(tutor_dir, phase="queued", message="任务已入队，准备开始生成", percent=0)
 
     async def _bg_generate():
         try:
+            _write_tutor_progress(tutor_dir, phase="load_input", message="正在读取文稿和分句数据", percent=5)
             md_content, segments, job_dir = _load_job_tutor_files(job_id)
-            tutor = _get_tutor_for_job(job)
-            script = tutor.generate_lesson_script(md_content, segments, job_dir)
-            tutor.synthesize_tts(script, tutor_dir)
+            audio_files = sorted(f.name for f in job_dir.glob("sq_*.mp3"))
+
+            # Layer 1: 内容分析（AI课堂负责，随身听共用）
+            lesson = _get_lesson_for_job(job)
+            _write_tutor_progress(tutor_dir, phase="analyze_content", message="正在分析内容类型", percent=12)
+            content_profile = lesson.analyze_content(md_content, segments)
+            (tutor_dir / "content_profile.json").write_text(
+                json.dumps(content_profile, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            # AI课堂：规划 + 生成脚本
+            _write_tutor_progress(tutor_dir, phase="plan_lesson", message="正在规划 AI讲课 脚本结构", percent=22)
+            lesson_plan = lesson.plan_lesson(content_profile, segments)
+            (tutor_dir / "lesson_plan.json").write_text(
+                json.dumps(lesson_plan, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            _write_tutor_progress(tutor_dir, phase="write_lesson", message="正在生成 AI讲课 文稿", percent=38)
+            lesson_script = lesson.write_lesson(content_profile, lesson_plan, audio_files)
+            lesson_script = lesson.rewrite_tts(lesson_script)
+            (tutor_dir / "tutor_script.json").write_text(
+                json.dumps(lesson_script, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            lesson.write_manuscript(lesson_script, tutor_dir)
+
+            # AI随身听：规划 + 生成脚本（复用 content_profile）
+            podcast = _get_podcast_for_job(job)
+            _write_tutor_progress(tutor_dir, phase="plan_podcast", message="正在规划 AI随身听 脚本结构", percent=48)
+            podcast_plan = podcast.plan_podcast(content_profile, segments)
+            (tutor_dir / "podcast_plan.json").write_text(
+                json.dumps(podcast_plan, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            _write_tutor_progress(tutor_dir, phase="write_podcast", message="正在生成 AI随身听 文稿", percent=58)
+            podcast_script = podcast.write_podcast(content_profile, podcast_plan, audio_files)
+            podcast_script = podcast.rewrite_tts(podcast_script)
+            (tutor_dir / "podcast_script.json").write_text(
+                json.dumps(podcast_script, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            podcast.write_manuscript(podcast_script, tutor_dir)
+
+            # TTS 合成
+            _write_tutor_progress(tutor_dir, phase="tts_lesson", message="正在合成 AI讲课 语音", percent=68)
+            lesson.synthesize_tts(
+                lesson_script, tutor_dir,
+                script_filename="tutor_script.json",
+                filename_prefix="tts",
+                flush_each=True,
+            )
+
+            _write_tutor_progress(tutor_dir, phase="tts_podcast", message="正在合成 AI随身听 语音", percent=84)
+            podcast.synthesize_tts(
+                podcast_script, tutor_dir,
+                filename_prefix="pod_tts",
+                flush_each=True,
+            )
+
+            _write_tutor_progress(
+                tutor_dir,
+                phase="done",
+                message="AI讲课与AI随身听已生成完成",
+                percent=100,
+                **_tutor_text_outputs(tutor_dir),
+            )
         except Exception as e:
-            (tutor_dir / "error.txt").write_text(str(e), encoding="utf-8")
+            tb = traceback.format_exc()
+            (tutor_dir / "error.txt").write_text(tb, encoding="utf-8")
+            print(f"[TutorProgress] job={job_id} exception:\n{tb}", flush=True)
+            _write_tutor_progress(
+                tutor_dir,
+                phase="error",
+                message=f"生成失败：{e}",
+                percent=100,
+                error=str(e),
+            )
         finally:
             lock_file.unlink(missing_ok=True)
 
@@ -1818,21 +1997,68 @@ async def tutor_status(
         raise HTTPException(404, "Job 不存在")
 
     tutor_dir = OUTPUT_DIR / job_id / "tutor"
-    if (tutor_dir / "tutor_script.json").exists():
-        script = json.loads((tutor_dir / "tutor_script.json").read_text(encoding="utf-8"))
+    progress = _read_tutor_progress(tutor_dir)
+    txt_outputs = _tutor_text_outputs(tutor_dir)
+    lesson_ready, lesson_speak_ready, lesson_speak_total = _script_tts_ready(tutor_dir / "tutor_script.json")
+    podcast_ready, podcast_speak_ready, podcast_speak_total = _script_tts_ready(tutor_dir / "podcast_script.json")
+    if lesson_ready and podcast_ready:
         return {
             "status": "done",
-            "total_items": len(script),
-            "tts_ready": all(
-                s.get("tts_audio") for s in script if s["type"] == "speak"
-            ),
+            "tts_ready": True,
+            "progress": progress,
+            "lesson": {
+                "ready": True,
+                "speak_ready": lesson_speak_ready,
+                "speak_total": lesson_speak_total,
+            },
+            "podcast": {
+                "ready": True,
+                "speak_ready": podcast_speak_ready,
+                "speak_total": podcast_speak_total,
+            },
+            **txt_outputs,
         }
     if (tutor_dir / "generating.lock").exists():
-        return {"status": "in_progress"}
+        return {
+            "status": "in_progress",
+            "progress": progress,
+            "lesson": {
+                "ready": lesson_ready,
+                "speak_ready": lesson_speak_ready,
+                "speak_total": lesson_speak_total,
+            },
+            "podcast": {
+                "ready": podcast_ready,
+                "speak_ready": podcast_speak_ready,
+                "speak_total": podcast_speak_total,
+            },
+            **txt_outputs,
+        }
     if (tutor_dir / "error.txt").exists():
         err = (tutor_dir / "error.txt").read_text(encoding="utf-8")
-        return {"status": "error", "message": err}
-    return {"status": "not_started"}
+        return {
+            "status": "error",
+            "message": err,
+            "progress": progress,
+            **txt_outputs,
+        }
+    if lesson_ready or podcast_ready:
+        return {
+            "status": "in_progress",
+            "progress": progress,
+            "lesson": {
+                "ready": lesson_ready,
+                "speak_ready": lesson_speak_ready,
+                "speak_total": lesson_speak_total,
+            },
+            "podcast": {
+                "ready": podcast_ready,
+                "speak_ready": podcast_speak_ready,
+                "speak_total": podcast_speak_total,
+            },
+            **txt_outputs,
+        }
+    return {"status": "not_started", "progress": progress, **txt_outputs}
 
 
 @app.get("/api/jobs/{job_id}/tutor/script")
@@ -1867,8 +2093,8 @@ async def tutor_audio(
     if not job or job.get("email") != current_user["email"]:
         raise HTTPException(404, "Job 不存在")
 
-    # 安全校验：只允许 tts_ 前缀的 mp3
-    if not (filename.startswith("tts_") and filename.endswith(".mp3")):
+    # 安全校验：只允许 tts_ 或 pod_tts_ 前缀的 mp3
+    if not ((filename.startswith("tts_") or filename.startswith("pod_tts_")) and filename.endswith(".mp3")):
         raise HTTPException(400, "非法文件名")
 
     audio_path = OUTPUT_DIR / job_id / "tutor" / filename
@@ -1895,7 +2121,9 @@ async def tutor_podcast(
     podcast_path = tutor_dir / "podcast.mp3"
 
     if not podcast_path.exists():
-        script_path = tutor_dir / "tutor_script.json"
+        podcast_script_path = tutor_dir / "podcast_script.json"
+        lesson_script_path = tutor_dir / "tutor_script.json"
+        script_path = podcast_script_path if podcast_script_path.exists() else lesson_script_path
         if not script_path.exists():
             raise HTTPException(400, "请先生成课程脚本")
         script = json.loads(script_path.read_text(encoding="utf-8"))
@@ -1908,43 +2136,13 @@ async def tutor_podcast(
         if missing_tts:
             raise HTTPException(400, "TTS 音频尚未全部合成完成")
 
-        tutor = _get_tutor_for_job(job)
-        tutor.build_podcast(script, OUTPUT_DIR / job_id, podcast_path)
+        podcast_inst = _get_podcast_for_job(job)
+        podcast_inst.build_podcast(script, OUTPUT_DIR / job_id, podcast_path)
 
     return FileResponse(
         str(podcast_path),
         media_type="audio/mpeg",
         filename=f"{job.get('name', job_id)}_讲课.mp3",
-    )
-
-
-@app.get("/api/jobs/{job_id}/tutor/stream")
-async def tutor_stream(
-    job_id: str,
-    current_user: dict = Depends(require_user),
-):
-    """
-    SSE 流式生成课程脚本 + TTS（前端可实时获取进度）。
-    适合首次生成时在前端显示逐步加载动画。
-    """
-    job = database.get_job(job_id)
-    if not job or job.get("email") != current_user["email"]:
-        raise HTTPException(404, "Job 不存在")
-    if job.get("status") != "done":
-        raise HTTPException(400, "视频尚未处理完成")
-
-    md_content, segments, job_dir = _load_job_tutor_files(job_id)
-    tutor = _get_tutor_for_job(job)
-
-    def _event_generator():
-        for event in tutor.stream_lesson_events(md_content, segments, job_dir):
-            data = json.dumps(event, ensure_ascii=False)
-            yield f"data: {data}\n\n"
-
-    return _StreamingResponse(
-        _event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

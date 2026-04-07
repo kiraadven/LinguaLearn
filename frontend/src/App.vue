@@ -15,7 +15,6 @@
     <button class="nav-btn" :class="{active:$route.path==='/'}" @click="$router.push('/')">{{ t.nav_home }}</button>
     <button class="nav-btn" :class="{active:$route.path==='/create'}" @click="goCreate">{{ t.nav_create }}</button>
     <button class="nav-btn" :class="{active:$route.path==='/results'}" @click="$router.push('/results')">{{ t.nav_results }}</button>
-    <button class="nav-btn" :class="{active:$route.path==='/quiz'}" @click="goQuiz">{{ t.nav_quiz }}</button>
     <div class="nav-spacer"></div>
     <div class="nav-actions">
       <button class="nav-btn" @click="openLanguagePicker">{{ t.nav_language_settings }}</button>
@@ -345,10 +344,6 @@ function goCreate() {
   router.push('/create')
 }
 
-function goQuiz() {
-  if (!isLoggedIn.value) { showAuth.value = true; return }
-  router.push('/quiz')
-}
 
 async function refreshMembershipSafe() {
   try {

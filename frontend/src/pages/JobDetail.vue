@@ -5,7 +5,7 @@
     <div v-if="!isProcessing" class="jd-topbar">
       <button class="back-btn" @click="$router.push('/results')">{{ t.detail_back }}</button>
       <div class="jd-title" :title="jobName">{{ jobName }}</div>
-      <button class="toggle-btn" @click="transcriptOpen = !transcriptOpen" :title="transcriptOpen ? t.detail_hide_transcript : t.detail_show_transcript">
+      <button v-if="activeTab === 'jingting'" class="toggle-btn" @click="transcriptOpen = !transcriptOpen" :title="transcriptOpen ? t.detail_hide_transcript : t.detail_show_transcript">
         <span>{{ transcriptOpen ? `⟩ ${t.detail_hide_transcript}` : `⟨ ${t.detail_show_transcript}` }}</span>
       </button>
     </div>
@@ -52,6 +52,18 @@
     </div>
 
     <div v-else class="jd-body">
+
+      <!-- ── Learning Studio Tabs ── -->
+      <div class="studio-tabs">
+        <button v-for="tab in studioTabs" :key="tab.id"
+          :class="['studio-tab', { active: activeTab === tab.id }]"
+          @click="activeTab = tab.id">
+          {{ tab.icon }} {{ tab.label }}
+        </button>
+      </div>
+
+      <!-- ── Tab 1: 精听 ── -->
+      <div v-show="activeTab === 'jingting'">
 
       <!-- ── Main row ── -->
       <div :class="['jd-main', {wide: !transcriptOpen}]">
@@ -193,20 +205,6 @@
         </Transition>
       </div>
 
-      <!-- ── AI Lesson Entry ── -->
-      <div class="jd-ai-entry">
-        <div class="ai-entry-inner">
-          <div class="ai-entry-text">
-            <span class="ai-entry-title">🎙️ {{ tr('detail_ai_lesson', 'AI 互动课堂') }}</span>
-            <span class="ai-entry-sub">{{ tr('detail_ai_lesson_sub', '由 AI 逐句讲解，边听边学') }}</span>
-          </div>
-          <button class="ai-entry-btn" @click="goAiLesson">
-            {{ tr('detail_start_lesson', '开始上课') }}
-            <span v-if="!isMember" class="ai-vip-tag">VIP</span>
-          </button>
-        </div>
-      </div>
-
       <!-- ── Learning Notes ── -->
       <div class="jd-notes">
         <div class="notes-hdr">
@@ -232,6 +230,28 @@
              @click="onWordClick"
              @mouseover="onMdHover" @mouseout="onMdOut" @mouseleave="onMdLeave"></div>
       </div>
+
+      </div><!-- end tab: jingting -->
+
+      <!-- ── Tab 2: AI讲课 ── -->
+      <div v-show="activeTab === 'ai_lesson'">
+        <AiLessonTab :jobId="jobId" :job="job" :segments="segments" />
+      </div>
+
+      <!-- ── Tab 3: 随身听 ── -->
+      <div v-show="activeTab === 'podcast'">
+        <PodcastTab :jobId="jobId" :segments="segments" />
+      </div>
+
+      <!-- ── Tab 4: 测验 ── -->
+      <div v-show="activeTab === 'quiz'" class="studio-quiz-panel">
+        <div class="studio-quiz-hub">
+          <h3>{{ tr('studio_quiz_hub_title', '测验本视频') }}</h3>
+          <p>{{ tr('studio_quiz_hub_desc', '测试你对这个视频中词汇、表达和句子听力的掌握程度。') }}</p>
+          <button class="btn-primary" @click="goQuiz">{{ tr('studio_quiz_start_btn', '开始测试') }}</button>
+        </div>
+      </div>
+
     </div>
 
     <!-- Dictionary tooltip (teleported to body to avoid z-index/overflow issues) -->
@@ -297,6 +317,8 @@ import { useI18n } from '../i18n.js'
 import { TRANSLATIONS } from '../i18n/translations.js'
 import { wrapDictionaryWords } from '../composables/useDictionaryLookup.js'
 import { useJobDetailDictionaryTooltip } from './job-detail/useJobDetailDictionaryTooltip.js'
+import AiLessonTab from './job-detail/AiLessonTab.vue'
+import PodcastTab from './job-detail/PodcastTab.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -312,9 +334,17 @@ function tr(key, fallback = '') {
   return ((t.value?.[key]) ?? fallback) || key
 }
 
-function goAiLesson() {
-  if (!isMember.value) { openMembership(); return }
-  router.push({ path: '/tutor', query: { jobId, mode: 'lesson' } })
+const activeTab = ref('jingting') // 'jingting' | 'ai_lesson' | 'podcast' | 'quiz'
+
+const studioTabs = computed(() => [
+  { id: 'jingting',  icon: '📺', label: tr('studio_tab_jingting', '精听') },
+  { id: 'ai_lesson', icon: '🎙️', label: tr('studio_tab_ai_lesson', 'AI讲课') },
+  { id: 'podcast',   icon: '🎧', label: tr('studio_tab_podcast', '随身听') },
+  { id: 'quiz',      icon: '✅', label: tr('studio_tab_quiz', '测验') },
+])
+
+function goQuiz() {
+  router.push({ path: '/quiz', query: { jobId, auto: '1' } })
 }
 
 const job        = ref(null)

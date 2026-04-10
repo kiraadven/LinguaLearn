@@ -94,7 +94,7 @@ class VoiceDispatcher:
         persona_params: dict,
     ) -> VoiceModelInput:
         """Assemble the complete VoiceModelInput from all sources."""
-        return VoiceModelInput(
+        voice_input = VoiceModelInput(
             # Graph state
             current_node_type=graph_state.get("node_type", ""),
             current_phase=graph_state.get("phase", ""),
@@ -116,6 +116,8 @@ class VoiceDispatcher:
             student_engagement=assessment.get("engagement", 0.5),
             student_lang_level=memory_context.get("student_lang_level", "B1"),
             consecutive_failures=assessment.get("consecutive_failures", 0),
+            student_last_utterance_duration_ms=assessment.get("duration_ms", 0),
+            student_silence_duration_ms=assessment.get("silence_before_ms", 0),
 
             # Persona parameters (from PersonaManager)
             persona_warmth=persona_params.get("persona_warmth", 0.5),
@@ -135,3 +137,4 @@ class VoiceDispatcher:
             backchannel_frequency=persona_params.get("backchannel_frequency", 0.2),
             sentence_final_pattern=persona_params.get("sentence_final_pattern", "falling"),
         )
+        return voice_input.apply_categorical_encodings()

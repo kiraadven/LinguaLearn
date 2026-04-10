@@ -8,7 +8,7 @@ updates, and mutation logging for WebSocket diff broadcasting.
 
 from __future__ import annotations
 import time
-from typing import Optional
+from typing import Hashable, Optional
 
 import networkx as nx
 
@@ -18,7 +18,8 @@ from .schema import LiveNode, EdgeSpec, SubgraphSpec, GraphMutation
 class LessonGraph:
 
     def __init__(self):
-        self.G: nx.DiGraph = nx.DiGraph()
+        # MultiDiGraph allows multiple event-specific edges for the same (source, target).
+        self.G: nx.MultiDiGraph = nx.MultiDiGraph()
         self.current_node_id: Optional[str] = None
         self.start_node_id: Optional[str] = None
         self.graph_id: str = ""
@@ -38,10 +39,15 @@ class LessonGraph:
             "title": node.title,
             "phase": node.phase,
             "learning_targets": node.learning_targets,
+            "language_skill": node.language_skill,
+            "exercise_type": node.exercise_type,
+            "cognitive_level": node.cognitive_level,
+            "modality": node.modality,
+            "l1_aware_error_patterns": node.l1_aware_error_patterns,
         })
 
     def add_edge(self, edge: EdgeSpec) -> None:
-        self.G.add_edge(
+        edge_key = self.G.add_edge(
             edge.source_id, edge.target_id,
             event=edge.event,
             weight=edge.weight,
@@ -53,15 +59,18 @@ class LessonGraph:
             "target": edge.target_id,
             "event": edge.event,
             "weight": edge.weight,
+            "edge_key": edge_key,
         })
 
     def remove_node(self, node_id: str) -> None:
         self.G.remove_node(node_id)
         self._log("remove_node", {"node_id": node_id})
 
-    def remove_edge(self, source_id: str, target_id: str) -> None:
-        self.G.remove_edge(source_id, target_id)
-        self._log("remove_edge", {"source": source_id, "target": target_id})
+    def remove_edge(self, source_id: str, target_id: str,
+                    event: Optional[str] = None) -> None:
+        """Remove edges between source/target.
+        If event is provided, remove only edges matching that event."""
+        self._remove_edges_between(source_id, target_id, event=event, log=True)
 
     # ------------------------------------------------------------------
     # Traversal
@@ -78,8 +87,8 @@ class LessonGraph:
     def get_outgoing_edges(self, node_id: str) -> list[dict]:
         """Return all outgoing edges for a node, sorted by priority (desc)."""
         edges = []
-        for _, target, data in self.G.out_edges(node_id, data=True):
-            edges.append({"target": target, **data})
+        for _, target, edge_key, data in self.G.out_edges(node_id, keys=True, data=True):
+            edges.append({"target": target, "edge_key": edge_key, **data})
         edges.sort(key=lambda e: e.get("priority", 0), reverse=True)
         return edges
 
@@ -94,7 +103,7 @@ class LessonGraph:
         context = context or {}
         candidates = []
 
-        for _, target, data in self.G.out_edges(node_id, data=True):
+        for _, target, edge_key, data in self.G.out_edges(node_id, keys=True, data=True):
             if data.get("event") != event:
                 continue
             # Check guard conditions
@@ -105,6 +114,7 @@ class LessonGraph:
                 data.get("priority", 0),
                 -data.get("weight", 1.0),  # negate so lower weight is preferred
                 target,
+                edge_key,
             ))
 
         if not candidates:
@@ -116,8 +126,9 @@ class LessonGraph:
 
     def advance_to(self, target_node_id: str) -> LiveNode:
         """Move current_node_id to target. Mark old node completed."""
-        if self.current_node_id is not None:
-            old = self.get_node(self.current_node_id)
+        old_node_id = self.current_node_id  # save before overwrite
+        if old_node_id is not None:
+            old = self.get_node(old_node_id)
             if old.status == "active":
                 old.status = "completed"
                 self._log("update_node_status", {
@@ -129,7 +140,7 @@ class LessonGraph:
         new_node.status = "active"
         new_node.visit_count += 1
         self._log("move_cursor", {
-            "from": self.current_node_id,
+            "from": old_node_id,
             "to": target_node_id,
         })
         return new_node
@@ -153,8 +164,9 @@ class LessonGraph:
         Returns list of new node IDs added.
         """
         # Step 1: remove direct edge if exists
-        if self.G.has_edge(attach_after, return_to):
-            self.G.remove_edge(attach_after, return_to)
+        self._remove_edges_between(
+            attach_after, return_to, event="on_success", log=False,
+        )
 
         # Step 2: add subgraph nodes
         new_node_ids = []
@@ -230,11 +242,24 @@ class LessonGraph:
     # ------------------------------------------------------------------
 
     def update_edge_weight(self, source_id: str, target_id: str,
-                           new_weight: float) -> None:
-        if self.G.has_edge(source_id, target_id):
-            self.G[source_id][target_id]["weight"] = new_weight
+                           new_weight: float,
+                           event: Optional[str] = None,
+                           edge_key: Optional[Hashable] = None) -> None:
+        if not self.G.has_edge(source_id, target_id):
+            return
+
+        for k, data in self._iter_edges_between(source_id, target_id):
+            if edge_key is not None and k != edge_key:
+                continue
+            if event is not None and data.get("event") != event:
+                continue
+            self.G[source_id][target_id][k]["weight"] = new_weight
             self._log("update_edge_weight", {
-                "source": source_id, "target": target_id, "weight": new_weight,
+                "source": source_id,
+                "target": target_id,
+                "event": data.get("event", ""),
+                "edge_key": k,
+                "weight": new_weight,
             })
 
     # ------------------------------------------------------------------
@@ -253,16 +278,28 @@ class LessonGraph:
                 "status": n.status,
                 "phase": n.phase,
                 "learning_targets": n.learning_targets,
+                "language_skill": n.language_skill,
+                "exercise_type": n.exercise_type,
+                "cognitive_level": n.cognitive_level,
+                "target_language": n.target_language,
+                "source_language": n.source_language,
+                "modality": n.modality,
+                "interaction_pattern": n.interaction_pattern,
+                "scaffolding_level": n.scaffolding_level,
+                "scaffolding_supported_range": n.scaffolding_supported_range,
+                "energy_level": n.energy_level,
+                "l1_aware_error_patterns": n.l1_aware_error_patterns,
                 "visit_count": n.visit_count,
                 "success_count": n.success_count,
                 "failure_count": n.failure_count,
             })
 
         edges = []
-        for src, tgt, data in self.G.edges(data=True):
+        for src, tgt, edge_key, data in self.G.edges(keys=True, data=True):
             edges.append({
                 "source": src,
                 "target": tgt,
+                "edge_key": edge_key,
                 "event": data.get("event", ""),
                 "weight": data.get("weight", 1.0),
                 "is_active": src == self.current_node_id,
@@ -320,6 +357,35 @@ class LessonGraph:
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _iter_edges_between(self, source_id: str, target_id: str) -> list[tuple[Hashable, dict]]:
+        edge_map = self.G.get_edge_data(source_id, target_id, default={})
+        return list(edge_map.items())
+
+    def _remove_edges_between(
+        self,
+        source_id: str,
+        target_id: str,
+        event: Optional[str] = None,
+        log: bool = True,
+    ) -> int:
+        if not self.G.has_edge(source_id, target_id):
+            return 0
+
+        removed = 0
+        for edge_key, data in self._iter_edges_between(source_id, target_id):
+            if event is not None and data.get("event") != event:
+                continue
+            self.G.remove_edge(source_id, target_id, key=edge_key)
+            removed += 1
+            if log:
+                self._log("remove_edge", {
+                    "source": source_id,
+                    "target": target_id,
+                    "event": data.get("event", ""),
+                    "edge_key": edge_key,
+                })
+        return removed
 
     def _log(self, op: str, data: dict) -> None:
         self._mutation_log.append(GraphMutation(op=op, data=data))

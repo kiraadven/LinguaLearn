@@ -18,6 +18,35 @@ from .memory import HotMemory
 
 
 class PolicyRuntime:
+    INTERACTIVE_ACTIONS = {
+        "ask_open", "ask_check", "ask_recall",
+        "hint_light", "hint_strong", "scaffold_step",
+    }
+
+    NEW_KNOWLEDGE_NODE_TYPES = {
+        "hook",
+        "explain",
+        "vocabulary_focus",
+        "worked_example",
+        "listening_comprehension",
+        "reading_comprehension",
+        "cultural_note",
+        "transition",
+    }
+
+    TEACHER_LED_PATTERNS = {"teacher_monologue"}
+
+    HIGH_ENERGY = {"high"}
+
+    @staticmethod
+    def _suffix_count(items: list[dict], predicate) -> int:
+        count = 0
+        for item in reversed(items):
+            if predicate(item):
+                count += 1
+            else:
+                break
+        return count
 
     def select_action(
         self,
@@ -102,6 +131,17 @@ class PolicyRuntime:
         # Tool action: context-dependent
         tool_action = self._select_tool(current_node, assessment)
 
+        rhythm = self._build_rhythm_context(hot_memory, current_node)
+        policy_action, tool_action, delivery_style = self._apply_rhythm_adjustments(
+            allowed=allowed,
+            current_node=current_node,
+            assessment=assessment,
+            rhythm=rhythm,
+            policy_action=policy_action,
+            tool_action=tool_action,
+            delivery_style=delivery_style,
+        )
+
         return policy_action, tool_action, delivery_style
 
     def determine_event(
@@ -138,6 +178,109 @@ class PolicyRuntime:
                 return pref
         return allowed[0] if allowed else "encourage"
 
+    def _build_rhythm_context(self, hot: HotMemory, current_node: LiveNode) -> dict:
+        trace = list(hot.recent_node_trace[-8:])
+        if not trace:
+            trace = [{
+                "node_type": current_node.node_type,
+                "interaction_pattern": current_node.interaction_pattern,
+                "cognitive_level": current_node.cognitive_level,
+                "energy_level": current_node.energy_level,
+                "language_skill": list(current_node.language_skill),
+            }]
+
+        speaking_streak = self._suffix_count(
+            trace,
+            lambda i: "speaking" in set(i.get("language_skill", [])),
+        )
+        high_energy_streak = self._suffix_count(
+            trace,
+            lambda i: i.get("energy_level", "") in self.HIGH_ENERGY,
+        )
+        new_knowledge_streak = self._suffix_count(
+            trace,
+            lambda i: (
+                i.get("node_type", "") in self.NEW_KNOWLEDGE_NODE_TYPES
+                or i.get("cognitive_level", "") == "recognition"
+            ),
+        )
+        monologue_streak = self._suffix_count(
+            trace,
+            lambda i: i.get("interaction_pattern", "") in self.TEACHER_LED_PATTERNS,
+        )
+
+        recent_turns = hot.recent_turns[-6:]
+        teacher_turn_streak = self._suffix_count(
+            recent_turns,
+            lambda t: t.get("role") == "teacher",
+        )
+
+        return {
+            "speaking_streak": speaking_streak,
+            "high_energy_streak": high_energy_streak,
+            "new_knowledge_streak": new_knowledge_streak,
+            "monologue_streak": monologue_streak,
+            "teacher_turn_streak": teacher_turn_streak,
+        }
+
+    def _apply_rhythm_adjustments(
+        self,
+        allowed: list[str],
+        current_node: LiveNode,
+        assessment: dict,
+        rhythm: dict,
+        policy_action: str,
+        tool_action: Optional[str],
+        delivery_style: str,
+    ) -> tuple[str, Optional[str], str]:
+        """Post-process base policy with classroom rhythm constraints."""
+        is_silence = assessment.get("is_silence", False)
+        error_type = assessment.get("error_type", "")
+        is_correct = assessment.get("is_correct", False)
+
+        # Energy curve: after high-intensity streak, force a low-intensity beat.
+        if rhythm.get("high_energy_streak", 0) >= 2:
+            policy_action = self._pick(
+                allowed, "encourage", "pause_wait", "re_explain_brief", policy_action,
+            )
+            delivery_style = "calm_reset"
+
+        # Modality switch proxy: prolonged speaking streak -> introduce material/listening-reading.
+        if not error_type and not is_silence and rhythm.get("speaking_streak", 0) >= 3:
+            if "open_material_section" in current_node.tool_profile.get("allowed_tool_actions", []):
+                tool_action = "open_material_section"
+            if policy_action == "advance":
+                policy_action = self._pick(
+                    allowed, "ask_check", "ask_recall", "re_explain_brief", "encourage", policy_action,
+                )
+            if delivery_style in ("energetic_advance", "curious_probe"):
+                delivery_style = "neutral_teach"
+
+        # Cognitive load: too many new-knowledge chunks -> consolidation turn first.
+        if not error_type and is_correct and rhythm.get("new_knowledge_streak", 0) >= 3:
+            policy_action = self._pick(
+                allowed, "ask_recall", "ask_check", "scaffold_step", "hint_light", policy_action,
+            )
+            delivery_style = "curious_probe"
+
+        # Interaction density: long teacher-led stretch -> force student participation prompt.
+        if (
+            not error_type
+            and not is_silence
+            and (
+                rhythm.get("monologue_streak", 0) >= 2
+                or rhythm.get("teacher_turn_streak", 0) >= 2
+            )
+        ):
+            if policy_action not in self.INTERACTIVE_ACTIONS:
+                policy_action = self._pick(
+                    allowed, "ask_open", "ask_check", "ask_recall", "hint_light", policy_action,
+                )
+            if delivery_style in ("energetic_advance", "neutral_teach"):
+                delivery_style = "curious_probe"
+
+        return policy_action, tool_action, delivery_style
+
     @staticmethod
     def _select_tool(node: LiveNode, assessment: dict) -> Optional[str]:
         """Select tool action based on context."""
@@ -149,8 +292,17 @@ class PolicyRuntime:
         if assessment.get("error_type") and "rewind_video_5s" in allowed_tools:
             return "rewind_video_5s"
 
-        # If explaining -> open material
-        if node.node_type == "explain" and "open_material_section" in allowed_tools:
+        # If presenting content -> open material section.
+        if (
+            node.node_type in (
+                "explain",
+                "vocabulary_focus",
+                "listening_comprehension",
+                "reading_comprehension",
+                "cultural_note",
+            )
+            and "open_material_section" in allowed_tools
+        ):
             return "open_material_section"
 
         return None

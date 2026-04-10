@@ -12,7 +12,7 @@ Signals from MemoryManager drive weight adjustments:
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Hashable
 
 if TYPE_CHECKING:
     from .graph_engine import LessonGraph
@@ -58,7 +58,7 @@ class EdgeWeightComputer:
         graph: LessonGraph,
         node_id: str,
         signals: dict,
-    ) -> dict[tuple[str, str], float]:
+    ) -> dict[tuple[str, str, Hashable], float]:
         """Compute new weights for all outgoing edges from node_id.
 
         Args:
@@ -73,7 +73,7 @@ class EdgeWeightComputer:
                 - time_pressure: float (0.0-1.0, higher = less time)
 
         Returns:
-            {(source_id, target_id): new_weight}
+            {(source_id, target_id, edge_key): new_weight}
         """
         mastery = signals.get("mastery", {})
         fatigue = signals.get("fatigue", 0.0)
@@ -82,9 +82,9 @@ class EdgeWeightComputer:
         error_severity = signals.get("error_severity", 0.5)
         time_pressure = signals.get("time_pressure", 0.0)
 
-        result: dict[tuple[str, str], float] = {}
+        result: dict[tuple[str, str, Hashable], float] = {}
 
-        for _, target, data in graph.G.out_edges(node_id, data=True):
+        for _, target, edge_key, data in graph.G.out_edges(node_id, keys=True, data=True):
             event = data.get("event", "auto_advance")
             base = BASE_WEIGHTS.get(event, 1.0)
 
@@ -116,9 +116,23 @@ class EdgeWeightComputer:
 
             # Global modifiers
             # Low engagement -> prefer interactive nodes
-            if engagement < 0.3 and target_node.node_type in ("guided_practice", "free_practice"):
+            if engagement < 0.3 and target_node.node_type in (
+                "warm_up",
+                "guided_practice",
+                "pronunciation_drill",
+                "listening_comprehension",
+                "reading_comprehension",
+                "dialogue_practice",
+                "dictation",
+                "error_analysis",
+                "free_practice",
+            ):
                 weight *= 0.7
-            elif engagement < 0.3 and target_node.node_type == "explain":
+            elif engagement < 0.3 and target_node.node_type in (
+                "explain",
+                "vocabulary_focus",
+                "cultural_note",
+            ):
                 weight *= 1.3
 
             # High fatigue -> prefer wrap_up, transition
@@ -126,9 +140,14 @@ class EdgeWeightComputer:
                 weight *= 0.6
 
             # Time pressure -> penalize enrichment
-            if time_pressure > 0.6 and target_node.node_type in ("free_practice",):
+            if time_pressure > 0.6 and target_node.node_type in (
+                "free_practice",
+                "dialogue_practice",
+                "pronunciation_drill",
+                "dictation",
+            ):
                 weight *= 1.5
 
-            result[(node_id, target)] = max(0.1, weight)
+            result[(node_id, target, edge_key)] = max(0.1, weight)
 
         return result

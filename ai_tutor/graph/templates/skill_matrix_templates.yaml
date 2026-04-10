@@ -1,0 +1,372 @@
+- template_id: "matrix_grammar_recognition_mcq_v1"
+  node_type: "check_understanding"
+  granularity: "micro"
+  phase: "practice"
+  teacher_goal_template: "Help student recognize the grammar pattern in {{skill}}."
+  expected_evidence_types: ["selected_option", "rule_identification"]
+  allowed_policy_actions: ["ask_check", "ask_recall", "hint_light", "re_explain_brief", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "neutral_teach"
+  content_pack_slots: ["quiz_items", "follow_up_on_error", "script_outline"]
+  failure_budget: 2
+  success_threshold: "student_correct_once"
+  language_skill: ["reading", "listening"]
+  exercise_type: "multiple_choice"
+  cognitive_level: "recognition"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 3
+  energy_level: "medium"
+  l1_aware_error_patterns:
+    "zh->en": ["article_omission", "tense_confusion", "word_order_svo_to_sov"]
+    "ja->en": ["article_confusion", "singular_plural", "relative_clause"]
+    "ko->en": ["preposition_errors", "word_order", "passive_voice"]
+    "es->en": ["false_friends", "adjective_placement", "ser_estar_confusion"]
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "grammar", "recognition"]
+
+- template_id: "matrix_grammar_recall_fill_in_v1"
+  node_type: "guided_practice"
+  granularity: "standard"
+  phase: "practice"
+  teacher_goal_template: "Help student recall and fill the correct grammar form for {{skill}}."
+  expected_evidence_types: ["filled_blank", "short_explanation"]
+  allowed_policy_actions: ["ask_recall", "ask_check", "hint_light", "scaffold_step", "re_explain_brief", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "curious_probe"
+  content_pack_slots: ["exercises", "scaffolding_hints", "common_mistakes"]
+  failure_budget: 2
+  success_threshold: "student_correct_once"
+  language_skill: ["writing", "reading"]
+  exercise_type: "fill_blank"
+  cognitive_level: "recall"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 4
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "grammar", "recall"]
+
+- template_id: "matrix_grammar_controlled_transform_v1"
+  node_type: "guided_practice"
+  granularity: "standard"
+  phase: "practice"
+  teacher_goal_template: "Help student transform sentences with controlled grammar production for {{skill}}."
+  expected_evidence_types: ["transformed_sentence", "target_form_usage"]
+  allowed_policy_actions: ["ask_open", "ask_check", "hint_light", "hint_strong", "scaffold_step", "direct_correct", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "gentle_corrective"
+  content_pack_slots: ["exercises", "scaffolding_hints", "common_mistakes"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["writing", "speaking"]
+  exercise_type: "sentence_transformation"
+  cognitive_level: "controlled_production"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 2
+  scaffolding_level_max: 5
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "grammar", "controlled_production"]
+
+- template_id: "matrix_grammar_free_compose_v1"
+  node_type: "free_practice"
+  granularity: "standard"
+  phase: "produce"
+  teacher_goal_template: "Help student freely compose with the target grammar in {{skill}}."
+  expected_evidence_types: ["multi_sentence_output", "target_form_usage"]
+  allowed_policy_actions: ["ask_open", "hint_light", "scaffold_step", "direct_correct", "encourage", "advance"]
+  allowed_tool_actions: []
+  default_delivery_style: "warm_encourage"
+  content_pack_slots: ["exercises", "examples", "common_mistakes"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["writing", "speaking"]
+  exercise_type: "compose"
+  cognitive_level: "free_production"
+  modality: "text"
+  interaction_pattern: "dialogue"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 4
+  energy_level: "high"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "grammar", "free_production"]
+
+- template_id: "matrix_vocab_recognition_matching_v1"
+  node_type: "check_understanding"
+  granularity: "micro"
+  phase: "practice"
+  teacher_goal_template: "Help student recognize word meaning/collocation matches for {{skill}}."
+  expected_evidence_types: ["selected_option", "matching_result"]
+  allowed_policy_actions: ["ask_check", "ask_recall", "hint_light", "re_explain_brief", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "neutral_teach"
+  content_pack_slots: ["quiz_items", "collocations", "follow_up_on_error"]
+  failure_budget: 2
+  success_threshold: "student_correct_once"
+  language_skill: ["reading", "listening"]
+  exercise_type: "matching"
+  cognitive_level: "recognition"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 3
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "vocabulary", "recognition"]
+
+- template_id: "matrix_vocab_recall_define_v1"
+  node_type: "guided_practice"
+  granularity: "standard"
+  phase: "practice"
+  teacher_goal_template: "Help student recall and define/use the target word in {{skill}}."
+  expected_evidence_types: ["definition", "short_usage"]
+  allowed_policy_actions: ["ask_recall", "ask_check", "hint_light", "scaffold_step", "re_explain_brief", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "curious_probe"
+  content_pack_slots: ["exercises", "collocations", "scaffolding_hints"]
+  failure_budget: 2
+  success_threshold: "student_correct_once"
+  language_skill: ["speaking", "writing", "reading"]
+  exercise_type: "define"
+  cognitive_level: "recall"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 4
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "vocabulary", "recall"]
+
+- template_id: "matrix_vocab_controlled_use_in_sentence_v1"
+  node_type: "guided_practice"
+  granularity: "standard"
+  phase: "practice"
+  teacher_goal_template: "Help student use target vocabulary in controlled sentences for {{skill}}."
+  expected_evidence_types: ["target_word_sentence", "context_fit"]
+  allowed_policy_actions: ["ask_open", "ask_check", "hint_light", "hint_strong", "scaffold_step", "direct_correct", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "gentle_corrective"
+  content_pack_slots: ["exercises", "examples", "common_mistakes"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["writing", "speaking"]
+  exercise_type: "use_in_sentence"
+  cognitive_level: "controlled_production"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 2
+  scaffolding_level_max: 5
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "vocabulary", "controlled_production"]
+
+- template_id: "matrix_vocab_free_describe_v1"
+  node_type: "free_practice"
+  granularity: "standard"
+  phase: "produce"
+  teacher_goal_template: "Help student describe a situation fluently using target vocabulary in {{skill}}."
+  expected_evidence_types: ["multi_sentence_output", "target_word_usage"]
+  allowed_policy_actions: ["ask_open", "hint_light", "scaffold_step", "direct_correct", "encourage", "advance"]
+  allowed_tool_actions: []
+  default_delivery_style: "warm_encourage"
+  content_pack_slots: ["exercises", "examples", "collocations"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["speaking", "writing"]
+  exercise_type: "describe"
+  cognitive_level: "free_production"
+  modality: "audio"
+  interaction_pattern: "dialogue"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 4
+  energy_level: "high"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "vocabulary", "free_production"]
+
+- template_id: "matrix_pron_recognition_discriminate_v1"
+  node_type: "pronunciation_drill"
+  granularity: "micro"
+  phase: "practice"
+  teacher_goal_template: "Help student discriminate target sounds in {{skill}}."
+  expected_evidence_types: ["sound_choice", "minimal_pair_identification"]
+  allowed_policy_actions: ["ask_check", "ask_recall", "hint_light", "re_explain_brief", "encourage", "advance"]
+  allowed_tool_actions: ["rewind_video_5s", "open_material_section"]
+  default_delivery_style: "neutral_teach"
+  content_pack_slots: ["exercises", "scaffolding_hints", "media_anchors"]
+  failure_budget: 2
+  success_threshold: "student_correct_once"
+  language_skill: ["listening"]
+  exercise_type: "discriminate"
+  cognitive_level: "recognition"
+  modality: "audio"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 3
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "pronunciation", "recognition"]
+
+- template_id: "matrix_pron_recall_repeat_shadow_v1"
+  node_type: "pronunciation_drill"
+  granularity: "standard"
+  phase: "practice"
+  teacher_goal_template: "Help student recall and repeat/shadow target pronunciation for {{skill}}."
+  expected_evidence_types: ["repeat_attempt", "shadow_attempt"]
+  allowed_policy_actions: ["ask_recall", "ask_check", "hint_light", "scaffold_step", "hint_strong", "encourage", "advance"]
+  allowed_tool_actions: ["rewind_video_5s"]
+  default_delivery_style: "curious_probe"
+  content_pack_slots: ["exercises", "scaffolding_hints", "common_mistakes", "media_anchors"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["listening", "speaking"]
+  exercise_type: "repeat_shadow"
+  cognitive_level: "recall"
+  modality: "audio"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 2
+  scaffolding_level_max: 4
+  energy_level: "high"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "pronunciation", "recall"]
+
+- template_id: "matrix_pron_controlled_minimal_pairs_v1"
+  node_type: "pronunciation_drill"
+  granularity: "standard"
+  phase: "practice"
+  teacher_goal_template: "Help student produce minimal pairs accurately for {{skill}}."
+  expected_evidence_types: ["minimal_pair_production", "phoneme_accuracy"]
+  allowed_policy_actions: ["ask_open", "ask_check", "hint_light", "hint_strong", "scaffold_step", "direct_correct", "encourage", "advance"]
+  allowed_tool_actions: ["rewind_video_5s"]
+  default_delivery_style: "gentle_corrective"
+  content_pack_slots: ["exercises", "scaffolding_hints", "common_mistakes", "media_anchors"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["speaking", "listening"]
+  exercise_type: "minimal_pairs"
+  cognitive_level: "controlled_production"
+  modality: "audio"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 2
+  scaffolding_level_max: 5
+  energy_level: "high"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "pronunciation", "controlled_production"]
+
+- template_id: "matrix_pron_free_talk_v1"
+  node_type: "dialogue_practice"
+  granularity: "standard"
+  phase: "produce"
+  teacher_goal_template: "Help student sustain free talk while maintaining pronunciation targets in {{skill}}."
+  expected_evidence_types: ["multi_turn_speech", "pronunciation_stability"]
+  allowed_policy_actions: ["ask_open", "hint_light", "scaffold_step", "direct_correct", "encourage", "advance"]
+  allowed_tool_actions: ["rewind_video_5s"]
+  default_delivery_style: "warm_encourage"
+  content_pack_slots: ["exercises", "scaffolding_hints", "teacher_line"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["speaking", "listening"]
+  exercise_type: "free_talk"
+  cognitive_level: "free_production"
+  modality: "audio"
+  interaction_pattern: "dialogue"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 4
+  energy_level: "high"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "pronunciation", "free_production"]
+
+- template_id: "matrix_prag_recognition_identify_v1"
+  node_type: "check_understanding"
+  granularity: "micro"
+  phase: "practice"
+  teacher_goal_template: "Help student identify pragmatic intent/register in {{skill}}."
+  expected_evidence_types: ["intent_identification", "register_choice"]
+  allowed_policy_actions: ["ask_check", "ask_recall", "hint_light", "re_explain_brief", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "neutral_teach"
+  content_pack_slots: ["quiz_items", "follow_up_on_error", "examples"]
+  failure_budget: 2
+  success_threshold: "student_correct_once"
+  language_skill: ["reading", "listening"]
+  exercise_type: "identify"
+  cognitive_level: "recognition"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 3
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "pragmatics", "recognition"]
+
+- template_id: "matrix_prag_recall_choose_register_v1"
+  node_type: "guided_practice"
+  granularity: "standard"
+  phase: "practice"
+  teacher_goal_template: "Help student choose appropriate register for {{skill}}."
+  expected_evidence_types: ["register_selection", "reasoning"]
+  allowed_policy_actions: ["ask_recall", "ask_check", "hint_light", "scaffold_step", "re_explain_brief", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "curious_probe"
+  content_pack_slots: ["exercises", "examples", "scaffolding_hints"]
+  failure_budget: 2
+  success_threshold: "student_correct_once"
+  language_skill: ["reading", "speaking"]
+  exercise_type: "choose_register"
+  cognitive_level: "recall"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 4
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "pragmatics", "recall"]
+
+- template_id: "matrix_prag_controlled_rewrite_formal_v1"
+  node_type: "guided_practice"
+  granularity: "standard"
+  phase: "practice"
+  teacher_goal_template: "Help student rewrite utterances to target formality for {{skill}}."
+  expected_evidence_types: ["rewritten_utterance", "formality_control"]
+  allowed_policy_actions: ["ask_open", "ask_check", "hint_light", "hint_strong", "scaffold_step", "direct_correct", "encourage", "advance"]
+  allowed_tool_actions: ["open_material_section"]
+  default_delivery_style: "gentle_corrective"
+  content_pack_slots: ["exercises", "examples", "common_mistakes"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["writing", "speaking"]
+  exercise_type: "rewrite_formal"
+  cognitive_level: "controlled_production"
+  modality: "text"
+  interaction_pattern: "IRE"
+  scaffolding_level_min: 2
+  scaffolding_level_max: 5
+  energy_level: "medium"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "pragmatics", "controlled_production"]
+
+- template_id: "matrix_prag_free_role_play_v1"
+  node_type: "dialogue_practice"
+  granularity: "standard"
+  phase: "produce"
+  teacher_goal_template: "Help student role play real communication with pragmatic appropriateness for {{skill}}."
+  expected_evidence_types: ["multi_turn_dialogue", "pragmatic_fit"]
+  allowed_policy_actions: ["ask_open", "hint_light", "scaffold_step", "direct_correct", "encourage", "advance"]
+  allowed_tool_actions: []
+  default_delivery_style: "warm_encourage"
+  content_pack_slots: ["exercises", "scaffolding_hints", "teacher_line", "common_mistakes"]
+  failure_budget: 3
+  success_threshold: "student_correct_once"
+  language_skill: ["speaking", "listening"]
+  exercise_type: "role_play"
+  cognitive_level: "free_production"
+  modality: "audio"
+  interaction_pattern: "peer_simulation"
+  scaffolding_level_min: 1
+  scaffolding_level_max: 4
+  energy_level: "high"
+  memory_writeback_spec: {"update_skills": true, "record_misconceptions": true}
+  tags: ["matrix", "pragmatics", "free_production"]

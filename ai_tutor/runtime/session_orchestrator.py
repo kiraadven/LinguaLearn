@@ -22,7 +22,7 @@ from ..graph.graph_mutator import GraphMutator
 from ..graph.subgraph_factory import SubgraphFactory
 from ..graph.edge_weights import EdgeWeightComputer
 from ..graph.node_templates import NodeTemplateLibrary
-from ..graph.content_connector import ContentConnector
+from ..graph.content_connector import ContentConnector, ContentPrefetcher
 from ..graph.ws_server import GraphWSServer
 from .memory import MemoryManager
 from .policy_runtime import PolicyRuntime
@@ -40,12 +40,14 @@ class SessionOrchestrator:
         memory_manager: MemoryManager,
         voice_dispatcher,  # VoiceDispatcher (from voice/ module)
         ws_server: GraphWSServer,
+        content_prefetcher: Optional[ContentPrefetcher] = None,
     ):
         self.templates = template_library
         self.content = content_connector
         self.memory = memory_manager
         self.voice = voice_dispatcher
         self.ws = ws_server
+        self.prefetcher = content_prefetcher
 
         self.assessment_engine = AssessmentEngine()
         self.policy = PolicyRuntime()
@@ -92,9 +94,14 @@ class SessionOrchestrator:
             current_node_id=current.node_id,
             allowed_actions=current.policy_profile.get("allowed_actions", []),
         )
+        self.memory.record_node_context(session_id, current)
 
         logger.info(f"Session {session_id} initialized: {graph.G.number_of_nodes()} nodes, "
                      f"start={graph.start_node_id}")
+
+        # Prefetch content for the first 2 nodes (sync, blocking)
+        if self.prefetcher:
+            self.prefetcher.prefetch_sync(graph, graph.start_node_id)
 
         return graph.to_snapshot()
 
@@ -128,6 +135,7 @@ class SessionOrchestrator:
 
         # Step 1: Assessment
         current_node = graph.get_current_node()
+        self.memory.record_node_context(session_id, current_node)
         assessment = self.assessment_engine.evaluate(
             student_text=student_text,
             audio_features=audio_features or {},
@@ -136,6 +144,7 @@ class SessionOrchestrator:
         )
 
         # Step 2: Apply to memory
+        assessment["student_text"] = student_text
         assessment["node_id"] = current_node.node_id
         assessment["turn_number"] = hot.turn_number + 1
         self.memory.apply_assessment(session_id, assessment)
@@ -196,6 +205,7 @@ class SessionOrchestrator:
                 last_event=event,
                 is_repair_mode=new_node.subgraph_origin is not None,
             )
+            self.memory.record_node_context(session_id, new_node)
 
             # Step 10: Broadcast
             await self.ws.broadcast_node_active(session_id, {
@@ -205,6 +215,10 @@ class SessionOrchestrator:
                 "teacher_goal": new_node.teacher_goal,
                 "delivery_style": delivery_style,
             }, graph.version)
+
+            # Step 11: Prefetch content for the next 2 nodes (async, non-blocking)
+            if self.prefetcher:
+                self.prefetcher.prefetch(graph, next_node_id)
         else:
             # Update node failure/success counts
             if assessment.get("is_correct"):
@@ -251,7 +265,14 @@ class SessionOrchestrator:
         graph = self._graphs[session_id]
         current = graph.get_current_node()
 
-        non_interactive = {"hook", "explain", "transition", "wrap_up", "worked_example"}
+        non_interactive = {
+            "hook",
+            "explain",
+            "worked_example",
+            "cultural_note",
+            "transition",
+            "wrap_up",
+        }
 
         if current.node_type in non_interactive:
             # Auto-advance to next node
@@ -259,6 +280,7 @@ class SessionOrchestrator:
             if next_id:
                 new_node = graph.advance_to(next_id)
                 self.memory.record_node_visit(session_id, next_id)
+                self.memory.record_node_context(session_id, new_node)
 
                 # Generate teacher speech for new node
                 if self.voice:
@@ -277,6 +299,10 @@ class SessionOrchestrator:
                     "title": new_node.title,
                     "teacher_goal": new_node.teacher_goal,
                 }, graph.version)
+
+                # Prefetch for next 2 nodes after auto-advance
+                if self.prefetcher:
+                    self.prefetcher.prefetch(graph, next_id)
 
                 return {"advanced_to": next_id}
         else:

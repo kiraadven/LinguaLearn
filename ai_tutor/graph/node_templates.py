@@ -13,7 +13,7 @@ from typing import Optional
 
 import yaml
 
-from .schema import NodeTemplate, LiveNode
+from .schema import NodeTemplate, LiveNode, normalize_content_pack
 
 
 class NodeTemplateLibrary:
@@ -111,6 +111,57 @@ class NodeTemplateLibrary:
         if isinstance(learning_targets, str):
             learning_targets = [learning_targets]
 
+        def pick_str(param_key: str, template_value: str) -> str:
+            value = params.get(param_key, None)
+            if isinstance(value, str) and value.strip():
+                return value
+            return template_value
+
+        def pick_l1_patterns() -> dict[str, list[str]]:
+            raw = params.get("l1_aware_error_patterns")
+            if raw is None:
+                raw = tpl.l1_aware_error_patterns
+            if not isinstance(raw, dict):
+                return {}
+            out: dict[str, list[str]] = {}
+            for key, value in raw.items():
+                if not isinstance(key, str):
+                    continue
+                items = value if isinstance(value, list) else [value]
+                normalized = [
+                    str(v).strip()
+                    for v in items
+                    if isinstance(v, str) and v.strip()
+                ]
+                if normalized:
+                    out[key.strip()] = normalized
+            return out
+
+        lang_skills = params.get("language_skill")
+        if not isinstance(lang_skills, list) or not lang_skills:
+            lang_skills = list(tpl.language_skill)
+
+        scaffold_min = int(params.get("scaffolding_level_min", tpl.scaffolding_level_min))
+        scaffold_max = int(params.get("scaffolding_level_max", tpl.scaffolding_level_max))
+        if scaffold_min > scaffold_max:
+            scaffold_min, scaffold_max = scaffold_max, scaffold_min
+        scaffold_level = int(params.get(
+            "scaffolding_level",
+            max(scaffold_min, min(scaffold_max, 3)),
+        ))
+        scaffold_level = max(scaffold_min, min(scaffold_max, scaffold_level))
+        raw_content_pack = params.get("content_pack", {})
+        normalized_content_pack = (
+            normalize_content_pack(
+                raw_content_pack,
+                node_type=tpl.node_type,
+                source_lang=pick_str("source_language", tpl.source_language),
+                target_lang=pick_str("target_language", tpl.target_language),
+            )
+            if isinstance(raw_content_pack, dict) and raw_content_pack
+            else {}
+        )
+
         return LiveNode(
             node_id=node_id,
             template_id=template_id,
@@ -120,12 +171,27 @@ class NodeTemplateLibrary:
             learning_targets=learning_targets,
             teacher_goal=teacher_goal,
             expected_student_evidence=list(tpl.expected_evidence_types),
-            content_pack=params.get("content_pack", {}),
+            language_skill=lang_skills,
+            exercise_type=pick_str("exercise_type", tpl.exercise_type),
+            cognitive_level=pick_str("cognitive_level", tpl.cognitive_level),
+            target_language=pick_str("target_language", tpl.target_language),
+            source_language=pick_str("source_language", tpl.source_language),
+            modality=pick_str("modality", tpl.modality),
+            interaction_pattern=pick_str("interaction_pattern", tpl.interaction_pattern),
+            scaffolding_level=scaffold_level,
+            scaffolding_supported_range=[scaffold_min, scaffold_max],
+            energy_level=pick_str("energy_level", tpl.energy_level),
+            l1_aware_error_patterns=pick_l1_patterns(),
+            content_pack=normalized_content_pack,
             policy_profile={
                 "allowed_actions": list(tpl.allowed_policy_actions),
                 "default_style": tpl.default_delivery_style,
                 "success_threshold": tpl.success_threshold,
                 "failure_budget": tpl.failure_budget,
+                "scaffolding_min": scaffold_min,
+                "scaffolding_max": scaffold_max,
+                "interaction_pattern": pick_str("interaction_pattern", tpl.interaction_pattern),
+                "energy_level": pick_str("energy_level", tpl.energy_level),
             },
             tool_profile={
                 "allowed_tool_actions": list(tpl.allowed_tool_actions),

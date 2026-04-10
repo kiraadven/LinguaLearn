@@ -141,5 +141,5 @@ class GraphMutator:
         weight_map = self._edge_weights.compute_weights(
             self._graph, current_id, signals,
         )
-        for (src, tgt), weight in weight_map.items():
-            self._graph.update_edge_weight(src, tgt, weight)
+        for (src, tgt, edge_key), weight in weight_map.items():
+            self._graph.update_edge_weight(src, tgt, weight, edge_key=edge_key)

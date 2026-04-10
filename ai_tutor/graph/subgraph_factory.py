@@ -11,7 +11,7 @@ Four subgraph types:
 from __future__ import annotations
 import uuid
 
-from .schema import LiveNode, EdgeSpec, SubgraphSpec
+from .schema import LiveNode, EdgeSpec, SubgraphSpec, normalize_content_pack
 from .node_templates import NodeTemplateLibrary
 
 
@@ -162,6 +162,14 @@ class SubgraphFactory:
             learning_targets=skills,
             teacher_goal="Summarize assessment results",
             expected_student_evidence=[],
+            language_skill=["listening", "speaking"],
+            exercise_type="summary_reflection",
+            cognitive_level="recall",
+            modality="audio",
+            interaction_pattern="dialogue",
+            scaffolding_level=2,
+            scaffolding_supported_range=[1, 3],
+            energy_level="low",
             policy_profile={"allowed_actions": ["wrap_up", "encourage"], "failure_budget": 0},
         )
         nodes.append(summary)
@@ -186,25 +194,46 @@ class SubgraphFactory:
                    skill: str, content_pack: dict) -> LiveNode:
         """Create a LiveNode for a subgraph, using template library if available."""
         node_id = f"{sg_id}_{node_type}_{uuid.uuid4().hex[:6]}"
+        normalized_content = (
+            normalize_content_pack(content_pack, node_type=node_type)
+            if isinstance(content_pack, dict) and content_pack
+            else {}
+        )
 
         # Try to find a matching template
         templates = self._templates.query(node_type=node_type, tags=[purpose])
         if not templates:
             templates = self._templates.query(node_type=node_type)
+            non_matrix_templates = [tpl for tpl in templates if "matrix" not in set(tpl.tags)]
+            if non_matrix_templates:
+                templates = non_matrix_templates
 
         if templates:
+            dims = self._default_dimensions(node_type)
+            if isinstance(normalized_content, dict):
+                dims["target_language"] = str(normalized_content.get("target_lang", ""))
+                dims["source_language"] = str(normalized_content.get("source_lang", ""))
+            template_params = {
+                "learning_targets": [skill],
+                "skill": skill,
+                "content_pack": normalized_content,
+                "title": f"{purpose} {node_type}: {skill}",
+            }
+            if dims["target_language"]:
+                template_params["target_language"] = dims["target_language"]
+            if dims["source_language"]:
+                template_params["source_language"] = dims["source_language"]
             return self._templates.instantiate(
                 templates[0].template_id,
-                params={
-                    "learning_targets": [skill],
-                    "skill": skill,
-                    "content_pack": content_pack,
-                    "title": f"{purpose} {node_type}: {skill}",
-                },
+                params=template_params,
                 node_id=node_id,
             )
 
         # Fallback: create minimal node without template
+        dims = self._default_dimensions(node_type)
+        if isinstance(normalized_content, dict):
+            dims["target_language"] = str(normalized_content.get("target_lang", ""))
+            dims["source_language"] = str(normalized_content.get("source_lang", ""))
         return LiveNode(
             node_id=node_id,
             template_id=f"{purpose}_{node_type}_fallback",
@@ -214,13 +243,102 @@ class SubgraphFactory:
             learning_targets=[skill],
             teacher_goal=f"{purpose}: {node_type} for {skill}",
             expected_student_evidence=["student_response"],
-            content_pack=content_pack,
+            language_skill=dims["language_skill"],
+            exercise_type=dims["exercise_type"],
+            cognitive_level=dims["cognitive_level"],
+            target_language=dims["target_language"],
+            source_language=dims["source_language"],
+            modality=dims["modality"],
+            interaction_pattern=dims["interaction_pattern"],
+            scaffolding_level=dims["scaffolding_level"],
+            scaffolding_supported_range=[dims["scaffolding_level_min"], dims["scaffolding_level_max"]],
+            energy_level=dims["energy_level"],
+            content_pack=normalized_content,
             policy_profile={
                 "allowed_actions": ["hint_light", "re_explain_brief", "encourage", "direct_correct"],
                 "default_style": "gentle_corrective",
                 "failure_budget": 2,
+                "scaffolding_min": dims["scaffolding_level_min"],
+                "scaffolding_max": dims["scaffolding_level_max"],
+                "interaction_pattern": dims["interaction_pattern"],
+                "energy_level": dims["energy_level"],
             },
         )
+
+    @staticmethod
+    def _default_dimensions(node_type: str) -> dict:
+        mapping = {
+            "explain": {
+                "language_skill": ["listening", "reading"],
+                "exercise_type": "concept_explanation",
+                "cognitive_level": "recognition",
+                "modality": "text",
+                "interaction_pattern": "teacher_monologue",
+                "scaffolding_level_min": 1,
+                "scaffolding_level_max": 3,
+                "scaffolding_level": 2,
+                "energy_level": "low",
+            },
+            "review": {
+                "language_skill": ["reading", "speaking"],
+                "exercise_type": "recall",
+                "cognitive_level": "recall",
+                "modality": "text",
+                "interaction_pattern": "IRE",
+                "scaffolding_level_min": 1,
+                "scaffolding_level_max": 4,
+                "scaffolding_level": 2,
+                "energy_level": "medium",
+            },
+            "guided_practice": {
+                "language_skill": ["speaking", "writing"],
+                "exercise_type": "fill_blank",
+                "cognitive_level": "controlled_production",
+                "modality": "text",
+                "interaction_pattern": "IRE",
+                "scaffolding_level_min": 2,
+                "scaffolding_level_max": 5,
+                "scaffolding_level": 3,
+                "energy_level": "medium",
+            },
+            "check_understanding": {
+                "language_skill": ["reading", "speaking"],
+                "exercise_type": "multiple_choice",
+                "cognitive_level": "recall",
+                "modality": "text",
+                "interaction_pattern": "IRE",
+                "scaffolding_level_min": 1,
+                "scaffolding_level_max": 3,
+                "scaffolding_level": 2,
+                "energy_level": "medium",
+            },
+            "free_practice": {
+                "language_skill": ["speaking", "writing"],
+                "exercise_type": "role_play",
+                "cognitive_level": "free_production",
+                "modality": "audio",
+                "interaction_pattern": "dialogue",
+                "scaffolding_level_min": 1,
+                "scaffolding_level_max": 4,
+                "scaffolding_level": 2,
+                "energy_level": "high",
+            },
+            "wrap_up": {
+                "language_skill": ["listening", "speaking"],
+                "exercise_type": "summary_reflection",
+                "cognitive_level": "recall",
+                "modality": "audio",
+                "interaction_pattern": "dialogue",
+                "scaffolding_level_min": 1,
+                "scaffolding_level_max": 3,
+                "scaffolding_level": 2,
+                "energy_level": "low",
+            },
+        }
+        dims = dict(mapping.get(node_type, mapping["guided_practice"]))
+        dims["target_language"] = ""
+        dims["source_language"] = ""
+        return dims
 
 
 # Type hint for optional import

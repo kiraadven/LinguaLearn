@@ -3,7 +3,7 @@ Dynamic Lesson Graph
 
 Core modules:
 - schema:            NodeTemplate, LiveNode, EdgeSpec, SubgraphSpec
-- graph_engine:      LessonGraph (NetworkX DiGraph wrapper)
+- graph_engine:      LessonGraph (NetworkX MultiDiGraph wrapper)
 - node_templates:    NodeTemplateLibrary (offline YAML loading + indexing)
 - subgraph_factory:  SubgraphFactory (repair/backtrack/enrichment/assessment)
 - graph_mutator:     GraphMutator (memory signals -> graph mutations)

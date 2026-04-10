@@ -1,5 +1,7 @@
 import os
 import json
+import re
+import random
 from typing import List, Dict
 from datetime import datetime
 from openai import OpenAI
@@ -338,7 +340,6 @@ class MarkdownExporter:
 
     def export(self, sentences_data: List[Dict], output_filename: str = None) -> str:
         """导出Markdown格式的文字稿（纯 Markdown，样式完全由前端 CSS 负责）"""
-        import random
 
         if output_filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -495,3 +496,170 @@ class MarkdownExporter:
 
         print(f"Markdown文字稿已导出到: {output_path}")
         return output_path
+
+    # ===================================================================
+    # Content Pack Export — 轻量离线版
+    #
+    # 离线只做"备料"：技能清单 + 元数据 + 媒体锚点 + 干扰项池。
+    # 深度教学内容由 runtime ContentPrefetcher 根据 graph 实时位置
+    # 提前 2 步按需生成（见 ai_tutor/graph/content_connector.py）。
+    # ===================================================================
+
+    def export_content_pack(
+        self,
+        sentences_data: List[Dict],
+        segments: List[Dict] = None,  # type: ignore[assignment]
+        sentence_quiz: Dict = None,   # type: ignore[assignment]
+        job_id: str = '',
+        output_filename: str = '',
+    ) -> str:
+        """导出轻量 content pack JSON，供 GraphAssembler 构建初始图。
+
+        只包含：技能清单、视频锚点、音频文件、干扰项池、课程计划。
+        content_packs 字段为空 dict，由 runtime prefetch 按需填充。
+        """
+        if not output_filename:
+            output_filename = 'content_pack.json'
+        output_path = os.path.join(self.output_dir, output_filename)
+
+        # -- 全局干扰项池 --
+        word_pool, seen_w = [], set()
+        expr_pool, seen_e = [], set()
+        for sd in sentences_data:
+            for w in sd.get('key_words', []):
+                key = w.get('word', '').lower()
+                if key and key not in seen_w:
+                    seen_w.add(key)
+                    word_pool.append({
+                        'word': w['word'],
+                        'translation': w.get('translation', ''),
+                        'difficulty': w.get('difficulty', 3),
+                    })
+            for e in sd.get('useful_expressions', []):
+                key = e.get('english', '').lower()
+                if key and key not in seen_e:
+                    seen_e.add(key)
+                    expr_pool.append({
+                        'expression': e['english'],
+                        'translation': e.get('chinese', ''),
+                        'difficulty': e.get('difficulty', 3),
+                    })
+
+        # -- 段落 + 技能存根 --
+        skills = {}
+        segments_out = []
+        for i, sd in enumerate(sentences_data):
+            seg_skills = []
+            for w in sd.get('key_words', []):
+                sid = self._skill_id('vocab', w.get('word', ''))
+                if sid and sid not in skills:
+                    skills[sid] = self._skill_stub(
+                        'vocabulary', w, sd, i, segments, sentence_quiz)
+                if sid:
+                    seg_skills.append(sid)
+            for e in sd.get('useful_expressions', []):
+                sid = self._skill_id('expr', e.get('english', ''))
+                if sid and sid not in skills:
+                    skills[sid] = self._skill_stub(
+                        'expression', e, sd, i, segments, sentence_quiz)
+                if sid:
+                    seg_skills.append(sid)
+
+            seg = {
+                'index': i,
+                'source_text': sd.get('original_text', ''),
+                'translation': sd.get('chinese_translation', ''),
+                'skills': seg_skills,
+            }
+            anc = self._media_anchor(i, segments)
+            if anc:
+                seg['start_ms'] = anc['start_ms']
+                seg['end_ms'] = anc['end_ms']
+            af = self._audio_file(i, sentence_quiz)
+            if af:
+                seg['audio_file'] = af
+            segments_out.append(seg)
+
+        lesson_plan = [
+            {'skill': sid, 'depth': skills[sid]['depth'],
+             'skill_type': skills[sid]['skill_type'],
+             'difficulty': skills[sid]['difficulty'],
+             'segment_index': seg['index']}
+            for seg in segments_out
+            for sid in seg.get('skills', [])
+            if sid in skills
+        ]
+
+        pack = {
+            'version': 3,
+            'meta': {
+                'job_id': job_id or '',
+                'source_lang': self.source_lang,
+                'target_lang': self.target_lang,
+                'generated_at': datetime.now().isoformat(),
+                'total_segments': len(sentences_data),
+                'total_skills': len(skills),
+            },
+            'segments': segments_out,
+            'skills': skills,
+            'word_pool': word_pool,
+            'expr_pool': expr_pool,
+            'lesson_plan': lesson_plan,
+        }
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(pack, f, ensure_ascii=False, indent=2)
+        print(f"Content pack (lightweight) -> {output_path}")
+        return output_path
+
+    # -- helpers --
+
+    def _skill_stub(self, skill_type, item, sentence, seg_idx,
+                    segments, quiz) -> dict:
+        diff = max(1, min(5, int(item.get('difficulty', 3))))
+        if skill_type == 'vocabulary':
+            tid = {'word': item.get('word', ''),
+                   'phonetic': item.get('phonetic', ''),
+                   'translation': item.get('translation', '')}
+        else:
+            tid = {'expression': item.get('english', ''),
+                   'translation': item.get('chinese', '')}
+        tid['in_context'] = sentence.get('original_text', '')
+        tid['context_translation'] = sentence.get('chinese_translation', '')
+
+        return {
+            'skill_type': skill_type,
+            'difficulty': diff,
+            'depth': 'light' if diff <= 2 else ('deep' if diff >= 5 else 'standard'),
+            'segment_index': seg_idx,
+            'target_item': tid,
+            'media_anchors': self._media_anchor(seg_idx, segments) or {},
+            'audio_file': self._audio_file(seg_idx, quiz) or '',
+            'content_packs': {},  # 由 runtime prefetch 填充
+        }
+
+    @staticmethod
+    def _skill_id(prefix, text):
+        if not text:
+            return ''
+        s = re.sub(r'[^a-z0-9\s]', '', text.lower().strip())
+        s = re.sub(r'\s+', '_', s).strip('_')
+        return f"{prefix}_{s}" if s else ''
+
+    @staticmethod
+    def _media_anchor(idx, segments):
+        if not segments or idx >= len(segments):
+            return {}
+        seg = segments[idx]
+        return {'type': 'video',
+                'start_ms': int(float(seg.get('start', 0)) * 1000),
+                'end_ms': int(float(seg.get('end', 0)) * 1000)}
+
+    @staticmethod
+    def _audio_file(idx, quiz):
+        if not quiz:
+            return ''
+        for s in quiz.get('sentences', []):
+            if s.get('sentence_index') == idx:
+                return s.get('audio_file', '')
+        return ''
+

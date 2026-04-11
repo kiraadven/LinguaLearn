@@ -945,7 +945,366 @@ V2 运营期间收集的每一段真实对话，都会成为 V3 Stage 3/4 的训
 
 ---
 
-## 十三、一句话总结
+## 十三、Agent 运行时架构 — 记忆、工具与自主性
+
+### 13.1 核心问题
+
+V3 模型以 12.5 Hz 运行（每 80ms 一步），**永远在生成 audio tokens**。
+它没有"回合"的概念——全双工意味着没有停下来思考的时刻。
+
+但 agent 需要：
+- **读记忆**：这个学生上次哪个语法点没掌握？
+- **写记忆**：记录这节课学生犯了哪些新错误
+- **调工具**：查词典、获取例句、查询语法规则
+- **做决策**：该推进了还是该修补？该切到 practice 还是继续 teach？
+
+**Moshi 和 PersonaPlex 都没有解决这个问题** — 它们是"无状态对话者"。
+
+### 13.2 解决方案：Text Prompt 是活的，不是静态的
+
+关键洞察：V3 的 text prompt（persona + 教学上下文 + 学生档案）**不是一次性注入的**。
+它可以在运行时被外部系统**动态更新**，因为 Temporal Transformer 的 KV-cache 支持增量追加。
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   V3 AGENT RUNTIME                               │
+│                                                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                CONTEXT MANAGER (异步，外部进程)             │  │
+│  │                                                            │  │
+│  │  运行在 V3 model 旁边，但不在 80ms 循环内                  │  │
+│  │  通过修改 text prompt prefix 注入信息                      │  │
+│  │                                                            │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────────┐            │  │
+│  │  │ Memory   │  │ Tool     │  │ Orchestrator │            │  │
+│  │  │ Store    │  │ Registry │  │ (决策引擎)    │            │  │
+│  │  └────┬─────┘  └────┬─────┘  └──────┬───────┘            │  │
+│  │       │              │               │                     │  │
+│  │       └──────────────┴───────────────┘                     │  │
+│  │                      │                                     │  │
+│  │                      ▼                                     │  │
+│  │            ┌──────────────────┐                            │  │
+│  │            │ Prompt Injector  │                            │  │
+│  │            │ (动态更新 prefix) │                            │  │
+│  │            └────────┬─────────┘                            │  │
+│  └─────────────────────┼─────────────────────────────────────┘  │
+│                        │                                         │
+│                        ▼ inject updated text tokens               │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │              V3 MODEL (12.5 Hz 循环)                       │  │
+│  │                                                            │  │
+│  │  [TEXT PROMPT (动态)]  ← ← ← ← ← ← ← prompt injection    │  │
+│  │         ↓                                                  │  │
+│  │  [student audio tokens] → Temporal Transformer             │  │
+│  │         ↓                    ↓                             │  │
+│  │  [teacher text tokens] → [teacher audio tokens]            │  │
+│  │         ↓                    ↓                             │  │
+│  │     Inner Monologue     Depth Transformer → Mimi Decoder   │  │
+│  │         ↓                                                  │  │
+│  │     Text Monitor  → → → → → → → → → → → →                │  │
+│  └─────────┼─────────────────────────────────────────────────┘  │
+│            │                                                     │
+│            ▼ stream teacher text tokens back to Context Manager   │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │              TEXT MONITOR (异步读取 inner monologue)        │  │
+│  │                                                            │  │
+│  │  持续读取模型生成的 teacher text tokens                     │  │
+│  │  检测：                                                    │  │
+│  │    - 教学行为标签 (<recast>, <explain>, ...)               │  │
+│  │    - 学生错误标签 (<error type="tense">...)                │  │
+│  │    - 阶段切换信号 (<phase_change to="practice">)          │  │
+│  │    - 工具请求信号 (<tool_call name="dictionary">word</tool>)│  │
+│  │                                                            │  │
+│  │  将事件传回 Context Manager                                │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 13.3 三种信息流
+
+**流 1: 外部 → 模型 (Prompt Injection)**
+
+Context Manager 在合适的时机更新 text prompt prefix，注入新信息：
+
+```
+触发时机：
+  - 课程开始时：注入学生完整档案 + 上次课总结 + 本次课计划
+  - 学生每次说完话后（检测到 speech_end）：注入最新状态更新
+  - 老师每次说完话后（检测到老师停顿）：注入新的教学指令
+  - 定期 (每 30s)：注入进度/能量/词汇复现提醒
+
+注入方式：
+  不是重新生成完整 prompt（那样会破坏 KV-cache），
+  而是在 text token 流中 追加 新的 context tokens。
+
+例：老师刚说完一段话，Context Manager 在 text stream 中注入：
+  <ctx>
+  学生本节课已连续 3 次犯 tense 错误。
+  建议下一轮使用 explain 直接讲解。
+  已覆盖词汇: go/went, eat/ate。需要复现: "went"。
+  课程进度: 45%，剩余 15 分钟。
+  </ctx>
+```
+
+**流 2: 模型 → 外部 (Inner Monologue Monitoring)**
+
+Text Monitor 持续读取模型生成的 teacher text tokens，从中提取结构化事件：
+
+```python
+class TextMonitor:
+    """异步监控 Inner Monologue，提取事件"""
+
+    async def on_text_token(self, token: str):
+        self.buffer += token
+        events = self.extract_events(self.buffer)
+        for event in events:
+            await self.context_manager.handle_event(event)
+
+    def extract_events(self, text: str) -> list[dict]:
+        events = []
+        # 教学行为: <recast>, <explain>, <encourage>, <correct>, <check>
+        # 学生错误: <error type="tense">...</error>
+        # 阶段切换: <phase_change to="practice">
+        # 工具请求: <tool_call name="dictionary">word</tool_call>
+        # 思考过程: [THINK]...[/THINK]
+        return events
+```
+
+**流 3: Context Manager 自主决策循环**
+
+```python
+class ContextManager:
+    """V3 的 agent 大脑 — 运行在模型外部"""
+
+    def __init__(self):
+        self.session_memory = SessionMemory()
+        self.learner_profile = LearnerProfile()
+        self.tools = ToolRegistry()
+        self.lesson_plan = LessonPlan()
+        self.prompt_injector = PromptInjector()
+
+    async def handle_event(self, event: dict):
+        if event["type"] == "student_error":
+            self.session_memory.record_error(event)
+            self.learner_profile.update_error_pattern(event["error_type"])
+            if self.session_memory.consecutive_errors(event["error_type"]) >= 3:
+                await self.prompt_injector.inject(
+                    f"<ctx>[URGENT] 学生已连续犯 {event['error_type']} 错误。"
+                    f"请使用 explain 直接讲解。</ctx>"
+                )
+
+        elif event["type"] == "tool_call":
+            result = await self.tools.execute(event["name"], event["args"])
+            await self.prompt_injector.inject(
+                f"<ctx>[TOOL_RESULT name=\"{event['name']}\"]\n{result}\n[/TOOL_RESULT]</ctx>"
+            )
+
+        elif event["type"] == "phase_change":
+            self.session_memory.current_phase = event["phase"]
+            instructions = self.lesson_plan.get_phase_instructions(event["phase"])
+            await self.prompt_injector.inject(instructions)
+
+    async def periodic_update(self):
+        """每 30 秒定期状态注入"""
+        while True:
+            await asyncio.sleep(30)
+            progress = self.session_memory.calculate_progress()
+            energy = self.session_memory.estimate_energy()
+            vocab_to_recycle = self.session_memory.get_vocab_needing_recycle()
+            await self.prompt_injector.inject(
+                f"<ctx>[UPDATE] 进度:{progress:.0%} 能量:{'高' if energy>0.7 else '低'} "
+                f"复现:{','.join(vocab_to_recycle)} "
+                f"错误:{self.session_memory.error_summary()}</ctx>"
+            )
+```
+
+### 13.4 Prompt Injection 技术实现
+
+**利用 text stream 的空隙注入：**
+
+全双工模式下，大部分时间步的 text token 是 `<text_pad>`（静默/等待）。
+当模型生成 pad 且注入队列非空时，替换 pad 为 context tokens：
+
+```python
+class PromptInjector:
+    def __init__(self, model):
+        self.model = model
+        self.injection_queue = asyncio.Queue()
+
+    async def inject(self, text: str):
+        tokens = self.model.text_tokenizer.encode(f"<ctx>{text}</ctx>")
+        await self.injection_queue.put(tokens)
+
+    def intercept_text_token(self, model_predicted: int) -> int:
+        """每个时间步调用。pad 时注入，否则放行。"""
+        if model_predicted == TEXT_PAD_ID and not self.injection_queue.empty():
+            tokens = self.injection_queue.peek()
+            if tokens:
+                return tokens.pop(0)
+        return model_predicted
+```
+
+**训练支持：** Stage 4 数据的 text stream 中包含 `<ctx>...</ctx>` 注入，
+模型学会在生成语音时参考这些动态上下文。
+
+### 13.5 四层记忆体系
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 1: Working Memory (模型内部 KV-cache)                  │
+│   - Temporal Transformer 的 KV-cache                        │
+│   - 容量 ~4096 步 ≈ 最近 5 分钟                             │
+│   - 自动滑动窗口，旧的被丢弃                                │
+│   - 类比: 人的工作记忆                                       │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 2: Session Memory (Context Manager, 内存)              │
+│   - 整节课 30 分钟的完整记录                                 │
+│   - 错误列表、已覆盖知识点、词汇表、能量曲线                  │
+│   - 通过 prompt injection 注入关键摘要到 Layer 1             │
+│   - 类比: 老师的课堂笔记                                     │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 3: Learner Profile (SQLite, 跨课程持久化)              │
+│   - 学生水平、高频错误、掌握度矩阵、学习偏好                  │
+│   - 历史课程摘要（最近 10 次）                               │
+│   - 课前加载到 initial prompt, 课后更新                      │
+│   - 类比: 学校的学生档案                                     │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 4: Knowledge Base (向量数据库 / 静态库)                │
+│   - 语法规则库、L1→L2 迁移错误、词典、文化知识               │
+│   - 通过 tool_call 访问，结果 injection 回 Layer 1           │
+│   - 类比: 老师的教材和参考书                                  │
+└─────────────────────────────────────────────────────────────┘
+
+信息流:
+  Layer 4 → (tool_call) → Layer 2 → (injection) → Layer 1
+  Layer 1 → (text monitor) → Layer 2 → (课后写入) → Layer 3
+  Layer 3 → (课前读取) → Layer 2 → (initial prompt) → Layer 1
+```
+
+### 13.6 工具系统
+
+模型通过 Inner Monologue 中的 `<tool_call>` 标签请求外部工具：
+
+```python
+class ToolRegistry:
+    tools = {
+        "dictionary": DictionaryTool(),        # 查词义 + 例句 (复用项目 wiktextract)
+        "grammar_rule": GrammarRuleTool(),     # 查语法规则 (向量数据库)
+        "error_pattern": ErrorPatternTool(),   # 查 L1→L2 常见错误
+        "vocab_level": VocabLevelTool(),       # 查词汇等级 (A1-C2)
+    }
+
+    async def execute(self, name: str, args: str) -> str:
+        tool = self.tools.get(name)
+        return await tool.run(args) if tool else f"Unknown: {name}"
+```
+
+### 13.7 Inner Monologue = 自主思考通道
+
+模型的"自我执行度"通过 Inner Monologue 中的 `[THINK]` 块实现：
+
+```
+Teacher Inner Monologue:
+  "[THINK] 学生刚才用了 simple past 而不是 present perfect，
+   这是第 2 次了。上次我用了 recast 但他没注意到。
+   这次我应该先肯定他的意思，然后用一个对比例子来 explain。
+   <tool_call name="grammar_rule">present perfect vs simple past</tool_call>
+   [/THINK]
+   <explain>Oh that's interesting! You know, there's actually a difference..."
+```
+
+`[THINK]` 块在训练时参与 text loss（weight=100），模型学会"先想再说"。
+Context Manager 通过 Text Monitor 读取 THINK 内容，知道模型在想什么，
+必要时通过 injection 纠正。
+
+### 13.8 课前/课后 Agent 行为
+
+全双工模型只在课堂实时运行。课前/课后由 Context Manager 协调：
+
+**课前（非实时，可用 Claude API）：**
+```python
+async def prepare_lesson(learner_id, topic):
+    profile = await db.get_learner_profile(learner_id)
+    # Claude 生成课程计划（延迟无所谓）
+    plan = await claude_generate_plan(profile, topic)
+    # 预加载知识
+    grammar = await vector_db.search(topic, "grammar_rules")
+    errors = await vector_db.search(f"{profile.l1} {topic}", "error_patterns")
+    # 构建 initial prompt
+    return build_initial_prompt(profile, plan, grammar, errors)
+```
+
+**课后（非实时）：**
+```python
+async def post_lesson(session_memory, learner_id):
+    profile = await db.get_learner_profile(learner_id)
+    # Claude 总结本节课
+    summary = await claude_summarize(session_memory)
+    # 更新 mastery: 指数移动平均
+    for skill, perf in session_memory.skill_performance.items():
+        profile.mastery[skill] = profile.mastery.get(skill, 0) * 0.7 + perf * 0.3
+    profile.last_session_summary = summary
+    await db.save(profile)
+```
+
+### 13.9 对 Stage 4 训练数据的追加
+
+在 11,000 个合成脚本中模拟完整 agent 交互：
+
+```
+[INITIAL_PROMPT]
+你是 Sarah，28岁英语老师...
+[STUDENT] 小明, B1, 母语中文, 上次课错误: article usage
+[LESSON] 今天: present perfect tense
+[LAST_SESSION] 上次课覆盖 simple past，不规则动词需加强
+[VOCAB_TO_RECYCLE] went, ate
+[/INITIAL_PROMPT]
+
+--- 对话 ---
+Teacher: "<hook>Hey 小明! So last time we talked about past tense..."
+Student: "Yeah, I remember! We learn many words."
+Teacher: "[THINK] 'we learn'→'we learned'，开场非重点，recast 带过 [/THINK]
+          <recast>Right, we learned a lot! So today...</recast>"
+
+--- 定期注入 ---
+<ctx>[UPDATE] 进度:15% 能量:高 复现:went,ate</ctx>
+
+--- 工具调用 ---
+Teacher: "[THINK] 需要对比讲解
+          <tool_call name="grammar_rule">present perfect vs simple past</tool_call>
+          [/THINK]"
+<ctx>[TOOL_RESULT] Present perfect: 强调与现在的关联...[/TOOL_RESULT]</ctx>
+Teacher: "<explain>So the difference is..."
+```
+
+### 13.10 运行时完整生命周期
+
+```
+课前 (非实时)
+  ├─ 读 Learner Profile (Layer 3)
+  ├─ Claude 生成课程计划
+  ├─ 预加载知识库 (Layer 4)
+  └─ 构建 initial_prompt → 注入 Layer 1
+
+课中 (实时, 12.5 Hz)
+  ├─ V3 Model: consume student → produce teacher (80ms 循环)
+  ├─ Text Monitor: 持续读 Inner Monologue → 事件
+  ├─ Context Manager:
+  │   ├─ 事件处理 → 记忆写入 (Layer 2) + prompt injection (→ Layer 1)
+  │   ├─ 工具调用 → Layer 4 查询 → injection 回 Layer 1
+  │   └─ 定期状态注入 (每 30s)
+  └─ 结束信号 → 触发课后
+
+课后 (非实时)
+  ├─ Claude 总结 → Layer 3 更新
+  ├─ Mastery matrix 更新
+  └─ 生成下次课建议
+```
+
+---
+
+## 十四、一句话总结
 
 > **在 Moshi 的全双工架构上，换上 Qwen2.5 的多语言大脑和 XLS-R 蒸馏的多语言耳朵，
-> 用 Claude 生成的教学对话喂出教学能力 — 总成本 ~$12K，时间 3-4 个月。**
+> 用 Claude 生成的教学对话喂出教学能力，用 Inner Monologue 作为 agent 思考通道 +
+> 外部 Context Manager 提供四层记忆和工具调用 — 总成本 ~$12K，时间 3-4 个月。**

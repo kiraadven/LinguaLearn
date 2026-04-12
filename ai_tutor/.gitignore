@@ -1,0 +1,15 @@
+data/
+.cache/
+CosyVoice2-0.5B/
+funasr/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.bak
+*.tmp
+*.swp
+*.swo
+.DS_Store

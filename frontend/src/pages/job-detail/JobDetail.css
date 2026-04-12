@@ -915,3 +915,9 @@
   margin-bottom: 20px;
   line-height: 1.6;
 }
+
+/* ── Interactive AI Tutor tab ── */
+.interactive-tutor-wrap {
+  min-height: 700px;
+  padding: 0;
+}

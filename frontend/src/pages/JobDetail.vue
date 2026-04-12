@@ -233,7 +233,16 @@
 
       </div><!-- end tab: jingting -->
 
-      <!-- ── Tab 2: AI讲课 ── -->
+      <!-- ── Tab 2: 互动AI老师 ── -->
+      <div v-show="activeTab === 'interactive_tutor'" class="interactive-tutor-wrap">
+        <InteractiveTutorTab
+          :video-el="videoEl"
+          :job-id="jobId"
+          :segments="segments"
+        />
+      </div>
+
+      <!-- ── Tab 3: AI讲课 ── -->
       <div v-show="activeTab === 'ai_lesson'">
         <AiLessonTab :jobId="jobId" :job="job" :segments="segments" />
       </div>
@@ -319,6 +328,7 @@ import { wrapDictionaryWords } from '../composables/useDictionaryLookup.js'
 import { useJobDetailDictionaryTooltip } from './job-detail/useJobDetailDictionaryTooltip.js'
 import AiLessonTab from './job-detail/AiLessonTab.vue'
 import PodcastTab from './job-detail/PodcastTab.vue'
+import InteractiveTutorTab from './job-detail/InteractiveTutorTab.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -337,10 +347,11 @@ function tr(key, fallback = '') {
 const activeTab = ref('jingting') // 'jingting' | 'ai_lesson' | 'podcast' | 'quiz'
 
 const studioTabs = computed(() => [
-  { id: 'jingting',  icon: '📺', label: tr('studio_tab_jingting', '精听') },
-  { id: 'ai_lesson', icon: '🎙️', label: tr('studio_tab_ai_lesson', 'AI讲课') },
-  { id: 'podcast',   icon: '🎧', label: tr('studio_tab_podcast', '随身听') },
-  { id: 'quiz',      icon: '✅', label: tr('studio_tab_quiz', '测验') },
+  { id: 'jingting',          icon: '📺', label: tr('studio_tab_jingting', '精听') },
+  { id: 'interactive_tutor', icon: '🎓', label: tr('studio_tab_interactive_tutor', '互动AI老师') },
+  { id: 'ai_lesson',         icon: '🎙️', label: tr('studio_tab_ai_lesson', 'AI讲课') },
+  { id: 'podcast',           icon: '🎧', label: tr('studio_tab_podcast', '随身听') },
+  { id: 'quiz',              icon: '✅', label: tr('studio_tab_quiz', '测验') },
 ])
 
 function goQuiz() {

@@ -1,0 +1,65 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.so
+*.egg
+*.egg-info/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+dist/
+build/
+frontend/dist/
+
+# Local media inputs / outputs
+input_videos/
+*.mp4
+*.mp3
+*.avi
+*.mov
+*.mkv
+
+# Runtime data
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/fonts/
+data/uploads/
+data/temp/
+data/lesson_plans/
+data/wiktextract/
+
+# Downloaded model assets / cloned repos
+ai_tutor/models/assets/
+ai_tutor/models/CosyVoice/
+
+# OS / editor / logs
+.DS_Store
+.vscode/
+.idea/
+*.log
+.cursor/
+.claude/
+
+# Generated static assets
+static/
+
+# Nested external repo
+open-claude-code/
+.git.broken-worktree
+
+# Project-specific leftovers
+MoneyPrinter*

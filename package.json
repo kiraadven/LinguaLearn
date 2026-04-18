@@ -1,0 +1,25 @@
+{
+  "name": "automation",
+  "version": "1.0.0",
+  "description": "<p align=\"center\">   <img src=\"https://img.shields.io/badge/Python-3.10+-6c63ff?style=for-the-badge&logo=python&logoColor=white\">   <img src=\"https://img.shields.io/badge/FastAPI-0.100+-00b4d8?style=for-the-badge&logo=fastapi&logoColor=white\">   <img src=\"https://img.shields.io/badge/Whisper-OpenAI-ff6b6b?style=for-the-badge&logo=openai&logoColor=white\">   <img src=\"https://img.shields.io/badge/MoviePy-1.0.3-4ecdc4?style=for-the-badge\">   <img src=\"https://img.shields.io/badge/License-CC%20BY--NC%204.0-green?style=for-the-badge\"> </p>",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kiraadven/LinguaLearn.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kiraadven/LinguaLearn/issues"
+  },
+  "homepage": "https://github.com/kiraadven/LinguaLearn#readme",
+  "dependencies": {
+    "canvas": "^3.2.2",
+    "konva": "^10.2.3"
+  }
+}

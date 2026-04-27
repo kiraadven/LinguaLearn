@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+.sii/
 
 # Python
 __pycache__/
